@@ -1,1 +1,44 @@
-/* You can add global styles to this file, and also import other style files */
+@import "tailwindcss";
+@import "tailwindcss/utilities";
+
+@theme {
+  --color-primary-50: #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-primary-200: #c7d2fe;
+  --color-primary-300: #a5b4fc;
+  --color-primary-400: #818cf8;
+  --color-primary-500: #6366f1;
+  --color-primary-600: #4f46e5;
+  --color-primary-700: #4338ca;
+  --color-primary-800: #3730a3;
+  --color-primary-900: #312e81;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f8fafc;
+  color: #1e293b;
+}
+
+.input-field {
+  @apply w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900
+         placeholder:text-slate-400
+         focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500
+         transition-all duration-200;
+}
+
+.input-error {
+  @apply border-red-300 bg-red-50/30 focus:ring-red-500/20 focus:border-red-500;
+}
+
+.btn-primary {
+  @apply inline-flex items-center justify-center rounded-xl bg-indigo-600 px-6 py-3
+         text-sm font-semibold text-white shadow-sm shadow-indigo-600/25
+         hover:bg-indigo-500 hover:shadow-md hover:shadow-indigo-600/30
+         focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600
+         disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-600
+         transition-all duration-200;
+}
