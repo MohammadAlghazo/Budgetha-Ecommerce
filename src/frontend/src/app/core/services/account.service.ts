@@ -115,4 +115,13 @@ export class AccountService {
   setDefaultCard(id: number): void {
     this._cards.update(list => list.map(c => ({ ...c, isDefault: c.id === id })));
   }
+
+  private load<T>(key: string, seed: T): T {
+    try {
+      const stored = localStorage.getItem(key);
+      return stored ? (JSON.parse(stored) as T) : seed;
+    } catch {
+      return seed;
+    }
+  }
 }
