@@ -104,7 +104,7 @@ export class RegisterComponent {
           this.authService.googleLogin(response.credential).subscribe({
             next: () => {
               this.loading.set(false);
-              this.router.navigate(['/']);
+              this.router.navigate(['/dashboard']);
             },
             error: () => {
               this.loading.set(false);

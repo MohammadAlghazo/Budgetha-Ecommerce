@@ -45,10 +45,12 @@ export class LoginComponent {
     this.authService.login(this.form.value).subscribe({
       next: () => {
         this.loading.set(false);
-        this.router.navigate(['/']);
+        this.router.navigate(['/dashboard']);
       },
-      error: () => {
+      error: (err) => {
         this.loading.set(false);
+        const message = err?.error?.errors?.[0] || err?.error?.message || 'Invalid email or password.';
+        this.toastService.error(message);
       }
     });
   }
@@ -67,7 +69,7 @@ export class LoginComponent {
           this.authService.googleLogin(response.credential).subscribe({
             next: () => {
               this.loading.set(false);
-              this.router.navigate(['/']);
+              this.router.navigate(['/dashboard']);
             },
             error: () => {
               this.loading.set(false);
