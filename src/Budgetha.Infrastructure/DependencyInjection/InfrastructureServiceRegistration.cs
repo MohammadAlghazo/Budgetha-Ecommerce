@@ -69,6 +69,9 @@ public static class InfrastructureServiceRegistration
         services.AddScoped<IIdentityService, IdentityService>();
         services.AddScoped<IDateTimeService, DateTimeService>();
 
+        services.Configure<CloudinarySettings>(configuration.GetSection(CloudinarySettings.SectionName));
+        services.AddScoped<IImageService, ImageService>();
+
         return services;
     }
 }
