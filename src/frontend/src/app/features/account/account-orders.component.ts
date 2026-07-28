@@ -1,0 +1,176 @@
+import { Component, inject, signal } from '@angular/core';
+import { CurrencyPipe, DatePipe, NgTemplateOutlet } from '@angular/common';
+import { OrderService } from '../../core/services/order.service';
+import { Order, OrderStatus } from '../../core/models/shop.models';
+import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
+
+@Component({
+  selector: 'app-account-orders',
+  imports: [CurrencyPipe, DatePipe, NgTemplateOutlet, EmptyStateComponent],
+  template: `
+    <div class="card overflow-hidden">
+      <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Order History</h2>
+          <p class="text-sm text-slate-400 mt-0.5">{{ orders().length }} orders placed</p>
+        </div>
+      </div>
+
+      @if (orders().length === 0) {
+        <app-empty-state
+          icon="orders"
+          title="No orders found"
+          message="You haven't placed any orders yet. When you do, they'll show up here with live status tracking."
+          ctaLabel="Start Shopping"
+          ctaLink="/shop" />
+      } @else {
+        <!-- Desktop table -->
+        <div class="hidden md:block overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider bg-slate-50/70">
+                <th class="px-6 py-3.5">Order</th>
+                <th class="px-6 py-3.5">Date</th>
+                <th class="px-6 py-3.5">Items</th>
+                <th class="px-6 py-3.5">Total</th>
+                <th class="px-6 py-3.5">Status</th>
+                <th class="px-6 py-3.5 text-right">Details</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              @for (order of orders(); track order.id) {
+                <tr class="hover:bg-violet-50/40 transition-colors duration-200">
+                  <td class="px-6 py-4 font-bold text-slate-900">{{ order.number }}</td>
+                  <td class="px-6 py-4 text-slate-500">{{ order.date | date: 'MMM d, y' }}</td>
+                  <td class="px-6 py-4">
+                    <div class="flex -space-x-2.5">
+                      @for (item of order.items.slice(0, 3); track item.productId) {
+                        <img [src]="item.image" [alt]="item.name" class="h-9 w-9 rounded-full object-cover ring-2 ring-white" />
+                      }
+                      @if (order.items.length > 3) {
+                        <span class="h-9 w-9 rounded-full bg-slate-100 ring-2 ring-white flex items-center justify-center text-[11px] font-bold text-slate-500">
+                          +{{ order.items.length - 3 }}
+                        </span>
+                      }
+                    </div>
+                  </td>
+                  <td class="px-6 py-4 font-bold text-slate-900">{{ order.total | currency }}</td>
+                  <td class="px-6 py-4">
+                    <span class="badge" [class]="statusClasses(order.status)">
+                      <span class="h-1.5 w-1.5 rounded-full" [class]="dotClasses(order.status)"></span>
+                      {{ order.status }}
+                    </span>
+                  </td>
+                  <td class="px-6 py-4 text-right">
+                    <button
+                      type="button"
+                      (click)="toggleExpand(order.id)"
+                      [attr.aria-expanded]="expandedId() === order.id"
+                      class="text-xs font-semibold text-violet-600 hover:text-violet-500 transition-colors duration-300">
+                      {{ expandedId() === order.id ? 'Hide' : 'View' }}
+                    </button>
+                  </td>
+                </tr>
+                @if (expandedId() === order.id) {
+                  <tr>
+                    <td colspan="6" class="bg-slate-50/60 px-6 py-5">
+                      <ng-container *ngTemplateOutlet="orderDetail; context: { $implicit: order }"></ng-container>
+                    </td>
+                  </tr>
+                }
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Mobile cards -->
+        <div class="md:hidden divide-y divide-slate-100">
+          @for (order of orders(); track order.id) {
+            <div class="p-5">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-slate-900 text-sm">{{ order.number }}</span>
+                <span class="badge" [class]="statusClasses(order.status)">
+                  <span class="h-1.5 w-1.5 rounded-full" [class]="dotClasses(order.status)"></span>
+                  {{ order.status }}
+                </span>
+              </div>
+              <div class="mt-2 flex items-center justify-between text-sm">
+                <span class="text-slate-400">{{ order.date | date: 'MMM d, y' }}</span>
+                <span class="font-bold text-slate-900">{{ order.total | currency }}</span>
+              </div>
+              <button
+                type="button"
+                (click)="toggleExpand(order.id)"
+                class="mt-3 text-xs font-semibold text-violet-600 hover:text-violet-500 transition-colors duration-300">
+                {{ expandedId() === order.id ? 'Hide details' : 'View details' }}
+              </button>
+              @if (expandedId() === order.id) {
+                <div class="mt-4">
+                  <ng-container *ngTemplateOutlet="orderDetail; context: { $implicit: order }"></ng-container>
+                </div>
+              }
+            </div>
+          }
+        </div>
+
+        <!-- Shared order detail template -->
+        <ng-template #orderDetail let-order>
+          <div class="space-y-3">
+            @for (item of order.items; track item.productId + (item.color ?? '')) {
+              <div class="flex items-center gap-3.5">
+                <img [src]="item.image" [alt]="item.name" class="h-14 w-14 rounded-xl object-cover bg-slate-100" />
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-semibold text-slate-900 truncate">{{ item.name }}</p>
+                  <p class="text-xs text-slate-400">
+                    Qty {{ item.quantity }}{{ item.color ? ' · ' + item.color : '' }}{{ item.size ? ' · ' + item.size : '' }}
+                  </p>
+                </div>
+                <span class="text-sm font-bold text-slate-900">{{ item.price * item.quantity | currency }}</span>
+              </div>
+            }
+            <div class="pt-3 border-t border-slate-200 grid sm:grid-cols-2 gap-3 text-xs text-slate-500">
+              <p><span class="font-semibold text-slate-700">Ships to:</span> {{ order.shippingAddress }}</p>
+              <p><span class="font-semibold text-slate-700">Payment:</span> {{ order.paymentSummary }}</p>
+            </div>
+          </div>
+        </ng-template>
+      }
+    </div>
+  `,
+})
+export class AccountOrdersComponent {
+  private readonly orderService = inject(OrderService);
+
+  readonly orders = this.orderService.orders;
+  readonly expandedId = signal<number | null>(null);
+
+  toggleExpand(id: number): void {
+    this.expandedId.update(current => (current === id ? null : id));
+  }
+
+  statusClasses(status: OrderStatus): string {
+    switch (status) {
+      case 'Delivered':
+        return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100';
+      case 'Shipped':
+        return 'bg-sky-50 text-sky-700 ring-1 ring-sky-100';
+      case 'Processing':
+        return 'bg-amber-50 text-amber-700 ring-1 ring-amber-100';
+      case 'Cancelled':
+        return 'bg-rose-50 text-rose-600 ring-1 ring-rose-100';
+    }
+  }
+
+  dotClasses(status: OrderStatus): string {
+    switch (status) {
+      case 'Delivered':
+        return 'bg-emerald-500';
+      case 'Shipped':
+        return 'bg-sky-500';
+      case 'Processing':
+        return 'bg-amber-500 animate-pulse';
+      case 'Cancelled':
+        return 'bg-rose-500';
+    }
+  }
+}

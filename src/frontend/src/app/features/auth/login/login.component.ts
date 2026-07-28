@@ -45,7 +45,7 @@ export class LoginComponent {
     this.authService.login(this.form.value).subscribe({
       next: () => {
         this.loading.set(false);
-        this.router.navigate(['/dashboard']);
+        this.router.navigate(['/']);
       },
       error: (err) => {
         this.loading.set(false);
@@ -69,7 +69,7 @@ export class LoginComponent {
           this.authService.googleLogin(response.credential).subscribe({
             next: () => {
               this.loading.set(false);
-              this.router.navigate(['/dashboard']);
+              this.router.navigate(['/']);
             },
             error: () => {
               this.loading.set(false);
