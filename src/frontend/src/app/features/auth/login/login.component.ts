@@ -1,8 +1,10 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { RouterLink, Router } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
+import { ToastService } from '../../../core/services/toast.service';
+import { environment } from '../../../../environments/environment';
 
 @Component({
   selector: 'app-login',
@@ -19,7 +21,9 @@ export class LoginComponent {
   constructor(
     private fb: FormBuilder,
     private authService: AuthService,
-    private router: Router
+    private toastService: ToastService,
+    private router: Router,
+    private ngZone: NgZone
   ) {
     this.form = this.fb.group({
       email: ['', [Validators.required, Validators.email]],
@@ -47,5 +51,33 @@ export class LoginComponent {
         this.loading.set(false);
       }
     });
+  }
+
+  googleLogin(): void {
+    if (typeof google === 'undefined') {
+      this.toastService.error('Google Sign-In is not available. Please try again later.');
+      return;
+    }
+
+    google.accounts.id.initialize({
+      client_id: environment.googleClientId,
+      callback: (response) => {
+        this.ngZone.run(() => {
+          this.loading.set(true);
+          this.authService.googleLogin(response.credential).subscribe({
+            next: () => {
+              this.loading.set(false);
+              this.router.navigate(['/']);
+            },
+            error: () => {
+              this.loading.set(false);
+              this.toastService.error('Google sign-in failed. Please try again.');
+            }
+          });
+        });
+      }
+    });
+
+    google.accounts.id.prompt();
   }
 }

@@ -11,6 +11,20 @@ export interface RegisterRequest {
   confirmPassword: string;
 }
 
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ResetPasswordRequest {
+  email: string;
+  token: string;
+  newPassword: string;
+}
+
+export interface GoogleLoginRequest {
+  idToken: string;
+}
+
 export interface AuthResponse {
   token: string;
   email: string;

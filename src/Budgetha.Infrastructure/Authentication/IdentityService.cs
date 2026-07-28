@@ -124,4 +124,30 @@ public class IdentityService : IIdentityService
         if (user is null) return false;
         return await _userManager.IsInRoleAsync(user, role);
     }
+
+    public async Task<AuthResult> GoogleLoginAsync(string email, string firstName, string lastName)
+    {
+        var user = await _userManager.FindByEmailAsync(email);
+
+        if (user is null)
+        {
+            user = new ApplicationUser
+            {
+                Email = email,
+                UserName = email,
+                FirstName = firstName,
+                LastName = lastName,
+                EmailConfirmed = true
+            };
+
+            var createResult = await _userManager.CreateAsync(user);
+            if (!createResult.Succeeded)
+                return AuthResult.Failure(createResult.Errors.Select(e => e.Description).ToArray());
+
+            await _userManager.AddToRoleAsync(user, "User");
+        }
+
+        var (token, expiration) = await _tokenService.GenerateTokenAsync(user);
+        return AuthResult.Success(token, expiration, user.Id);
+    }
 }

@@ -34,3 +34,6 @@ public record AuthResponse(
 public record AssignRoleRequest(
     [Required] string UserId,
     [Required] string Role);
+
+public record GoogleLoginRequest(
+    [Required] string IdToken);

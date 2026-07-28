@@ -1,17 +1,96 @@
-<div class="min-h-screen flex items-center justify-center bg-slate-50 px-4 py-12">
-  <div class="w-full max-w-md">
-    <div class="text-center mb-10">
-      <h1 class="text-3xl font-bold text-slate-900 tracking-tight">Create your account</h1>
-      <p class="mt-2 text-slate-500">Join Budgetha and start shopping smarter</p>
-    </div>
+<div class="min-h-screen flex">
+  <!-- ── Left Brand Panel ── -->
+  <div class="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-purple-700 via-indigo-700 to-indigo-800">
+    <!-- Decorative blurs -->
+    <div class="absolute top-16 right-16 w-80 h-80 bg-white/10 rounded-full blur-3xl"></div>
+    <div class="absolute bottom-24 left-16 w-72 h-72 bg-purple-400/20 rounded-full blur-3xl"></div>
+    <div class="absolute top-1/3 right-1/3 w-56 h-56 bg-indigo-300/10 rounded-full blur-2xl"></div>
 
-    <div class="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-100 p-8">
+    <div class="relative z-10 flex flex-col justify-between p-12 w-full text-white">
+      <!-- Logo -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+          </svg>
+        </div>
+        <span class="text-xl font-bold tracking-tight">Budgetha</span>
+      </div>
+
+      <!-- Hero copy -->
+      <div class="space-y-8">
+        <h2 class="text-4xl font-bold leading-tight">
+          Start your<br />
+          <span class="text-purple-200">shopping journey.</span>
+        </h2>
+        <p class="text-lg text-indigo-100/80 max-w-md leading-relaxed">
+          Create your free account and unlock access to hundreds of verified vendors and exclusive member deals.
+        </p>
+      </div>
+
+      <!-- Feature list -->
+      <div class="space-y-4">
+        <div class="flex items-center gap-4">
+          <div class="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center shrink-0">
+            <svg class="w-5 h-5 text-purple-200" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
+            </svg>
+          </div>
+          <div>
+            <div class="font-medium text-sm">Free Shipping on First Order</div>
+            <div class="text-xs text-indigo-200/60">No minimum purchase required</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-4">
+          <div class="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center shrink-0">
+            <svg class="w-5 h-5 text-purple-200" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+            </svg>
+          </div>
+          <div>
+            <div class="font-medium text-sm">Multi-Vendor Price Comparison</div>
+            <div class="text-xs text-indigo-200/60">Always find the best deal</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-4">
+          <div class="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center shrink-0">
+            <svg class="w-5 h-5 text-purple-200" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+            </svg>
+          </div>
+          <div>
+            <div class="font-medium text-sm">Secure Checkout</div>
+            <div class="text-xs text-indigo-200/60">256-bit SSL encryption</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Right Form Panel ── -->
+  <div class="flex-1 flex items-center justify-center p-6 sm:p-12 bg-white">
+    <div class="w-full max-w-[440px]">
+      <!-- Mobile logo -->
+      <div class="lg:hidden flex items-center gap-3 mb-10">
+        <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center">
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+          </svg>
+        </div>
+        <span class="text-xl font-bold text-slate-900 tracking-tight">Budgetha</span>
+      </div>
+
+      <div class="mb-8">
+        <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Create your account</h1>
+        <p class="mt-2 text-slate-500">Join Budgetha and start shopping smarter</p>
+      </div>
+
+      <!-- Register form -->
       <form [formGroup]="form" (ngSubmit)="onSubmit()" class="space-y-5">
+        <!-- Name row -->
         <div class="grid grid-cols-2 gap-4">
           <div>
-            <label for="firstName" class="block text-sm font-medium text-slate-700 mb-1.5">
-              First name
-            </label>
+            <label for="firstName" class="block text-sm font-medium text-slate-700 mb-1.5">First name</label>
             <input
               id="firstName"
               type="text"
@@ -27,11 +106,8 @@
               <p class="mt-1.5 text-xs text-red-500">At least 2 characters.</p>
             }
           </div>
-
           <div>
-            <label for="lastName" class="block text-sm font-medium text-slate-700 mb-1.5">
-              Last name
-            </label>
+            <label for="lastName" class="block text-sm font-medium text-slate-700 mb-1.5">Last name</label>
             <input
               id="lastName"
               type="text"
@@ -49,10 +125,9 @@
           </div>
         </div>
 
+        <!-- Email -->
         <div>
-          <label for="email" class="block text-sm font-medium text-slate-700 mb-1.5">
-            Email address
-          </label>
+          <label for="email" class="block text-sm font-medium text-slate-700 mb-1.5">Email address</label>
           <input
             id="email"
             type="email"
@@ -69,10 +144,9 @@
           }
         </div>
 
+        <!-- Password + strength meter -->
         <div>
-          <label for="password" class="block text-sm font-medium text-slate-700 mb-1.5">
-            Password
-          </label>
+          <label for="password" class="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
           <div class="relative">
             <input
               id="password"
@@ -81,7 +155,7 @@
               autocomplete="new-password"
               class="input-field pr-11"
               [class.input-error]="form.get('password')?.touched && form.get('password')?.invalid"
-              placeholder="••••••••" />
+              placeholder="Create a strong password" />
             <button
               type="button"
               (click)="togglePassword()"
@@ -96,6 +170,21 @@
               </svg>
             </button>
           </div>
+          <!-- Strength meter -->
+          @if (form.get('password')?.value) {
+            <div class="mt-2.5 space-y-1.5">
+              <div class="flex gap-1.5">
+                @for (i of [1, 2, 3, 4, 5]; track i) {
+                  <div class="h-1 flex-1 rounded-full transition-all duration-300"
+                       [ngClass]="i <= passwordStrength.score ? passwordStrength.color : 'bg-slate-200'">
+                  </div>
+                }
+              </div>
+              <p class="text-xs" [ngClass]="passwordStrength.score <= 1 ? 'text-red-500' : passwordStrength.score <= 3 ? 'text-amber-600' : 'text-emerald-600'">
+                {{ passwordStrength.label }}
+              </p>
+            </div>
+          }
           @if (form.get('password')?.touched && form.get('password')?.hasError('required')) {
             <p class="mt-1.5 text-xs text-red-500">Password is required.</p>
           }
@@ -104,10 +193,9 @@
           }
         </div>
 
+        <!-- Confirm password -->
         <div>
-          <label for="confirmPassword" class="block text-sm font-medium text-slate-700 mb-1.5">
-            Confirm password
-          </label>
+          <label for="confirmPassword" class="block text-sm font-medium text-slate-700 mb-1.5">Confirm password</label>
           <div class="relative">
             <input
               id="confirmPassword"
@@ -116,7 +204,7 @@
               autocomplete="new-password"
               class="input-field pr-11"
               [class.input-error]="form.get('confirmPassword')?.touched && form.get('confirmPassword')?.invalid"
-              placeholder="••••••••" />
+              placeholder="Repeat your password" />
             <button
               type="button"
               (click)="toggleConfirmPassword()"
@@ -139,27 +227,54 @@
           }
         </div>
 
-        <button
-          type="submit"
-          [disabled]="loading()"
-          class="btn-primary w-full">
+        <!-- Terms -->
+        <p class="text-xs text-slate-400 leading-relaxed">
+          By creating an account, you agree to our
+          <a href="#" class="text-indigo-600 hover:text-indigo-500 font-medium">Terms of Service</a>
+          and
+          <a href="#" class="text-indigo-600 hover:text-indigo-500 font-medium">Privacy Policy</a>.
+        </p>
+
+        <!-- Submit -->
+        <button type="submit" [disabled]="loading()" class="btn-primary w-full">
           @if (loading()) {
             <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
             </svg>
-            Creating account...
+            Creating account…
           } @else {
             Create account
           }
         </button>
       </form>
 
-      <p class="mt-6 text-center text-sm text-slate-500">
+      <!-- Social divider -->
+      <div class="relative my-6">
+        <div class="absolute inset-0 flex items-center">
+          <div class="w-full border-t border-slate-200"></div>
+        </div>
+        <div class="relative flex justify-center text-xs">
+          <span class="bg-white px-4 text-slate-400 uppercase tracking-wider">Or sign up with</span>
+        </div>
+      </div>
+
+      <!-- Social buttons -->
+      <div>
+        <button type="button" (click)="googleLogin()" class="btn-social w-full justify-center">
+          <svg class="w-5 h-5" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+          </svg>
+          Continue with Google
+        </button>
+      </div>
+
+      <p class="mt-8 text-center text-sm text-slate-500">
         Already have an account?
-        <a routerLink="/auth/login" class="font-semibold text-indigo-600 hover:text-indigo-500 transition-colors">
-          Sign in
-        </a>
+        <a routerLink="/auth/login" class="font-semibold text-indigo-600 hover:text-indigo-500 transition-colors">Sign in</a>
       </p>
     </div>
   </div>

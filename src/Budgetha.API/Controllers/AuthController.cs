@@ -1,5 +1,6 @@
 using Budgetha.API.Contracts.Auth;
 using Budgetha.Application.Common.Interfaces;
+using Google.Apis.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,10 +11,12 @@ namespace Budgetha.API.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IIdentityService _identityService;
+    private readonly IConfiguration _configuration;
 
-    public AuthController(IIdentityService identityService)
+    public AuthController(IIdentityService identityService, IConfiguration configuration)
     {
         _identityService = identityService;
+        _configuration = configuration;
     }
 
     [HttpPost("register")]
@@ -95,5 +98,34 @@ public class AuthController : ControllerBase
             LastName = User.FindFirst(System.Security.Claims.ClaimTypes.Surname)?.Value,
             Roles = roles
         });
+    }
+
+    [HttpPost("google-login")]
+    public async Task<IActionResult> GoogleLogin([FromBody] GoogleLoginRequest request)
+    {
+        try
+        {
+            var clientId = _configuration["GoogleAuth:ClientId"];
+            var settings = new GoogleJsonWebSignature.ValidationSettings
+            {
+                Audience = new[] { clientId }
+            };
+
+            var payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, settings);
+
+            var result = await _identityService.GoogleLoginAsync(
+                payload.Email,
+                payload.GivenName ?? "",
+                payload.FamilyName ?? "");
+
+            if (!result.Succeeded)
+                return BadRequest(new AuthResponse(false, null, null, null, result.Errors));
+
+            return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, null));
+        }
+        catch (InvalidJwtException)
+        {
+            return Unauthorized(new AuthResponse(false, null, null, null, new[] { "Invalid Google token." }));
+        }
     }
 }

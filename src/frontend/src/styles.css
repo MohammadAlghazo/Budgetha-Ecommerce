@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Global resets ── */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+::selection {
+  background-color: #c7d2fe;
+  color: #312e81;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f8fafc;
+  color: #1e293b;
+}
+
+/* ── Component classes ── */
+
+@layer components {
+  .input-field {
+    @apply w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900
+           placeholder:text-slate-400
+           focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500
+           transition-all duration-200;
+  }
+
+  .input-error {
+    @apply border-red-300 bg-red-50/30 focus:ring-red-500/20 focus:border-red-500;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-xl bg-indigo-600 px-6 py-3
+           text-sm font-semibold text-white shadow-sm shadow-indigo-600/25
+           hover:bg-indigo-500 hover:shadow-md hover:shadow-indigo-600/30
+           focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600
+           disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-600
+           transition-all duration-200;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-6 py-3
+           text-sm font-semibold text-slate-700 shadow-sm
+           hover:bg-slate-50 hover:border-slate-300
+           focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600
+           disabled:opacity-60 disabled:cursor-not-allowed
+           transition-all duration-200;
+  }
+
+  .btn-social {
+    @apply inline-flex items-center justify-center gap-2.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5
+           text-sm font-medium text-slate-700
+           hover:bg-slate-50 hover:border-slate-300 hover:shadow-sm
+           focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600
+           transition-all duration-200;
+  }
+}
+
+/* ── Utility classes ── */
+
+.text-gradient {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
