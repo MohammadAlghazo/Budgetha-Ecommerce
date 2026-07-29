@@ -1,10 +1,18 @@
 {
   "$schema": "./node_modules/@angular/service-worker/config/schema.json",
   "index": "/index.html",
+  "navigationUrls": [
+    "/**",
+    "!/**/*.*",
+    "!/**/*__*",
+    "!/**/*__*/**",
+    "!/api/**"
+  ],
   "assetGroups": [
     {
       "name": "app",
       "installMode": "prefetch",
+      "updateMode": "prefetch",
       "resources": {
         "files": [
           "/favicon.ico",
@@ -12,7 +20,19 @@
           "/index.html",
           "/manifest.webmanifest",
           "/*.css",
-          "/*.js"
+          "/*.js",
+          "/media/*"
+        ]
+      }
+    },
+    {
+      "name": "app-shell-icons",
+      "installMode": "prefetch",
+      "updateMode": "prefetch",
+      "resources": {
+        "files": [
+          "/icons/icon-192x192.png",
+          "/icons/icon-512x512.png"
         ]
       }
     },
@@ -24,6 +44,69 @@
         "files": [
           "/**/*.(svg|cur|jpg|jpeg|png|apng|webp|avif|gif|otf|ttf|woff|woff2)"
         ]
+      }
+    },
+    {
+      "name": "fonts",
+      "installMode": "prefetch",
+      "updateMode": "prefetch",
+      "resources": {
+        "urls": [
+          "https://fonts.googleapis.com/**",
+          "https://fonts.gstatic.com/**"
+        ]
+      }
+    }
+  ],
+  "dataGroups": [
+    {
+      "name": "api-catalog",
+      "urls": [
+        "/api/products/**",
+        "/api/categories/**",
+        "/api/brands/**",
+        "/api/reviews/**",
+        "http://localhost:5272/api/products/**",
+        "http://localhost:5272/api/categories/**",
+        "http://localhost:5272/api/brands/**",
+        "http://localhost:5272/api/reviews/**"
+      ],
+      "cacheConfig": {
+        "strategy": "performance",
+        "maxSize": 200,
+        "maxAge": "6h",
+        "timeout": "3s"
+      }
+    },
+    {
+      "name": "product-images",
+      "urls": [
+        "https://images.unsplash.com/**",
+        "https://picsum.photos/**"
+      ],
+      "cacheConfig": {
+        "strategy": "performance",
+        "maxSize": 250,
+        "maxAge": "14d"
+      }
+    },
+    {
+      "name": "api-account",
+      "urls": [
+        "/api/cart/**",
+        "/api/orders/**",
+        "/api/account/**",
+        "/api/wishlist/**",
+        "http://localhost:5272/api/cart/**",
+        "http://localhost:5272/api/orders/**",
+        "http://localhost:5272/api/account/**",
+        "http://localhost:5272/api/wishlist/**"
+      ],
+      "cacheConfig": {
+        "strategy": "freshness",
+        "maxSize": 60,
+        "maxAge": "1h",
+        "timeout": "5s"
       }
     }
   ]

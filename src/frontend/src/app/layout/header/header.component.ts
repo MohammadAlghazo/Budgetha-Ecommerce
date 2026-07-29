@@ -4,10 +4,13 @@ import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { CartService } from '../../core/services/cart.service';
 import { WishlistService } from '../../core/services/wishlist.service';
+import { PwaService } from '../../core/services/pwa.service';
+import { ToastService } from '../../core/services/toast.service';
+import { InstallButtonComponent } from '../../shared/components/install-button/install-button.component';
 
 @Component({
   selector: 'app-header',
-  imports: [RouterLink, RouterLinkActive, FormsModule],
+  imports: [RouterLink, RouterLinkActive, FormsModule, InstallButtonComponent],
   template: `
     <!-- Announcement bar -->
     <div class="bg-gradient-to-r from-violet-700 via-violet-600 to-fuchsia-600 text-white text-center text-xs sm:text-sm font-medium py-2 px-4">
@@ -62,6 +65,9 @@ import { WishlistService } from '../../core/services/wishlist.service';
 
           <!-- Right: search + actions -->
           <div class="flex items-center gap-1 sm:gap-2">
+            <!-- Install as app (hidden once installed or dismissed) -->
+            <app-install-button variant="header" />
+
             <!-- Desktop search -->
             <form (submit)="submitSearch($event)" class="hidden md:block relative">
               <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -184,6 +190,25 @@ import { WishlistService } from '../../core/services/wishlist.service';
               {{ link.label }}
             </a>
           }
+
+          @if (!auth.isAuthenticated()) {
+            <div class="pt-2 mt-2 border-t border-slate-100 grid grid-cols-2 gap-3">
+              <a routerLink="/auth/login" (click)="mobileMenuOpen.set(false)" class="btn-secondary py-3">Sign in</a>
+              <a routerLink="/auth/register" (click)="mobileMenuOpen.set(false)" class="btn-primary py-3">Sign up</a>
+            </div>
+          }
+
+          @if (pwa.showInstallAffordance()) {
+            <button
+              type="button"
+              (click)="installApp()"
+              class="mt-2 w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 transition-colors duration-200">
+              <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v13.5m0 0l4.5-4.5M12 16.5L7.5 12M3.75 18.75h16.5" />
+              </svg>
+              Install Budgetha app
+            </button>
+          }
         </nav>
       }
     </header>
@@ -195,6 +220,8 @@ import { WishlistService } from '../../core/services/wishlist.service';
 export class HeaderComponent {
   readonly auth = inject(AuthService);
   readonly cart = inject(CartService);
+  readonly pwa = inject(PwaService);
+  private readonly toast = inject(ToastService);
   private readonly wishlist = inject(WishlistService);
   private readonly router = inject(Router);
 
@@ -240,5 +267,11 @@ export class HeaderComponent {
   logout(): void {
     this.userMenuOpen.set(false);
     this.auth.logout();
+    this.toast.success('You’ve been signed out.');
+  }
+
+  installApp(): void {
+    this.mobileMenuOpen.set(false);
+    void this.pwa.install();
   }
 }

@@ -1,6 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { CurrencyPipe, NgTemplateOutlet } from '@angular/common';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../core/services/product.service';
 import { WishlistService } from '../../core/services/wishlist.service';
@@ -13,12 +13,12 @@ const PAGE_SIZE = 9;
 
 @Component({
   selector: 'app-catalog',
-  imports: [CurrencyPipe, NgTemplateOutlet, ProductCardComponent, EmptyStateComponent, StarRatingComponent],
+  imports: [CurrencyPipe, NgTemplateOutlet, RouterLink, ProductCardComponent, EmptyStateComponent, StarRatingComponent],
   template: `
     <div class="max-w-7xl mx-auto px-4 sm:px-6 py-8 lg:py-10">
       <!-- Breadcrumb + heading -->
       <nav class="text-xs text-slate-400 flex items-center gap-1.5" aria-label="Breadcrumb">
-        <a (click)="router.navigate(['/'])" class="hover:text-violet-600 cursor-pointer transition-colors duration-300">Home</a>
+        <a routerLink="/" class="hover:text-violet-600 transition-colors duration-300">Home</a>
         <span>/</span>
         <span class="text-slate-600 font-medium">Shop</span>
       </nav>

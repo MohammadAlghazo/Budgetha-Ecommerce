@@ -1,7 +1,7 @@
-import { Component, signal, NgZone } from '@angular/core';
+import { Component, signal, NgZone, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators, AbstractControl, ValidationErrors } from '@angular/forms';
-import { RouterLink, Router } from '@angular/router';
+import { RouterLink, Router, ActivatedRoute } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { ToastService } from '../../../core/services/toast.service';
 import { environment } from '../../../../environments/environment';
@@ -14,25 +14,37 @@ import { environment } from '../../../../environments/environment';
   styleUrl: './register.component.scss'
 })
 export class RegisterComponent {
-  form: FormGroup;
+  private readonly fb = inject(FormBuilder);
+  private readonly authService = inject(AuthService);
+  private readonly toastService = inject(ToastService);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly ngZone = inject(NgZone);
+
+  form: FormGroup = this.fb.group({
+    firstName: ['', [Validators.required, Validators.minLength(2)]],
+    lastName: ['', [Validators.required, Validators.minLength(2)]],
+    email: ['', [Validators.required, Validators.email]],
+    password: ['', [Validators.required, Validators.minLength(6)]],
+    confirmPassword: ['', [Validators.required]]
+  }, { validators: passwordMatchValidator });
+
   loading = signal(false);
   showPassword = signal(false);
   showConfirmPassword = signal(false);
 
-  constructor(
-    private fb: FormBuilder,
-    private authService: AuthService,
-    private toastService: ToastService,
-    private router: Router,
-    private ngZone: NgZone
-  ) {
-    this.form = this.fb.group({
-      firstName: ['', [Validators.required, Validators.minLength(2)]],
-      lastName: ['', [Validators.required, Validators.minLength(2)]],
-      email: ['', [Validators.required, Validators.email]],
-      password: ['', [Validators.required, Validators.minLength(6)]],
-      confirmPassword: ['', [Validators.required]]
-    }, { validators: this.passwordMatchValidator });
+  /** Same contract as the login page — resume whatever the guard interrupted. */
+  private get returnUrl(): string {
+    const target = this.route.snapshot.queryParamMap.get('returnUrl');
+    if (!target || !target.startsWith('/') || target.startsWith('//')) return '/';
+    if (target.startsWith('/auth/')) return '/';
+    return target;
+  }
+
+  /** Carries returnUrl across to /auth/login so the round-trip survives. */
+  get linkQuery(): { returnUrl: string | null } {
+    const target = this.returnUrl;
+    return { returnUrl: target === '/' ? null : target };
   }
 
   get passwordStrength(): { score: number; label: string; color: string } {
@@ -53,17 +65,6 @@ export class RegisterComponent {
     return { score: 5, label: 'Excellent', color: 'bg-emerald-600' };
   }
 
-  private passwordMatchValidator(control: AbstractControl): ValidationErrors | null {
-    const password = control.get('password');
-    const confirmPassword = control.get('confirmPassword');
-
-    if (password && confirmPassword && password.value !== confirmPassword.value) {
-      confirmPassword.setErrors({ passwordMismatch: true });
-      return { passwordMismatch: true };
-    }
-    return null;
-  }
-
   togglePassword(): void {
     this.showPassword.update(v => !v);
   }
@@ -75,14 +76,20 @@ export class RegisterComponent {
   onSubmit(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      this.toastService.warning('Please fix the highlighted fields before continuing.');
       return;
     }
 
+    const { confirmPassword, ...payload } = this.form.value;
+
     this.loading.set(true);
-    this.authService.register(this.form.value).subscribe({
+    this.authService.register(payload).subscribe({
       next: () => {
         this.loading.set(false);
-        this.router.navigate(['/auth/login']);
+        // register() already established the session, so send the new user
+        // straight on rather than bouncing them to the sign-in page.
+        this.toastService.success('Your account is ready. Welcome to Budgetha!');
+        this.router.navigateByUrl(this.returnUrl);
       },
       error: () => {
         this.loading.set(false);
@@ -92,7 +99,7 @@ export class RegisterComponent {
 
   googleLogin(): void {
     if (typeof google === 'undefined') {
-      this.toastService.error('Google Sign-In is not available. Please try again later.');
+      this.toastService.error('Google Sign-In isn’t available right now. Please sign up with your email instead.');
       return;
     }
 
@@ -104,11 +111,11 @@ export class RegisterComponent {
           this.authService.googleLogin(response.credential).subscribe({
             next: () => {
               this.loading.set(false);
-              this.router.navigate(['/']);
+              this.toastService.success('Signed up with Google.');
+              this.router.navigateByUrl(this.returnUrl);
             },
             error: () => {
               this.loading.set(false);
-              this.toastService.error('Google sign-in failed. Please try again.');
             }
           });
         });
@@ -117,4 +124,22 @@ export class RegisterComponent {
 
     google.accounts.id.prompt();
   }
+}
+
+function passwordMatchValidator(control: AbstractControl): ValidationErrors | null {
+  const password = control.get('password');
+  const confirmPassword = control.get('confirmPassword');
+  if (!password || !confirmPassword) return null;
+
+  if (password.value !== confirmPassword.value) {
+    confirmPassword.setErrors({ ...(confirmPassword.errors ?? {}), passwordMismatch: true });
+    return { passwordMismatch: true };
+  }
+
+  // Clear only our own error so a `required` error from the control itself survives.
+  if (confirmPassword.hasError('passwordMismatch')) {
+    const { passwordMismatch, ...rest } = confirmPassword.errors ?? {};
+    confirmPassword.setErrors(Object.keys(rest).length ? rest : null);
+  }
+  return null;
 }

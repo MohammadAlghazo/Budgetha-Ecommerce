@@ -1,9 +1,12 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { InstallButtonComponent } from '../../shared/components/install-button/install-button.component';
+import { ToastService } from '../../core/services/toast.service';
+import { PwaService } from '../../core/services/pwa.service';
 
 @Component({
   selector: 'app-footer',
-  imports: [RouterLink],
+  imports: [RouterLink, InstallButtonComponent],
   template: `
     <footer class="bg-slate-900 text-slate-300 mt-20">
       <!-- Newsletter strip -->
@@ -13,9 +16,10 @@ import { RouterLink } from '@angular/router';
             <h3 class="text-xl font-bold text-white">Stay in the loop</h3>
             <p class="mt-1 text-sm text-slate-400">Get early access to deals, new arrivals, and exclusive promo codes.</p>
           </div>
-          <form class="flex w-full lg:w-auto gap-3" (submit)="$event.preventDefault()">
+          <form class="flex w-full lg:w-auto gap-3" (submit)="subscribe($event)">
             <input
               type="email"
+              name="newsletterEmail"
               placeholder="Enter your email"
               aria-label="Email for newsletter"
               class="flex-1 lg:w-80 rounded-xl bg-slate-800 border border-slate-700 px-4 py-3 text-sm text-white
@@ -81,22 +85,29 @@ import { RouterLink } from '@angular/router';
         <div>
           <h4 class="text-sm font-semibold text-white uppercase tracking-wider">Support</h4>
           <ul class="mt-4 space-y-2.5">
-            <li><a href="#" class="text-sm text-slate-400 hover:text-violet-400 transition-colors duration-300">Help Center</a></li>
-            <li><a href="#" class="text-sm text-slate-400 hover:text-violet-400 transition-colors duration-300">Shipping & Returns</a></li>
-            <li><a href="#" class="text-sm text-slate-400 hover:text-violet-400 transition-colors duration-300">Warranty</a></li>
-            <li><a href="#" class="text-sm text-slate-400 hover:text-violet-400 transition-colors duration-300">Contact Us</a></li>
+            <li><a routerLink="/help" class="text-sm text-slate-400 hover:text-violet-400 transition-colors duration-300">Help Center</a></li>
+            <li><a routerLink="/shipping-returns" class="text-sm text-slate-400 hover:text-violet-400 transition-colors duration-300">Shipping &amp; Returns</a></li>
+            <li><a routerLink="/warranty" class="text-sm text-slate-400 hover:text-violet-400 transition-colors duration-300">Warranty</a></li>
+            <li><a routerLink="/contact" class="text-sm text-slate-400 hover:text-violet-400 transition-colors duration-300">Contact Us</a></li>
           </ul>
         </div>
       </div>
+
+      <!-- Install prompt (hides itself, and its spacing, once installed or dismissed) -->
+      @if (pwa.showInstallAffordance()) {
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 pb-12 -mt-4">
+          <app-install-button variant="footer" />
+        </div>
+      }
 
       <!-- Bottom bar -->
       <div class="border-t border-slate-800">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p class="text-xs text-slate-500">© 2026 Budgetha. All rights reserved.</p>
           <div class="flex items-center gap-5">
-            <a href="#" class="text-xs text-slate-500 hover:text-slate-300 transition-colors duration-300">Privacy Policy</a>
-            <a href="#" class="text-xs text-slate-500 hover:text-slate-300 transition-colors duration-300">Terms of Service</a>
-            <a href="#" class="text-xs text-slate-500 hover:text-slate-300 transition-colors duration-300">Cookies</a>
+            <a routerLink="/legal/privacy" class="text-xs text-slate-500 hover:text-slate-300 transition-colors duration-300">Privacy Policy</a>
+            <a routerLink="/legal/terms" class="text-xs text-slate-500 hover:text-slate-300 transition-colors duration-300">Terms of Service</a>
+            <a routerLink="/legal/cookies" class="text-xs text-slate-500 hover:text-slate-300 transition-colors duration-300">Cookies</a>
           </div>
         </div>
       </div>
@@ -104,6 +115,35 @@ import { RouterLink } from '@angular/router';
   `,
 })
 export class FooterComponent {
+  readonly pwa = inject(PwaService);
+  private readonly toast = inject(ToastService);
+
+  /**
+   * There's no newsletter endpoint yet, but the form must never look like it
+   * silently failed — validate locally and confirm what happened either way.
+   */
+  subscribe(event: Event): void {
+    event.preventDefault();
+    const form = event.target as HTMLFormElement;
+    const input = form.elements.namedItem('newsletterEmail') as HTMLInputElement | null;
+    const email = input?.value.trim() ?? '';
+
+    if (!email) {
+      this.toast.warning('Please enter your email address to subscribe.');
+      input?.focus();
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+      this.toast.warning('That doesn’t look like a valid email address.');
+      input?.focus();
+      return;
+    }
+
+    this.toast.success('You’re on the list — watch your inbox for early access to deals.');
+    form.reset();
+  }
+
   readonly socials = [
     {
       label: 'X (Twitter)',
