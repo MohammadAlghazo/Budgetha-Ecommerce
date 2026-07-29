@@ -31,6 +31,10 @@ export class ToastService {
     this.show(message, 'info');
   }
 
+  warning(message: string): void {
+    this.show(message, 'warning', 5000);
+  }
+
   dismiss(id: number): void {
     this.toasts.update(current => current.filter(t => t.id !== id));
   }

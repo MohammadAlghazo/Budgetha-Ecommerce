@@ -2,6 +2,29 @@ import { Routes } from '@angular/router';
 import { authGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
+  // --- Auth routes (declared BEFORE the shell so they resolve before the
+  //     shell's `**` wildcard child, which would otherwise swallow them). ---
+  {
+    path: 'auth/login',
+    loadComponent: () => import('./features/auth/login/login.component').then(m => m.LoginComponent),
+  },
+  {
+    path: 'auth/register',
+    loadComponent: () => import('./features/auth/register/register.component').then(m => m.RegisterComponent),
+  },
+  {
+    path: 'auth/forgot-password',
+    loadComponent: () => import('./features/auth/forgot-password/forgot-password.component').then(m => m.ForgotPasswordComponent),
+  },
+  {
+    path: 'auth/reset-password',
+    loadComponent: () => import('./features/auth/reset-password/reset-password.component').then(m => m.ResetPasswordComponent),
+  },
+  // Convenience redirects so /login and /register also work.
+  { path: 'login', redirectTo: 'auth/login', pathMatch: 'full' },
+  { path: 'register', redirectTo: 'auth/register', pathMatch: 'full' },
+
+  // --- Main app shell ---
   {
     path: '',
     loadComponent: () => import('./layout/shell/shell.component').then(m => m.ShellComponent),
@@ -62,21 +85,5 @@ export const routes: Routes = [
         loadComponent: () => import('./features/not-found/not-found.component').then(m => m.NotFoundComponent),
       },
     ],
-  },
-  {
-    path: 'auth/login',
-    loadComponent: () => import('./features/auth/login/login.component').then(m => m.LoginComponent),
-  },
-  {
-    path: 'auth/register',
-    loadComponent: () => import('./features/auth/register/register.component').then(m => m.RegisterComponent),
-  },
-  {
-    path: 'auth/forgot-password',
-    loadComponent: () => import('./features/auth/forgot-password/forgot-password.component').then(m => m.ForgotPasswordComponent),
-  },
-  {
-    path: 'auth/reset-password',
-    loadComponent: () => import('./features/auth/reset-password/reset-password.component').then(m => m.ResetPasswordComponent),
   },
 ];

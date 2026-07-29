@@ -143,7 +143,12 @@ import { WishlistService } from '../../core/services/wishlist.service';
                 }
               </div>
             } @else {
-              <a routerLink="/auth/login" class="btn-primary px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm ml-1">Sign in</a>
+              <a
+                routerLink="/auth/login"
+                class="hidden sm:inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:text-violet-700 hover:bg-violet-50 transition-all duration-300">
+                Sign in
+              </a>
+              <a routerLink="/auth/register" class="btn-primary px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm ml-1">Sign up</a>
             }
           </div>
         </div>
