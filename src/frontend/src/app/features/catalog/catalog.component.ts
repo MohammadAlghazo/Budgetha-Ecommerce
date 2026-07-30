@@ -1,10 +1,10 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal, effect } from '@angular/core';
 import { CurrencyPipe, NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../core/services/product.service';
 import { WishlistService } from '../../core/services/wishlist.service';
-import { Product, SortOption } from '../../core/models/shop.models';
+import { CatalogResult, Product, SortOption } from '../../core/models/shop.models';
 import { ProductCardComponent } from '../../shared/components/product-card/product-card.component';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
 import { StarRatingComponent } from '../../shared/components/star-rating/star-rating.component';
@@ -137,7 +137,7 @@ const PAGE_SIZE = 9;
           <div class="card p-5">
             <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4">Categories</h3>
             <div class="space-y-2.5">
-              @for (category of categories; track category.id) {
+              @for (category of categories(); track category.id) {
                 <label class="flex items-center gap-3 cursor-pointer group">
                   <input
                     type="checkbox"
@@ -163,18 +163,19 @@ const PAGE_SIZE = 9;
               <input
                 type="range"
                 class="range-slider top-1/2 -translate-y-1/2 z-10"
-                [min]="bounds.min" [max]="bounds.max" [step]="5"
+                [min]="bounds().min" [max]="bounds().max" [step]="5"
                 [value]="minPrice()"
                 (input)="setMinPrice($event)"
                 aria-label="Minimum price" />
               <input
                 type="range"
                 class="range-slider top-1/2 -translate-y-1/2 z-20"
-                [min]="bounds.min" [max]="bounds.max" [step]="5"
+                [min]="bounds().min" [max]="bounds().max" [step]="5"
                 [value]="maxPrice()"
                 (input)="setMaxPrice($event)"
                 aria-label="Maximum price" />
             </div>
+
             <div class="mt-4 flex items-center justify-between gap-3">
               <div class="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-center">
                 <span class="block text-[10px] uppercase tracking-wider text-slate-400">Min</span>
@@ -307,15 +308,17 @@ export class CatalogComponent {
   private readonly route = inject(ActivatedRoute);
   readonly router = inject(Router);
 
-  readonly categories = this.productService.getCategories();
-  readonly brands = this.productService.getBrands();
-  readonly bounds = this.productService.priceBounds();
+  readonly categories = toSignal(this.productService.getCategories(), { initialValue: [] });
+  readonly brands = this.productService.getBrands(); // mocked synchronously
+  
+  // Wait, priceBounds is now Observable<{min:number, max:number}>
+  readonly bounds = toSignal(this.productService.priceBounds(), { initialValue: { min: 0, max: 10000 } });
 
   readonly search = signal('');
   readonly selectedCategories = signal<string[]>([]);
   readonly selectedBrands = signal<string[]>([]);
-  readonly minPrice = signal(this.bounds.min);
-  readonly maxPrice = signal(this.bounds.max);
+  readonly minPrice = signal(0);
+  readonly maxPrice = signal(10000);
   readonly minRating = signal(0);
   readonly sort = signal<SortOption>('featured');
   readonly page = signal(1);
@@ -324,33 +327,14 @@ export class CatalogComponent {
   readonly dealsOnly = signal(false);
   readonly wishlistOnly = signal(false);
 
-  readonly result = computed(() => {
-    const base = this.productService.query({
-      search: this.search(),
-      categories: this.selectedCategories(),
-      brands: this.selectedBrands(),
-      minPrice: this.minPrice(),
-      maxPrice: this.maxPrice(),
-      minRating: this.minRating(),
-      sort: this.sort(),
-      page: 1,
-      pageSize: Number.MAX_SAFE_INTEGER,
-    });
-
-    let items: Product[] = base.items;
-    if (this.dealsOnly()) {
-      items = items.filter(p => p.originalPrice && p.originalPrice > p.price);
-    }
-    if (this.wishlistOnly()) {
-      const ids = this.wishlist.ids();
-      items = items.filter(p => ids.includes(p.id));
-    }
-
-    const total = items.length;
-    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const page = Math.min(this.page(), totalPages);
-    return { items: items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), total, totalPages };
-  });
+  // We need to fetch data. We can use an effect, or toSignal(toObservable(computed(...)).pipe(switchMap(...)))
+  // To avoid circular or complex RxJS, I'll just use a signal and update it in an effect, OR use rxMethod/toSignal.
+  // Actually, Angular 16+ has a neat way: toObservable
+  
+  // Since we don't have toObservable imported, and I don't want to mess up imports:
+  // I will just use an effect() to subscribe and set a writable signal `result`.
+  
+  readonly result = signal<CatalogResult>({ items: [], total: 0, totalPages: 1 });
 
   readonly pages = computed(() => Array.from({ length: this.result().totalPages }, (_, i) => i + 1));
 
@@ -359,7 +343,7 @@ export class CatalogComponent {
       this.selectedCategories().length +
       this.selectedBrands().length +
       (this.minRating() > 0 ? 1 : 0) +
-      (this.minPrice() > this.bounds.min || this.maxPrice() < this.bounds.max ? 1 : 0) +
+      (this.minPrice() > this.bounds().min || this.maxPrice() < this.bounds().max ? 1 : 0) +
       (this.dealsOnly() ? 1 : 0)
   );
 
@@ -368,16 +352,24 @@ export class CatalogComponent {
     if (this.dealsOnly()) return 'Today’s Deals';
     if (this.search()) return `Results for “${this.search()}”`;
     if (this.selectedCategories().length === 1) {
-      return this.categories.find(c => c.slug === this.selectedCategories()[0])?.name ?? 'Shop';
+      return this.categories().find(c => c.slug === this.selectedCategories()[0])?.name ?? 'Shop';
     }
     return 'All Products';
   });
 
   readonly minPercent = computed(
-    () => ((this.minPrice() - this.bounds.min) / (this.bounds.max - this.bounds.min)) * 100
+    () => {
+      const min = this.bounds().min;
+      const max = this.bounds().max;
+      return max === min ? 0 : ((this.minPrice() - min) / (max - min)) * 100;
+    }
   );
   readonly maxPercent = computed(
-    () => ((this.maxPrice() - this.bounds.min) / (this.bounds.max - this.bounds.min)) * 100
+    () => {
+      const min = this.bounds().min;
+      const max = this.bounds().max;
+      return max === min ? 100 : ((this.maxPrice() - min) / (max - min)) * 100;
+    }
   );
 
   constructor() {
@@ -394,6 +386,38 @@ export class CatalogComponent {
         this.sort.set(sort);
       }
       this.page.set(1);
+    });
+
+    // Auto-update price range based on bounds when they load
+    this.productService.priceBounds().pipe(takeUntilDestroyed()).subscribe(b => {
+       this.minPrice.set(b.min);
+       this.maxPrice.set(b.max);
+    });
+
+    // We can fetch data whenever params change using effect
+    effect(() => {
+      const q = {
+        search: this.search(),
+        categories: this.selectedCategories(),
+        brands: this.selectedBrands(),
+        minPrice: this.minPrice(),
+        maxPrice: this.maxPrice(),
+        minRating: this.minRating(),
+        sort: this.sort(),
+        page: this.page(),
+        pageSize: PAGE_SIZE,
+      };
+      this.productService.query(q).subscribe(res => {
+        let items = res.items;
+        if (this.dealsOnly()) {
+          items = items.filter(p => p.originalPrice && p.originalPrice > p.price);
+        }
+        if (this.wishlistOnly()) {
+          const ids = this.wishlist.ids();
+          items = items.filter(p => ids.includes(p.id));
+        }
+        this.result.set({ items, total: res.total, totalPages: res.totalPages });
+      });
     });
   }
 
@@ -437,8 +461,8 @@ export class CatalogComponent {
   clearFilters(): void {
     this.selectedCategories.set([]);
     this.selectedBrands.set([]);
-    this.minPrice.set(this.bounds.min);
-    this.maxPrice.set(this.bounds.max);
+    this.minPrice.set(this.bounds().min);
+    this.maxPrice.set(this.bounds().max);
     this.minRating.set(0);
     this.dealsOnly.set(false);
     this.page.set(1);

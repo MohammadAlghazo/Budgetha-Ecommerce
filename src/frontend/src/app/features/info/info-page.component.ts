@@ -2,7 +2,7 @@ import { Component, computed, inject } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
-import { INFO_PAGES, InfoPage } from '../../core/data/info-pages';
+import { INFO_PAGES, InfoPage } from '../../core/mocks/info-pages';
 
 /**
  * Renders every static support and legal page from the INFO_PAGES map. The route

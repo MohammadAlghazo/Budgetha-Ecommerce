@@ -17,6 +17,7 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
 
         builder.HasIndex(p => p.Slug).IsUnique();
         builder.HasIndex(p => p.IsActive);
+        builder.HasIndex(p => p.ApprovalStatus);
 
         builder.HasOne(p => p.Category)
             .WithMany(c => c.Products)

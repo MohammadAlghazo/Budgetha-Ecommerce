@@ -63,6 +63,9 @@ using (var scope = app.Services.CreateScope())
     var services = scope.ServiceProvider;
     await ApplicationDbInitializer.SeedRolesAsync(services);
     await ApplicationDbInitializer.SeedSuperAdminAsync(services);
+    
+    var dbContext = services.GetRequiredService<ApplicationDbContext>();
+    await ApplicationDbInitializer.SeedCatalogAsync(dbContext);
 }
 
 if (app.Environment.IsDevelopment())

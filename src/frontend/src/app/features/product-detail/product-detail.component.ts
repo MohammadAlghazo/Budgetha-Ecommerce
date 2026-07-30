@@ -1,7 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../core/services/product.service';
 import { CartService } from '../../core/services/cart.service';
 import { WishlistService } from '../../core/services/wishlist.service';
@@ -381,6 +381,8 @@ export class ProductDetailComponent {
   readonly selectedSize = signal('');
   readonly quantity = signal(1);
   readonly activeTab = signal<Tab>('description');
+  readonly categories = toSignal(this.productService.getCategories(), { initialValue: [] });
+  readonly relatedProducts = signal<Product[]>([]);
 
   readonly tabs: { key: Tab; label: string }[] = [
     { key: 'description', label: 'Description' },
@@ -390,7 +392,7 @@ export class ProductDetailComponent {
 
   readonly activeImage = computed(() => {
     const p = this.product();
-    return p ? p.images[Math.min(this.activeIndex(), p.images.length - 1)] : '';
+    return p && p.images && p.images.length ? p.images[Math.min(this.activeIndex(), p.images.length - 1)] : '';
   });
 
   readonly inWishlist = computed(() => {
@@ -406,8 +408,9 @@ export class ProductDetailComponent {
 
   readonly categoryName = computed(() => {
     const p = this.product();
+    const cats = this.categories();
     return p
-      ? this.productService.getCategories().find(c => c.slug === p.category)?.name ?? p.category
+      ? cats.find(c => c.slug === p.category)?.name ?? p.category
       : '';
   });
 
@@ -421,21 +424,28 @@ export class ProductDetailComponent {
     return p ? this.productService.getRatingBuckets(p) : [];
   });
 
-  readonly relatedProducts = computed(() => {
-    const p = this.product();
-    return p ? this.productService.getRelated(p) : [];
-  });
-
   constructor() {
     this.route.paramMap.pipe(takeUntilDestroyed()).subscribe(params => {
-      const product = this.productService.getBySlug(params.get('slug') ?? '');
-      this.product.set(product);
-      this.activeIndex.set(0);
-      this.quantity.set(1);
-      this.activeTab.set('description');
-      this.selectedColor.set(product?.colors[0]?.name ?? '');
-      this.selectedSize.set(product?.sizes[0] ?? '');
-      window.scrollTo({ top: 0 });
+      const slug = params.get('slug') ?? '';
+      if (slug) {
+        this.productService.getBySlug(slug).subscribe(product => {
+          this.product.set(product);
+          this.activeIndex.set(0);
+          this.quantity.set(1);
+          this.activeTab.set('description');
+          this.selectedColor.set(product?.colors?.[0]?.name ?? '');
+          this.selectedSize.set(product?.sizes?.[0] ?? '');
+          window.scrollTo({ top: 0 });
+
+          if (product) {
+            this.productService.getRelated(product).subscribe(related => {
+              this.relatedProducts.set(related);
+            });
+          } else {
+             this.relatedProducts.set([]);
+          }
+        });
+      }
     });
   }
 

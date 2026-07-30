@@ -14,6 +14,7 @@ public class Product : BaseAuditableEntity
     public string? ThumbnailUrl { get; set; }
     public bool IsActive { get; set; } = true;
     public bool IsAvailableForRent { get; set; }
+    public ApprovalStatus ApprovalStatus { get; set; } = ApprovalStatus.Pending;
 
     public Guid CategoryId { get; set; }
     public Category Category { get; set; } = null!;

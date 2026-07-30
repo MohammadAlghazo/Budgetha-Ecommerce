@@ -40,4 +40,25 @@ public static class ApplicationDbInitializer
         if (result.Succeeded)
             await userManager.AddToRolesAsync(superAdmin, AllRoles);
     }
+
+    public static async Task SeedCatalogAsync(ApplicationDbContext context)
+    {
+        if (context.Categories.Any() || context.Products.Any()) return;
+
+        var electronics = new Category { Name = "Electronics", Slug = "electronics" };
+        var clothing = new Category { Name = "Clothing", Slug = "clothing" };
+        
+        context.Categories.AddRange(electronics, clothing);
+        await context.SaveChangesAsync();
+
+        var products = new List<Product>
+        {
+            new Product { Name = "Wireless Noise-Cancelling Headphones", Slug = "wireless-headphones", Description = "Premium over-ear headphones.", Price = 299.99m, StockQuantity = 50, CategoryId = electronics.Id, SellerId = "superadmin", ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved },
+            new Product { Name = "Minimalist Mechanical Keyboard", Slug = "mechanical-keyboard", Description = "Sleek keyboard.", Price = 149.99m, StockQuantity = 20, CategoryId = electronics.Id, SellerId = "superadmin", ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved },
+            new Product { Name = "Cotton Blend T-Shirt", Slug = "cotton-tshirt", Description = "Comfortable everyday tee.", Price = 24.99m, StockQuantity = 100, CategoryId = clothing.Id, SellerId = "superadmin", ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved }
+        };
+
+        context.Products.AddRange(products);
+        await context.SaveChangesAsync();
+    }
 }

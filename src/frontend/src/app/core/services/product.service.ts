@@ -1,5 +1,7 @@
-import { Injectable } from '@angular/core';
-import { BRANDS, CATEGORIES, PRODUCTS } from '../data/mock-products';
+import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable, map, catchError, of } from 'rxjs';
+import { BRANDS } from '../mocks/mock-products';
 import {
   CatalogQuery,
   CatalogResult,
@@ -33,100 +35,97 @@ const REVIEW_COMMENTS = [
 
 @Injectable({ providedIn: 'root' })
 export class ProductService {
-  getCategories(): Category[] {
-    return CATEGORIES;
+  private http = inject(HttpClient);
+  private apiUrl = 'http://localhost:5272/api';
+
+  getCategories(): Observable<Category[]> {
+    return this.http.get<Category[]>(`${this.apiUrl}/categories`).pipe(
+      catchError(err => {
+        console.error('Failed to fetch categories', err);
+        return of([]);
+      })
+    );
   }
 
   getBrands(): string[] {
-    return BRANDS;
+    return BRANDS; // Still mocked for now
   }
 
-  getAll(): Product[] {
-    return PRODUCTS;
+  getAll(): Observable<Product[]> {
+    return this.query({ page: 1, pageSize: 100 } as CatalogQuery).pipe(map(res => res.items));
   }
 
-  getFeatured(): Product[] {
-    return PRODUCTS.filter(p => p.isFeatured);
+  getFeatured(): Observable<Product[]> {
+    return this.getAll().pipe(map(items => items.filter(p => p.isFeatured)));
   }
 
-  getNewArrivals(): Product[] {
-    return PRODUCTS.filter(p => p.isNew);
+  getNewArrivals(): Observable<Product[]> {
+    return this.getAll().pipe(map(items => items.filter(p => p.isNew)));
   }
 
-  getBySlug(slug: string): Product | undefined {
-    return PRODUCTS.find(p => p.slug === slug);
+  getBySlug(slug: string): Observable<Product> {
+    return this.http.get<Product>(`${this.apiUrl}/products/${slug}`).pipe(
+      catchError(err => {
+        console.error(`Failed to fetch product ${slug}`, err);
+        throw err; // Re-throw so components can handle 404
+      })
+    );
   }
 
-  getById(id: number): Product | undefined {
-    return PRODUCTS.find(p => p.id === id);
+  getRelated(product: Product, count = 4): Observable<Product[]> {
+    return this.getAll().pipe(
+      map(items => {
+        const sameCategory = items.filter(p => p.id !== product.id && p.category === product.category);
+        const others = items.filter(p => p.id !== product.id && p.category !== product.category);
+        return [...sameCategory, ...others].slice(0, count);
+      })
+    );
   }
 
-  getRelated(product: Product, count = 4): Product[] {
-    const sameCategory = PRODUCTS.filter(p => p.id !== product.id && p.category === product.category);
-    const others = PRODUCTS.filter(p => p.id !== product.id && p.category !== product.category);
-    return [...sameCategory, ...others].slice(0, count);
+  priceBounds(): Observable<{ min: number; max: number }> {
+    return this.getAll().pipe(
+      map(items => {
+        const prices = items.map(p => p.price);
+        return { min: Math.floor(Math.min(...prices)), max: Math.ceil(Math.max(...prices)) };
+      })
+    );
   }
 
-  priceBounds(): { min: number; max: number } {
-    const prices = PRODUCTS.map(p => p.price);
-    return { min: Math.floor(Math.min(...prices)), max: Math.ceil(Math.max(...prices)) };
-  }
+  query(q: CatalogQuery): Observable<CatalogResult> {
+    let params: any = {
+      page: q.page,
+      pageSize: q.pageSize
+    };
+    if (q.search) params.search = q.search;
+    if (q.minPrice) params.minPrice = q.minPrice;
+    if (q.maxPrice) params.maxPrice = q.maxPrice;
+    if (q.minRating) params.minRating = q.minRating;
+    if (q.sort) params.sort = q.sort;
 
-  query(q: CatalogQuery): CatalogResult {
-    let items = PRODUCTS.slice();
-
-    if (q.search.trim()) {
-      const term = q.search.trim().toLowerCase();
-      items = items.filter(
-        p =>
-          p.name.toLowerCase().includes(term) ||
-          p.brand.toLowerCase().includes(term) ||
-          p.shortDescription.toLowerCase().includes(term)
-      );
+    let qs = new URLSearchParams(params).toString();
+    if (q.categories && q.categories.length) {
+      q.categories.forEach(c => qs += `&categories=${encodeURIComponent(c)}`);
     }
-    if (q.categories.length) {
-      items = items.filter(p => q.categories.includes(p.category));
-    }
-    if (q.brands.length) {
-      items = items.filter(p => q.brands.includes(p.brand));
-    }
-    items = items.filter(p => p.price >= q.minPrice && p.price <= q.maxPrice);
-    if (q.minRating > 0) {
-      items = items.filter(p => p.rating >= q.minRating);
-    }
-
-    switch (q.sort) {
-      case 'price-asc':
-        items.sort((a, b) => a.price - b.price);
-        break;
-      case 'price-desc':
-        items.sort((a, b) => b.price - a.price);
-        break;
-      case 'rating':
-        items.sort((a, b) => b.rating - a.rating);
-        break;
-      case 'newest':
-        items.sort((a, b) => Number(!!b.isNew) - Number(!!a.isNew) || b.id - a.id);
-        break;
-      default:
-        items.sort((a, b) => Number(!!b.isFeatured) - Number(!!a.isFeatured) || b.reviewCount - a.reviewCount);
+    if (q.brands && q.brands.length) {
+      q.brands.forEach(b => qs += `&brands=${encodeURIComponent(b)}`);
     }
 
-    const total = items.length;
-    const totalPages = Math.max(1, Math.ceil(total / q.pageSize));
-    const page = Math.min(q.page, totalPages);
-    const start = (page - 1) * q.pageSize;
-    return { items: items.slice(start, start + q.pageSize), total, totalPages };
+    return this.http.get<CatalogResult>(`${this.apiUrl}/products?${qs}`).pipe(
+      catchError(err => {
+        console.error('Failed to query products', err);
+        return of({ items: [], total: 0, totalPages: 1 } as CatalogResult);
+      })
+    );
   }
 
-  /** Deterministic pseudo-random reviews so each product always shows the same set. */
+  // Client-side mocks for reviews and ratings to keep UI looking nice
   getReviews(product: Product, count = 6): Review[] {
     const reviews: Review[] = [];
-    const n = Math.min(count, product.reviewCount);
+    const n = Math.min(count, product.reviewCount || 6);
     for (let i = 0; i < n; i++) {
-      const seed = product.id * 31 + i * 17;
+      const seed = (Number(product.id) || 1) * 31 + i * 17;
       const author = REVIEW_AUTHORS[seed % REVIEW_AUTHORS.length];
-      const rating = this.seededRating(product.rating, seed);
+      const rating = this.seededRating(product.rating || 5, seed);
       const daysAgo = 3 + ((seed * 7) % 340);
       const date = new Date();
       date.setDate(date.getDate() - daysAgo);
@@ -145,11 +144,9 @@ export class ProductService {
     return reviews;
   }
 
-  /** Star distribution consistent with the product's average rating. */
   getRatingBuckets(product: Product): RatingBucket[] {
-    const total = product.reviewCount;
-    const r = product.rating;
-    // Weight buckets around the average rating.
+    const total = product.reviewCount || 6;
+    const r = product.rating || 5;
     const weights = [5, 4, 3, 2, 1].map(stars => Math.max(0.02, 1 - Math.abs(r - stars) * 0.55));
     const sum = weights.reduce((a, b) => a + b, 0);
     let assigned = 0;

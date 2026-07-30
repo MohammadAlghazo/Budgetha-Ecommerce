@@ -34,6 +34,11 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
             @if (product().stock === 0) {
               <span class="badge bg-slate-700 text-white shadow-sm">Sold out</span>
             }
+            @if (product().approvalStatus && product().approvalStatus !== 'Approved') {
+              <span class="badge" [class]="product().approvalStatus === 'Pending' ? 'bg-amber-500 text-white shadow-sm' : 'bg-rose-700 text-white shadow-sm'">
+                {{ product().approvalStatus }}
+              </span>
+            }
           </div>
 
           <!-- Hover actions -->
@@ -111,6 +116,11 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
             }
             @if (product().isNew) {
               <span class="badge bg-violet-600 text-white shadow-sm">New</span>
+            }
+            @if (product().approvalStatus && product().approvalStatus !== 'Approved') {
+              <span class="badge" [class]="product().approvalStatus === 'Pending' ? 'bg-amber-500 text-white shadow-sm' : 'bg-rose-700 text-white shadow-sm'">
+                {{ product().approvalStatus }}
+              </span>
             }
           </div>
         </div>

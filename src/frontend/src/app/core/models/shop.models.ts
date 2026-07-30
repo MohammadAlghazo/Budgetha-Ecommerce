@@ -36,6 +36,7 @@ export interface Product {
   stock: number;
   isNew?: boolean;
   isFeatured?: boolean;
+  approvalStatus?: string;
 }
 
 export interface Review {

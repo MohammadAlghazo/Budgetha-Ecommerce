@@ -1,5 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../core/services/product.service';
 import { ProductCardComponent } from '../../shared/components/product-card/product-card.component';
 
@@ -130,7 +131,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
 
       <div class="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-4 sm:gap-6">
-        @for (category of categories; track category.id) {
+        @for (category of categories(); track category.id) {
           <a
             [routerLink]="['/shop']"
             [queryParams]="{ category: category.slug }"
@@ -164,7 +165,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 sm:gap-6">
-        @for (product of featured; track product.id) {
+        @for (product of featured(); track product.id) {
           <app-product-card [product]="product" layout="grid" />
         }
       </div>
@@ -205,7 +206,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6">
-        @for (product of newArrivals; track product.id) {
+        @for (product of newArrivals(); track product.id) {
           <app-product-card [product]="product" layout="grid" />
         }
       </div>
@@ -215,9 +216,9 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
 export class HomeComponent {
   private readonly productService = inject(ProductService);
 
-  readonly categories = this.productService.getCategories();
-  readonly featured = this.productService.getFeatured().slice(0, 8);
-  readonly newArrivals = this.productService.getNewArrivals().slice(0, 4);
+  readonly categories = toSignal(this.productService.getCategories(), { initialValue: [] });
+  readonly featured = toSignal(this.productService.getFeatured(), { initialValue: [] });
+  readonly newArrivals = toSignal(this.productService.getNewArrivals(), { initialValue: [] });
 
   readonly valueProps = [
     {
