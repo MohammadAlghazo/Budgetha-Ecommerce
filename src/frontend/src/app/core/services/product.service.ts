@@ -27,6 +27,10 @@ export class ProductService {
     );
   }
 
+  createCategory(category: { name: string, slug: string, description?: string, imageUrl?: string }): Observable<string> {
+    return this.http.post<string>(`${this.apiUrl}/categories`, category);
+  }
+
   getBrands(): string[] {
     return BRANDS; // Still mocked for now
   }

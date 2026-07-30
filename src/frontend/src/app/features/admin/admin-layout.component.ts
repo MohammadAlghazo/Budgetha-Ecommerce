@@ -1,4 +1,4 @@
-import { Component, inject, computed, signal } from '@angular/core';
+import { Component, inject, computed, signal, effect, OnDestroy } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { NgTemplateOutlet } from '@angular/common';
 import { AuthService } from '../../core/services/auth.service';
@@ -9,21 +9,21 @@ import { AuthService } from '../../core/services/auth.service';
   template: `
     <div class="min-h-screen bg-slate-50 flex">
       <!-- Sidebar -->
-      <aside class="w-64 bg-gradient-to-b from-teal-950 to-slate-900 text-teal-100 flex-shrink-0 flex flex-col hidden md:flex">
+      <aside class="w-64 bg-gradient-to-b from-teal-950 to-slate-900 text-teal-100 flex-shrink-0 flex flex-col hidden md:flex overflow-y-auto">
         <ng-container *ngTemplateOutlet="sidebarContent"></ng-container>
       </aside>
 
       <!-- Mobile Sidebar Overlay -->
       @if (mobileMenuOpen()) {
         <div class="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm md:hidden" (click)="mobileMenuOpen.set(false)"></div>
-        <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-teal-950 to-slate-900 text-teal-100 shadow-2xl flex flex-col md:hidden animate-[slideInLeft_0.3s_ease-out]">
+        <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-teal-950 to-slate-900 text-teal-100 shadow-2xl flex flex-col md:hidden animate-[slideInLeft_0.3s_ease-out] overflow-y-auto">
           <ng-container *ngTemplateOutlet="sidebarContent"></ng-container>
         </aside>
       }
 
       <ng-template #sidebarContent>
         <!-- Logo -->
-        <div class="h-16 flex items-center px-6 border-b border-white/10">
+        <div class="h-16 flex items-center justify-between px-6 border-b border-white/10 flex-shrink-0">
           <div class="flex items-center gap-2.5">
             <div class="w-8 h-8 bg-teal-500 rounded-lg flex items-center justify-center">
               <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -32,6 +32,9 @@ import { AuthService } from '../../core/services/auth.service';
             </div>
             <span class="text-lg font-bold text-white tracking-tight">Admin Panel</span>
           </div>
+          <button (click)="mobileMenuOpen.set(false)" class="md:hidden text-teal-300 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+          </button>
         </div>
 
         <!-- User Info -->
@@ -74,7 +77,8 @@ import { AuthService } from '../../core/services/auth.service';
             <span class="text-sm font-medium">Dashboard</span>
           </a>
 
-          <a routerLink="/admin/users"
+          @if (isAdminOrSuperAdmin()) {
+            <a routerLink="/admin/users"
              routerLinkActive="bg-teal-700/60 text-white border-teal-600/40"
              class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-teal-200 hover:bg-white/10 hover:text-white border border-transparent group">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-white/5">
@@ -84,7 +88,17 @@ import { AuthService } from '../../core/services/auth.service';
             @if (isSuperAdmin()) {
               <span class="ml-auto text-xs bg-purple-500/30 text-purple-300 px-1.5 py-0.5 rounded-md font-medium">SA</span>
             }
-          </a>
+            </a>
+
+            <a routerLink="/admin/seller-requests" (click)="mobileMenuOpen.set(false)"
+               routerLinkActive="bg-teal-700/60 text-white border-teal-600/40"
+               class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-teal-200 hover:bg-white/10 hover:text-white border border-transparent group">
+              <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-white/5">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+              </div>
+              <span class="text-sm font-medium">Seller Requests</span>
+            </a>
+          }
 
           <a routerLink="/admin/products" (click)="mobileMenuOpen.set(false)"
              routerLinkActive="bg-teal-700/60 text-white border-teal-600/40"
@@ -95,14 +109,25 @@ import { AuthService } from '../../core/services/auth.service';
             <span class="text-sm font-medium">Products</span>
           </a>
 
-          <a routerLink="/admin/announcements" (click)="mobileMenuOpen.set(false)"
+          @if (isAdminOrSuperAdmin()) {
+            <a routerLink="/admin/categories" (click)="mobileMenuOpen.set(false)"
+               routerLinkActive="bg-teal-700/60 text-white border-teal-600/40"
+               class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-teal-200 hover:bg-white/10 hover:text-white border border-transparent group">
+              <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-white/5">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+              </div>
+              <span class="text-sm font-medium">Categories</span>
+            </a>
+
+            <a routerLink="/admin/announcements" (click)="mobileMenuOpen.set(false)"
              routerLinkActive="bg-teal-700/60 text-white border-teal-600/40"
              class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-teal-200 hover:bg-white/10 hover:text-white border border-transparent group">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-white/5">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"></path></svg>
             </div>
             <span class="text-sm font-medium">Announcements</span>
-          </a>
+            </a>
+          }
         </nav>
 
         <!-- Footer -->
@@ -129,7 +154,7 @@ import { AuthService } from '../../core/services/auth.service';
             <button class="md:hidden p-2 rounded-lg hover:bg-slate-100 text-slate-500" (click)="mobileMenuOpen.set(true)">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
             </button>
-            <h1 class="text-lg font-bold text-slate-800">Budgetha Admin</h1>
+            <h1 class="text-lg font-bold text-slate-800">{{ authService.user()?.roles?.includes('Seller') && !authService.user()?.roles?.includes('Admin') && !authService.user()?.roles?.includes('SuperAdmin') ? 'Seller Dashboard' : 'Budgetha Admin' }}</h1>
           </div>
           <div class="flex items-center gap-3">
             @if (isSuperAdmin()) {
@@ -152,11 +177,29 @@ import { AuthService } from '../../core/services/auth.service';
     </div>
   `
 })
-export class AdminLayoutComponent {
+export class AdminLayoutComponent implements OnDestroy {
   readonly authService = inject(AuthService);
   readonly mobileMenuOpen = signal(false);
 
   readonly isSuperAdmin = computed(() =>
     this.authService.user()?.roles?.includes('SuperAdmin') ?? false
   );
+
+  readonly isAdminOrSuperAdmin = computed(() =>
+    this.authService.user()?.roles?.some(r => r === 'Admin' || r === 'SuperAdmin') ?? false
+  );
+
+  constructor() {
+    effect(() => {
+      if (this.mobileMenuOpen()) {
+        document.body.classList.add('overflow-hidden');
+      } else {
+        document.body.classList.remove('overflow-hidden');
+      }
+    });
+  }
+
+  ngOnDestroy() {
+    document.body.classList.remove('overflow-hidden');
+  }
 }

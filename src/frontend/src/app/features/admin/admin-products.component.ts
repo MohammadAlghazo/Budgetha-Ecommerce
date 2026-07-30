@@ -1,11 +1,12 @@
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { AdminService, AdminProductResult } from '../../core/services/admin.service';
 import { AuthService } from '../../core/services/auth.service';
 
 @Component({
   selector: 'app-admin-products',
-  imports: [CurrencyPipe],
+  imports: [CurrencyPipe, RouterLink],
   template: `
     <div class="max-w-7xl mx-auto space-y-6">
       <div class="flex items-center justify-between">

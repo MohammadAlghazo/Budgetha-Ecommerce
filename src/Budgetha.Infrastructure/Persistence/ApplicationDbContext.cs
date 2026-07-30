@@ -36,6 +36,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<SupportTicket> SupportTickets => Set<SupportTicket>();
     public DbSet<TicketMessage> TicketMessages => Set<TicketMessage>();
     public DbSet<Announcement> Announcements => Set<Announcement>();
+    public DbSet<SellerRequest> SellerRequests => Set<SellerRequest>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

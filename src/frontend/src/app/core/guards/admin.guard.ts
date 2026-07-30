@@ -10,7 +10,7 @@ export const adminGuard: CanActivateFn = () => {
 
   const user = authService.user();
   
-  if (user && (user.roles?.includes('Admin') || user.roles?.includes('SuperAdmin'))) {
+  if (user && (user.roles?.includes('Admin') || user.roles?.includes('SuperAdmin') || user.roles?.includes('Seller'))) {
     return true;
   }
 

@@ -150,6 +150,27 @@ import { AuthService } from '../../core/services/auth.service';
                 </button>
               </div>
 
+              <!-- Seller role -->
+              <div class="flex items-center justify-between p-4 rounded-xl border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors mt-3">
+                <div class="flex items-center gap-3">
+                  <div class="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center">
+                    <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                  </div>
+                  <div>
+                    <p class="font-semibold text-slate-800 text-sm">Seller</p>
+                    <p class="text-xs text-slate-400">Can add and manage own products</p>
+                  </div>
+                </div>
+                <button (click)="toggleRole('Seller')"
+                        [class.bg-indigo-600]="hasRole('Seller')"
+                        [class.bg-slate-200]="!hasRole('Seller')"
+                        class="relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2">
+                  <span [class.translate-x-7]="hasRole('Seller')"
+                        [class.translate-x-1]="!hasRole('Seller')"
+                        class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
+                </button>
+              </div>
+
 
             </div>
 

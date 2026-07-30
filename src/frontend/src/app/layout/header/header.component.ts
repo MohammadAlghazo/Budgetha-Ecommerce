@@ -129,17 +129,17 @@ import { AnnouncementService, Announcement } from '../../core/services/announcem
                 </button>
 
                 @if (userMenuOpen()) {
-                  <div class="absolute right-0 mt-2 w-56 card p-2 shadow-xl shadow-slate-200/80 animate-[menuIn_0.15s_ease-out]" (click)="$event.stopPropagation()">
+                  <div class="absolute right-0 mt-2 w-64 card p-2 bg-white shadow-xl shadow-slate-200/80 animate-[menuIn_0.15s_ease-out] z-50" (click)="$event.stopPropagation()">
                     <div class="px-3 py-2.5 border-b border-slate-100 mb-1">
                       <p class="text-sm font-semibold text-slate-900 truncate">{{ auth.user()?.firstName }} {{ auth.user()?.lastName }}</p>
-                      <p class="text-xs text-slate-400 truncate">{{ auth.user()?.email }}</p>
+                      <p class="text-xs text-slate-400 break-all">{{ auth.user()?.email }}</p>
                     </div>
-                    @if (auth.user()?.roles?.includes('Admin') || auth.user()?.roles?.includes('SuperAdmin')) {
+                    @if (auth.user()?.roles?.includes('Admin') || auth.user()?.roles?.includes('SuperAdmin') || auth.user()?.roles?.includes('Seller')) {
                       <a
                         routerLink="/admin"
                         (click)="userMenuOpen.set(false)"
                         class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors duration-200 mb-1 font-medium">
-                        Admin Dashboard
+                        {{ auth.user()?.roles?.includes('Seller') && !auth.user()?.roles?.includes('Admin') && !auth.user()?.roles?.includes('SuperAdmin') ? 'Seller Dashboard' : 'Admin Dashboard' }}
                       </a>
                     }
 

@@ -138,8 +138,14 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
             class="group flex flex-col items-center text-center">
             <div class="relative w-full aspect-square max-w-[8.5rem] rounded-full overflow-hidden ring-4 ring-transparent
                         group-hover:ring-teal-200 shadow-md shadow-slate-200/80 transition-all duration-300">
-              <img [src]="category.image" [alt]="category.name" loading="lazy"
-                   class="h-full w-full object-cover group-hover:scale-110 transition-transform duration-500" />
+              @if (category.image) {
+                <img [src]="category.image" [alt]="category.name" loading="lazy"
+                     class="h-full w-full object-cover group-hover:scale-110 transition-transform duration-500" />
+              } @else {
+                <div class="h-full w-full flex items-center justify-center bg-gradient-to-br from-teal-50 to-teal-100 text-teal-600 group-hover:scale-110 transition-transform duration-500">
+                  <span class="text-3xl font-bold">{{ category.name[0] }}</span>
+                </div>
+              }
               <div class="absolute inset-0 bg-teal-900/0 group-hover:bg-teal-900/20 transition-colors duration-300"></div>
             </div>
             <span class="mt-3 text-sm font-semibold text-slate-800 group-hover:text-teal-600 transition-colors duration-300">{{ category.name }}</span>

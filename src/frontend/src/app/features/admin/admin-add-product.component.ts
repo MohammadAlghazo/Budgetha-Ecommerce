@@ -3,7 +3,9 @@ import { FormBuilder, Validators, ReactiveFormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { ToastService } from '../../core/services/toast.service';
+import { ProductService } from '../../core/services/product.service';
 import { CloudinaryService } from '../../core/services/cloudinary.service';
+import { Category } from '../../core/models/shop.models';
 import { environment } from '../../../environments/environment';
 import { ImageCroppedEvent, ImageCropperComponent } from 'ngx-image-cropper';
 import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
@@ -39,11 +41,9 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
                 <select id="categoryId" formControlName="categoryId"
                         class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
                   <option value="" disabled selected>Select a category</option>
-                  <!-- Temporary static categories until category API is wired -->
-                  <option value="00000000-0000-0000-0000-000000000001">Electronics</option>
-                  <option value="00000000-0000-0000-0000-000000000002">Fashion</option>
-                  <option value="00000000-0000-0000-0000-000000000003">Home & Garden</option>
-                  <option value="00000000-0000-0000-0000-000000000004">Sports</option>
+                  @for (cat of categories(); track cat.id) {
+                    <option [value]="cat.id">{{ cat.name }}</option>
+                  }
                 </select>
               </div>
             </div>
@@ -233,18 +233,21 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
     }
   `
 })
-export class AdminAddProductComponent {
+export class AdminAddProductComponent implements OnInit {
   private fb = inject(FormBuilder);
   private http = inject(HttpClient);
   private router = inject(Router);
   private toast = inject(ToastService);
   private cloudinary = inject(CloudinaryService);
+  private productService = inject(ProductService);
+  private sanitizer = inject(DomSanitizer);
 
   isSubmitting = false;
   isUploadingImage = signal(false);
 
   // Gallery state
   uploadedImages = signal<string[]>([]);
+  categories = signal<Category[]>([]);
 
   // Cropper state
   imageChangedEvent = signal<any>(null);
@@ -259,6 +262,12 @@ export class AdminAddProductComponent {
     isAvailableForRent: [false],
     rentalPricePerDay: [null as number | null]
   });
+
+  ngOnInit() {
+    this.productService.getCategories().subscribe(res => {
+      this.categories.set(res);
+    });
+  }
 
   toggleRentable(): void {
     const control = this.form.get('isAvailableForRent');
