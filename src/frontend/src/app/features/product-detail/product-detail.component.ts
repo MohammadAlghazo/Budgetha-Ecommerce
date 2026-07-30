@@ -97,13 +97,13 @@ type Tab = 'description' | 'specs' | 'reviews';
             </div>
 
             <!-- Color swatches -->
-            @if (p.colors.length) {
+            @if (p.colors?.length) {
               <div class="mt-6">
                 <span class="text-sm font-semibold text-slate-900">
                   Color: <span class="font-normal text-slate-500">{{ selectedColor() }}</span>
                 </span>
                 <div class="mt-3 flex gap-3">
-                  @for (color of p.colors; track color.name) {
+                  @for (color of (p.colors || []); track color.name) {
                     <button
                       type="button"
                       (click)="selectedColor.set(color.name)"
@@ -118,14 +118,14 @@ type Tab = 'description' | 'specs' | 'reviews';
             }
 
             <!-- Size pills -->
-            @if (p.sizes.length) {
+            @if (p.sizes?.length) {
               <div class="mt-6">
                 <div class="flex items-center justify-between">
                   <span class="text-sm font-semibold text-slate-900">Size: <span class="font-normal text-slate-500">{{ selectedSize() || 'Select a size' }}</span></span>
                   <button type="button" class="text-xs font-medium text-violet-600 hover:text-violet-500 underline underline-offset-2 transition-colors duration-300">Size guide</button>
                 </div>
                 <div class="mt-3 flex flex-wrap gap-2.5">
-                  @for (size of p.sizes; track size) {
+                  @for (size of (p.sizes || []); track size) {
                     <button
                       type="button"
                       (click)="selectedSize.set(size)"
@@ -226,7 +226,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                   <div class="lg:col-span-2">
                     <h3 class="text-lg font-bold text-slate-900 mb-4">Highlights</h3>
                     <ul class="space-y-3">
-                      @for (feature of p.features; track feature) {
+                      @for (feature of (p.features || []); track feature) {
                         <li class="flex items-start gap-3">
                           <span class="mt-0.5 h-5 w-5 rounded-full bg-violet-100 flex items-center justify-center shrink-0">
                             <svg class="w-3 h-3 text-violet-600" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
@@ -246,7 +246,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                 <div class="card overflow-hidden max-w-3xl">
                   <table class="w-full text-sm">
                     <tbody>
-                      @for (spec of p.specs; track spec.label; let even = $even) {
+                      @for (spec of (p.specs || []); track spec.label; let even = $even) {
                         <tr [class]="even ? 'bg-slate-50/70' : 'bg-white'">
                           <th scope="row" class="text-left font-semibold text-slate-700 px-6 py-3.5 w-1/3">{{ spec.label }}</th>
                           <td class="text-slate-600 px-6 py-3.5">{{ spec.value }}</td>

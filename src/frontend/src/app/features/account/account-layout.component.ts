@@ -70,11 +70,7 @@ export class AccountLayoutComponent {
       path: '/account/addresses',
       icon: 'M15 10.5a3 3 0 11-6 0 3 3 0 016 0zM19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z',
     },
-    {
-      label: 'Payment Methods',
-      path: '/account/payments',
-      icon: 'M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z',
-    },
+
     {
       label: 'Account Settings',
       path: '/account/settings',

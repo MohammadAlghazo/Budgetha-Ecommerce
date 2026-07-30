@@ -19,6 +19,12 @@ import { AuthService } from '../../core/services/auth.service';
           </p>
         </div>
 
+        <div class="flex items-center gap-4">
+          <a routerLink="/admin/add-product" class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+            Add New Product
+          </a>
+
         <!-- Filter tabs -->
         <div class="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
           @for (tab of filterTabs; track tab.value) {
@@ -36,6 +42,7 @@ import { AuthService } from '../../core/services/auth.service';
             </button>
           }
         </div>
+      </div>
       </div>
 
       <!-- Products Table -->

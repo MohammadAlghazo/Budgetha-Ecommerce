@@ -4,38 +4,9 @@ import { Address, PaymentCard } from '../models/shop.models';
 const ADDRESS_KEY = 'budgetha_addresses';
 const CARDS_KEY = 'budgetha_cards';
 
-const SEED_ADDRESSES: Address[] = [
-  {
-    id: 1,
-    label: 'Home',
-    fullName: 'Alex Morgan',
-    line1: '742 Evergreen Terrace',
-    city: 'Springfield',
-    state: 'IL',
-    zip: '62704',
-    country: 'United States',
-    phone: '+1 (555) 013-4477',
-    isDefault: true,
-  },
-  {
-    id: 2,
-    label: 'Office',
-    fullName: 'Alex Morgan',
-    line1: '1200 Market Street',
-    line2: 'Suite 900',
-    city: 'Chicago',
-    state: 'IL',
-    zip: '60601',
-    country: 'United States',
-    phone: '+1 (555) 013-4477',
-    isDefault: false,
-  },
-];
+const SEED_ADDRESSES: Address[] = [];
 
-const SEED_CARDS: PaymentCard[] = [
-  { id: 1, brand: 'visa', last4: '4242', expMonth: 9, expYear: 2028, holder: 'Alex Morgan', isDefault: true },
-  { id: 2, brand: 'mastercard', last4: '8810', expMonth: 4, expYear: 2027, holder: 'Alex Morgan', isDefault: false },
-];
+const SEED_CARDS: PaymentCard[] = [];
 
 @Injectable({ providedIn: 'root' })
 export class AccountService {

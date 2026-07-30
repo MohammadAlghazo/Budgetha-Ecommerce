@@ -52,7 +52,7 @@ export class ProductService {
   }
 
   getAll(): Observable<Product[]> {
-    return this.query({ page: 1, pageSize: 100 } as CatalogQuery).pipe(map(res => res.items));
+    return this.query({ page: 1, pageSize: 100 } as CatalogQuery).pipe(map(res => res?.items || []));
   }
 
   getFeatured(): Observable<Product[]> {

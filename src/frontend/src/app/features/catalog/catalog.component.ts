@@ -408,7 +408,7 @@ export class CatalogComponent {
         pageSize: PAGE_SIZE,
       };
       this.productService.query(q).subscribe(res => {
-        let items = res.items;
+        let items = res?.items || [];
         if (this.dealsOnly()) {
           items = items.filter(p => p.originalPrice && p.originalPrice > p.price);
         }

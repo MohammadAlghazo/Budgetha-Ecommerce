@@ -55,7 +55,7 @@ import { AuthService } from '../../core/services/auth.service';
                         <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold"
                               [class.bg-purple-100]="role === 'SuperAdmin'" [class.text-purple-700]="role === 'SuperAdmin'"
                               [class.bg-teal-100]="role === 'Admin'" [class.text-teal-700]="role === 'Admin'"
-                              [class.bg-amber-100]="role === 'Seller'" [class.text-amber-700]="role === 'Seller'"
+
                               [class.bg-slate-100]="role === 'User'" [class.text-slate-600]="role === 'User'">
                           {{ role }}
                         </span>
@@ -150,26 +150,7 @@ import { AuthService } from '../../core/services/auth.service';
                 </button>
               </div>
 
-              <!-- Seller role -->
-              <div class="flex items-center justify-between p-4 rounded-xl border border-slate-200 hover:border-amber-200 hover:bg-amber-50/30 transition-colors">
-                <div class="flex items-center gap-3">
-                  <div class="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center">
-                    <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path></svg>
-                  </div>
-                  <div>
-                    <p class="font-semibold text-slate-800 text-sm">Seller</p>
-                    <p class="text-xs text-slate-400">Can list and manage products</p>
-                  </div>
-                </div>
-                <button (click)="toggleRole('Seller')"
-                        [class.bg-amber-500]="hasRole('Seller')"
-                        [class.bg-slate-200]="!hasRole('Seller')"
-                        class="relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2">
-                  <span [class.translate-x-7]="hasRole('Seller')"
-                        [class.translate-x-1]="!hasRole('Seller')"
-                        class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
-                </button>
-              </div>
+
             </div>
 
             <!-- Status message -->

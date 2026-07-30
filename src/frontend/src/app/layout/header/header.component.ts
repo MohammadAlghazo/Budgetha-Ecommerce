@@ -135,6 +135,7 @@ import { InstallButtonComponent } from '../../shared/components/install-button/i
                         Admin Dashboard
                       </a>
                     }
+
                     @for (item of accountLinks; track item.path) {
                       <a
                         [routerLink]="item.path"
@@ -247,7 +248,6 @@ export class HeaderComponent {
   readonly accountLinks = [
     { label: 'My Orders', path: '/account/orders' },
     { label: 'Saved Addresses', path: '/account/addresses' },
-    { label: 'Payment Methods', path: '/account/payments' },
     { label: 'Account Settings', path: '/account/settings' },
   ];
 

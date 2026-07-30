@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -9,12 +9,13 @@ import { AuthService } from '../../core/services/auth.service';
 import { ToastService } from '../../core/services/toast.service';
 import { Address } from '../../core/models/shop.models';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
+import { NgxPayPalModule, IPayPalConfig, ICreateOrderRequest } from 'ngx-paypal';
 
-type PaymentMethod = 'card' | 'paypal' | 'cod';
+type PaymentMethod = 'paypal' | 'cod';
 
 @Component({
   selector: 'app-checkout',
-  imports: [CurrencyPipe, RouterLink, ReactiveFormsModule, EmptyStateComponent],
+  imports: [CurrencyPipe, RouterLink, ReactiveFormsModule, EmptyStateComponent, NgxPayPalModule],
   template: `
     @if (cart.items().length === 0) {
       <div class="max-w-2xl mx-auto px-4 py-16">
@@ -85,7 +86,7 @@ type PaymentMethod = 'card' | 'paypal' | 'cod';
               <div class="flex items-center justify-between flex-wrap gap-3">
                 <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2.5">
                   <span class="h-7 w-7 rounded-lg bg-violet-100 text-violet-700 flex items-center justify-center text-sm font-bold">2</span>
-                  Shipping Address
+                  Delivery Address
                 </h2>
                 @if (savedAddresses.length) {
                   <div class="flex gap-2">
@@ -170,18 +171,7 @@ type PaymentMethod = 'card' | 'paypal' | 'cod';
                 Payment Method
               </h2>
 
-              <div class="mt-5 grid sm:grid-cols-3 gap-3" role="radiogroup" aria-label="Payment method">
-                <!-- Credit card option -->
-                <button type="button" role="radio" [attr.aria-checked]="paymentMethod() === 'card'" (click)="paymentMethod.set('card')"
-                        class="rounded-2xl border-2 p-4 text-left transition-all duration-300"
-                        [class]="paymentMethod() === 'card' ? 'border-violet-600 bg-violet-50/60 shadow-md shadow-violet-100' : 'border-slate-200 hover:border-slate-300'">
-                  <svg class="w-7 h-7 mb-2" [class]="paymentMethod() === 'card' ? 'text-violet-600' : 'text-slate-400'" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
-                  </svg>
-                  <p class="text-sm font-bold text-slate-900">Credit Card</p>
-                  <p class="text-xs text-slate-400 mt-0.5">Visa, Mastercard, Amex</p>
-                </button>
-
+              <div class="mt-5 grid sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Payment method">
                 <!-- PayPal option -->
                 <button type="button" role="radio" [attr.aria-checked]="paymentMethod() === 'paypal'" (click)="paymentMethod.set('paypal')"
                         class="rounded-2xl border-2 p-4 text-left transition-all duration-300"
@@ -206,77 +196,18 @@ type PaymentMethod = 'card' | 'paypal' | 'cod';
                 </button>
               </div>
 
-              <!-- Card details -->
-              @if (paymentMethod() === 'card') {
-                <div class="mt-6 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 p-6 space-y-4">
-                  <div class="flex items-center justify-between">
-                    <span class="text-sm font-semibold text-white">Card details</span>
-                    <div class="flex gap-2">
-                      <span class="h-6 px-2 rounded bg-white/10 text-[10px] font-bold text-white flex items-center">VISA</span>
-                      <span class="h-6 px-2 rounded bg-white/10 text-[10px] font-bold text-white flex items-center">MC</span>
-                      <span class="h-6 px-2 rounded bg-white/10 text-[10px] font-bold text-white flex items-center">AMEX</span>
+              @if (paymentMethod() === 'paypal') {
+                <div class="mt-6">
+                  <p class="text-sm text-slate-600 mb-4">Click the button below to log in to PayPal and complete your purchase securely.</p>
+                  
+                  @if (form.valid) {
+                    <!-- Render PayPal Button -->
+                    <ngx-paypal [config]="payPalConfig"></ngx-paypal>
+                  } @else {
+                    <div class="rounded-xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-sm text-amber-700">
+                      Please fill in your Contact Information and Delivery Address above to unlock the PayPal checkout.
                     </div>
-                  </div>
-                  <div>
-                    <label for="cardNumber" class="block text-xs font-medium text-slate-300 mb-1.5">Card number</label>
-                    <div class="relative">
-                      <input id="cardNumber" type="text" formControlName="cardNumber" inputmode="numeric" autocomplete="cc-number"
-                             placeholder="1234 5678 9012 3456" maxlength="19" (input)="formatCardNumber($event)"
-                             class="w-full rounded-xl border bg-white/10 px-4 py-3 text-sm text-white placeholder:text-slate-500
-                                    focus:outline-none focus:ring-2 focus:ring-violet-400/40 transition-all duration-200 tracking-widest"
-                             [class]="invalid('cardNumber') ? 'border-red-400' : 'border-white/10 focus:border-violet-400'" />
-                      <svg class="absolute right-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-                      </svg>
-                    </div>
-                    @if (invalid('cardNumber')) {
-                      <p class="mt-1.5 text-xs text-red-400">Enter a valid 16-digit card number.</p>
-                    }
-                  </div>
-                  <div class="grid grid-cols-3 gap-4">
-                    <div class="col-span-2 sm:col-span-1">
-                      <label for="cardExpiry" class="block text-xs font-medium text-slate-300 mb-1.5">Expiry</label>
-                      <input id="cardExpiry" type="text" formControlName="cardExpiry" inputmode="numeric" autocomplete="cc-exp"
-                             placeholder="MM/YY" maxlength="5" (input)="formatExpiry($event)"
-                             class="w-full rounded-xl border bg-white/10 px-4 py-3 text-sm text-white placeholder:text-slate-500
-                                    focus:outline-none focus:ring-2 focus:ring-violet-400/40 transition-all duration-200"
-                             [class]="invalid('cardExpiry') ? 'border-red-400' : 'border-white/10 focus:border-violet-400'" />
-                      @if (invalid('cardExpiry')) {
-                        <p class="mt-1.5 text-xs text-red-400">MM/YY</p>
-                      }
-                    </div>
-                    <div>
-                      <label for="cardCvc" class="block text-xs font-medium text-slate-300 mb-1.5">CVC</label>
-                      <input id="cardCvc" type="password" formControlName="cardCvc" inputmode="numeric" autocomplete="cc-csc"
-                             placeholder="•••" maxlength="4"
-                             class="w-full rounded-xl border bg-white/10 px-4 py-3 text-sm text-white placeholder:text-slate-500
-                                    focus:outline-none focus:ring-2 focus:ring-violet-400/40 transition-all duration-200"
-                             [class]="invalid('cardCvc') ? 'border-red-400' : 'border-white/10 focus:border-violet-400'" />
-                      @if (invalid('cardCvc')) {
-                        <p class="mt-1.5 text-xs text-red-400">3–4 digits</p>
-                      }
-                    </div>
-                    <div class="col-span-3 sm:col-span-1">
-                      <label for="cardHolder" class="block text-xs font-medium text-slate-300 mb-1.5">Name on card</label>
-                      <input id="cardHolder" type="text" formControlName="cardHolder" autocomplete="cc-name" placeholder="J. DOE"
-                             class="w-full rounded-xl border bg-white/10 px-4 py-3 text-sm text-white placeholder:text-slate-500
-                                    focus:outline-none focus:ring-2 focus:ring-violet-400/40 transition-all duration-200 uppercase"
-                             [class]="invalid('cardHolder') ? 'border-red-400' : 'border-white/10 focus:border-violet-400'" />
-                      @if (invalid('cardHolder')) {
-                        <p class="mt-1.5 text-xs text-red-400">Required</p>
-                      }
-                    </div>
-                  </div>
-                </div>
-              } @else if (paymentMethod() === 'paypal') {
-                <div class="mt-6 rounded-2xl bg-[#FFC439]/15 ring-1 ring-[#FFC439]/40 p-5 flex items-center gap-4">
-                  <svg class="w-8 h-8 shrink-0" viewBox="0 0 24 24" fill="none">
-                    <path d="M7.076 21.337H4.13a.64.64 0 01-.633-.74L6.222 3.384a.77.77 0 01.76-.65h6.673c2.217 0 3.916.472 4.933 1.404.95.87 1.322 2.083 1.106 3.72-.023.15-.048.302-.078.458-.71 3.65-3.14 4.913-6.24 4.913h-1.58a.77.77 0 00-.76.65l-.81 5.148-.15 1.31z" fill="#003087"/>
-                  </svg>
-                  <p class="text-sm text-slate-700 leading-relaxed">
-                    You'll be securely redirected to <span class="font-bold">PayPal</span> to approve the payment of
-                    <span class="font-bold">{{ cart.total() | currency }}</span> after placing your order.
-                  </p>
+                  }
                 </div>
               } @else {
                 <div class="mt-6 rounded-2xl bg-emerald-50 ring-1 ring-emerald-100 p-5 flex items-center gap-4">
@@ -346,21 +277,23 @@ type PaymentMethod = 'card' | 'paypal' | 'cod';
                 <svg class="w-4.5 h-4.5 w-[18px] h-[18px] text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                 </svg>
-                <p class="text-xs text-red-600 leading-relaxed">Please fix the highlighted fields above before placing your order.</p>
+                <p class="text-xs text-red-600 leading-relaxed">Please fix the highlighted fields above.</p>
               </div>
             }
 
-            <button type="submit" [disabled]="placing()" class="btn-primary w-full mt-6 py-4 sm:py-5 text-base sm:text-lg shadow-lg shadow-violet-600/30">
-              @if (placing()) {
-                <svg class="animate-spin -ml-1 mr-2.5 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                </svg>
-                Placing order…
-              } @else {
-                Place Order — {{ cart.total() | currency }}
-              }
-            </button>
+            @if (paymentMethod() === 'cod') {
+              <button type="submit" [disabled]="placing()" class="btn-primary w-full mt-6 py-4 sm:py-5 text-base sm:text-lg shadow-lg shadow-violet-600/30">
+                @if (placing()) {
+                  <svg class="animate-spin -ml-1 mr-2.5 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                  </svg>
+                  Placing order…
+                } @else {
+                  Place Order — {{ cart.total() | currency }}
+                }
+              </button>
+            }
 
             <div class="mt-5 flex items-center justify-center gap-2 text-xs text-slate-400">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
@@ -374,7 +307,7 @@ type PaymentMethod = 'card' | 'paypal' | 'cod';
     }
   `,
 })
-export class CheckoutComponent {
+export class CheckoutComponent implements OnInit {
   readonly cart = inject(CartService);
   private readonly orders = inject(OrderService);
   private readonly account = inject(AccountService);
@@ -383,7 +316,9 @@ export class CheckoutComponent {
   private readonly router = inject(Router);
   private readonly fb = inject(FormBuilder);
 
-  readonly paymentMethod = signal<PaymentMethod>('card');
+  public payPalConfig?: IPayPalConfig;
+
+  readonly paymentMethod = signal<PaymentMethod>('paypal');
   readonly placing = signal(false);
   readonly submitted = signal(false);
 
@@ -399,11 +334,92 @@ export class CheckoutComponent {
     state: ['', Validators.required],
     zip: ['', [Validators.required, Validators.pattern(/^[0-9A-Za-z\- ]{3,10}$/)]],
     country: ['United States', Validators.required],
-    cardNumber: ['', [Validators.required, Validators.pattern(/^(\d{4} ){3}\d{4}$/)]],
-    cardExpiry: ['', [Validators.required, Validators.pattern(/^(0[1-9]|1[0-2])\/\d{2}$/)]],
-    cardCvc: ['', [Validators.required, Validators.pattern(/^\d{3,4}$/)]],
-    cardHolder: ['', Validators.required],
   });
+
+  ngOnInit(): void {
+    this.initConfig();
+  }
+
+  private initConfig(): void {
+    this.payPalConfig = {
+      currency: 'USD',
+      clientId: 'sb', // sandbox client id
+      createOrderOnClient: (data) => <ICreateOrderRequest>{
+        intent: 'CAPTURE',
+        purchase_units: [
+          {
+            amount: {
+              currency_code: 'USD',
+              value: this.cart.total().toFixed(2),
+              breakdown: {
+                item_total: {
+                  currency_code: 'USD',
+                  value: this.cart.subtotal().toFixed(2)
+                },
+                tax_total: {
+                  currency_code: 'USD',
+                  value: this.cart.tax().toFixed(2)
+                },
+                shipping: {
+                  currency_code: 'USD',
+                  value: this.cart.shipping().toFixed(2)
+                },
+                discount: {
+                  currency_code: 'USD',
+                  value: this.cart.discount().toFixed(2)
+                }
+              }
+            },
+            items: this.cart.items().map(i => ({
+              name: i.name,
+              quantity: i.quantity.toString(),
+              unit_amount: {
+                currency_code: 'USD',
+                value: i.price.toFixed(2),
+              },
+            }))
+          }
+        ]
+      },
+      advanced: {
+        commit: 'true'
+      },
+      style: {
+        label: 'paypal',
+        layout: 'vertical'
+      },
+      onApprove: (data, actions) => {
+        // Log transaction start
+        this.placing.set(true);
+        actions.order.get().then((details: any) => {
+          // You could show a loading spinner here while verifying on your server
+        });
+      },
+      onClientAuthorization: (data) => {
+        // Payment successful
+        this.completeOrder('PayPal Transaction ID: ' + data.id);
+      },
+      onCancel: (data, actions) => {
+        this.placing.set(false);
+        this.toast.info('PayPal payment cancelled');
+      },
+      onError: err => {
+        this.placing.set(false);
+        this.toast.error('An error occurred during PayPal payment');
+        console.log('PayPal Error', err);
+      },
+      onClick: (data, actions) => {
+        // Run validations before popup opens
+        this.submitted.set(true);
+        if (this.form.invalid) {
+          this.form.markAllAsTouched();
+          this.toast.error('Please complete your delivery address first.');
+          // Unfortunately ngx-paypal doesn't let us easily block the popup here if invalid, 
+          // but we disabled the button wrapper via an @if (form.valid) check in the HTML.
+        }
+      },
+    };
+  }
 
   invalid(control: string): boolean {
     const c = this.form.get(control);
@@ -424,33 +440,12 @@ export class CheckoutComponent {
     this.toast.info(`Address “${address.label}” applied`);
   }
 
-  formatCardNumber(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const digits = input.value.replace(/\D/g, '').slice(0, 16);
-    const formatted = digits.replace(/(\d{4})(?=\d)/g, '$1 ');
-    this.form.get('cardNumber')!.setValue(formatted, { emitEvent: false });
-  }
-
-  formatExpiry(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const digits = input.value.replace(/\D/g, '').slice(0, 4);
-    const formatted = digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits;
-    this.form.get('cardExpiry')!.setValue(formatted, { emitEvent: false });
-  }
-
   placeOrder(): void {
-    this.submitted.set(true);
-
-    // Card fields only validate when paying by card.
-    const cardControls = ['cardNumber', 'cardExpiry', 'cardCvc', 'cardHolder'];
-    for (const name of cardControls) {
-      const control = this.form.get(name)!;
-      if (this.paymentMethod() === 'card') {
-        control.enable({ emitEvent: false });
-      } else {
-        control.disable({ emitEvent: false });
-      }
+    if (this.paymentMethod() !== 'cod') {
+      return; // Only process regular form submission for COD
     }
+
+    this.submitted.set(true);
 
     if (this.form.invalid) {
       this.form.markAllAsTouched();
@@ -459,42 +454,39 @@ export class CheckoutComponent {
     }
 
     this.placing.set(true);
-    const v = this.form.getRawValue();
-    const paymentSummary =
-      this.paymentMethod() === 'card'
-        ? `Card •••• ${v.cardNumber!.slice(-4)}`
-        : this.paymentMethod() === 'paypal'
-          ? 'PayPal'
-          : 'Cash on Delivery';
-
     // Simulate a short payment-processing delay for realistic UX.
     setTimeout(() => {
-      const order = this.orders.placeOrder({
-        items: this.cart.items(),
-        subtotal: this.cart.subtotal(),
-        shipping: this.cart.shipping(),
-        tax: this.cart.tax(),
-        discount: this.cart.discount(),
-        total: this.cart.total(),
-        address: {
-          id: 0,
-          label: 'Shipping',
-          fullName: v.fullName!,
-          line1: v.line1!,
-          line2: v.line2 || undefined,
-          city: v.city!,
-          state: v.state!,
-          zip: v.zip!,
-          country: v.country!,
-          phone: v.phone!,
-          isDefault: false,
-        },
-        paymentSummary,
-      });
-      this.cart.clear();
-      this.placing.set(false);
-      this.router.navigate(['/checkout/success', order.number]);
+      this.completeOrder('Cash on Delivery');
     }, 900);
+  }
+
+  private completeOrder(paymentSummary: string): void {
+    const v = this.form.getRawValue();
+    const order = this.orders.placeOrder({
+      items: this.cart.items(),
+      subtotal: this.cart.subtotal(),
+      shipping: this.cart.shipping(),
+      tax: this.cart.tax(),
+      discount: this.cart.discount(),
+      total: this.cart.total(),
+      address: {
+        id: 0,
+        label: 'Shipping',
+        fullName: v.fullName!,
+        line1: v.line1!,
+        line2: v.line2 || undefined,
+        city: v.city!,
+        state: v.state!,
+        zip: v.zip!,
+        country: v.country!,
+        phone: v.phone!,
+        isDefault: false,
+      },
+      paymentSummary,
+    });
+    this.cart.clear();
+    this.placing.set(false);
+    this.router.navigate(['/checkout/success', order.number]);
   }
 
   private defaultName(): string {

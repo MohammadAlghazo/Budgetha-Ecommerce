@@ -14,21 +14,12 @@ export const routes: Routes = [
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
       { path: 'dashboard', loadComponent: () => import('./features/admin/admin-dashboard.component').then(m => m.AdminDashboardComponent) },
       { path: 'users', loadComponent: () => import('./features/admin/admin-users.component').then(m => m.AdminUsersComponent) },
-      { path: 'products', loadComponent: () => import('./features/admin/admin-products.component').then(m => m.AdminProductsComponent) }
+      { path: 'products', loadComponent: () => import('./features/admin/admin-products.component').then(m => m.AdminProductsComponent) },
+      { path: 'add-product', loadComponent: () => import('./features/admin/admin-add-product.component').then(m => m.AdminAddProductComponent) }
     ]
   },
 
-  // --- Seller routes ---
-  {
-    path: 'seller',
-    loadComponent: () => import('./features/seller/seller-layout.component').then(m => m.SellerLayoutComponent),
-    canActivate: [sellerGuard],
-    children: [
-      { path: '', redirectTo: 'products', pathMatch: 'full' },
-      { path: 'products', loadComponent: () => import('./features/seller/seller-products.component').then(m => m.SellerProductsComponent) },
-      { path: 'add-product', loadComponent: () => import('./features/seller/add-product.component').then(m => m.AddProductComponent) }
-    ]
-  },
+
 
   // --- Auth routes (declared BEFORE the shell so they resolve before the
   //     shell's `**` wildcard child, which would otherwise swallow them). ---
@@ -123,11 +114,7 @@ export const routes: Routes = [
             title: 'Saved addresses · Budgetha',
             loadComponent: () => import('./features/account/account-addresses.component').then(m => m.AccountAddressesComponent),
           },
-          {
-            path: 'payments',
-            title: 'Payment methods · Budgetha',
-            loadComponent: () => import('./features/account/account-payments.component').then(m => m.AccountPaymentsComponent),
-          },
+
           {
             path: 'settings',
             title: 'Account settings · Budgetha',

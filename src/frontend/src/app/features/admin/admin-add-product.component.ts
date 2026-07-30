@@ -9,7 +9,7 @@ import { ImageCroppedEvent, ImageCropperComponent } from 'ngx-image-cropper';
 import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 
 @Component({
-  selector: 'app-add-product',
+  selector: 'app-admin-add-product',
   imports: [ReactiveFormsModule, RouterLink, ImageCropperComponent],
   template: `
     <div class="max-w-4xl mx-auto space-y-6 pb-20">
@@ -233,7 +233,7 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
     }
   `
 })
-export class AddProductComponent {
+export class AdminAddProductComponent implements OnInit {
   private fb = inject(FormBuilder);
   private http = inject(HttpClient);
   private router = inject(Router);
@@ -245,7 +245,7 @@ export class AddProductComponent {
 
   // Gallery state
   uploadedImages = signal<string[]>([]);
-  
+
   // Cropper state
   imageChangedEvent = signal<any>(null);
   croppedImageFile: File | null = null;
@@ -263,7 +263,7 @@ export class AddProductComponent {
   toggleRentable(): void {
     const control = this.form.get('isAvailableForRent');
     const rentPriceControl = this.form.get('rentalPricePerDay');
-    
+
     if (control) {
       control.setValue(!control.value);
       if (control.value) {
@@ -341,7 +341,7 @@ export class AddProductComponent {
 
     this.isSubmitting = true;
     const val = this.form.value;
-    
+
     // In a real app we'd query categories, here we fallback to a dummy guid if empty
     const categoryId = val.categoryId || '00000000-0000-0000-0000-000000000001';
 
@@ -359,7 +359,7 @@ export class AddProductComponent {
     this.http.post<string>(`${environment.apiUrl}/api/products`, payload).subscribe({
       next: () => {
         this.toast.success('Product added successfully! Awaiting admin approval.');
-        this.router.navigate(['/seller/products']);
+        this.router.navigate(['/admin/products']);
       },
       error: (err) => {
         this.isSubmitting = false;
