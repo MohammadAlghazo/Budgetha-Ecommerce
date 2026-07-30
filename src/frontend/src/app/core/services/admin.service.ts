@@ -17,6 +17,11 @@ export interface AdminUser {
   lastName: string;
   roles: string[];
   createdAt: string;
+  isBanned?: boolean;
+}
+
+export interface AdminUserProfile extends AdminUser {
+  products: any[];
 }
 
 export interface AdminProductResult {
@@ -69,5 +74,22 @@ export class AdminService {
   // Product deletion (SuperAdmin only)
   deleteProduct(productId: string): Observable<any> {
     return this.http.delete(`${this.apiUrl}/products/${productId}`);
+  }
+
+  // User Management
+  getUserProfile(userId: string): Observable<AdminUserProfile> {
+    return this.http.get<AdminUserProfile>(`${this.apiUrl}/users/${userId}/profile`);
+  }
+
+  banUser(userId: string): Observable<any> {
+    return this.http.post(`${this.apiUrl}/users/${userId}/ban`, {});
+  }
+
+  unbanUser(userId: string): Observable<any> {
+    return this.http.post(`${this.apiUrl}/users/${userId}/unban`, {});
+  }
+
+  deleteUser(userId: string): Observable<any> {
+    return this.http.delete(`${this.apiUrl}/users/${userId}`);
   }
 }

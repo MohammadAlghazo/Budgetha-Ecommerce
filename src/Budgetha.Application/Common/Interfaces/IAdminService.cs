@@ -20,6 +20,12 @@ public class AdminUserDto
     public string LastName { get; set; } = null!;
     public IList<string> Roles { get; set; } = new List<string>();
     public DateTimeOffset? CreatedAt { get; set; }
+    public bool IsBanned { get; set; }
+}
+
+public class AdminUserProfileDto : AdminUserDto
+{
+    public List<Budgetha.Application.Features.Products.Queries.ProductDto> Products { get; set; } = new();
 }
 
 public interface IAdminService
@@ -27,5 +33,9 @@ public interface IAdminService
     Task<AdminStatsDto> GetStatsAsync();
     Task<List<AdminUserDto>> GetRecentUsersAsync(int count);
     Task<List<AdminUserDto>> GetAllUsersAsync();
+    Task<AdminUserProfileDto?> GetUserProfileAsync(string userId);
+    Task<bool> BanUserAsync(string userId);
+    Task<bool> UnbanUserAsync(string userId);
+    Task<bool> DeleteUserAsync(string userId);
     Task<bool> DeleteProductAsync(Guid productId);
 }

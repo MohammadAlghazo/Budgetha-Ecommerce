@@ -70,4 +70,36 @@ public class AdminController : ControllerBase
         if (!result) return NotFound();
         return NoContent();
     }
+
+    [HttpGet("users/{id}/profile")]
+    public async Task<IActionResult> GetUserProfile(string id)
+    {
+        var profile = await _adminService.GetUserProfileAsync(id);
+        if (profile == null) return NotFound();
+        return Ok(profile);
+    }
+
+    [HttpPost("users/{id}/ban")]
+    public async Task<IActionResult> BanUser(string id)
+    {
+        var success = await _adminService.BanUserAsync(id);
+        if (!success) return BadRequest("Could not ban user.");
+        return Ok();
+    }
+
+    [HttpPost("users/{id}/unban")]
+    public async Task<IActionResult> UnbanUser(string id)
+    {
+        var success = await _adminService.UnbanUserAsync(id);
+        if (!success) return BadRequest("Could not unban user.");
+        return Ok();
+    }
+
+    [HttpDelete("users/{id}")]
+    public async Task<IActionResult> DeleteUser(string id)
+    {
+        var success = await _adminService.DeleteUserAsync(id);
+        if (!success) return BadRequest("Could not delete user.");
+        return Ok();
+    }
 }

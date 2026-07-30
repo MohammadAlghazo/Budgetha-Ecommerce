@@ -385,33 +385,33 @@ import { AuthService } from '../../core/services/auth.service';
           </div>
 
           <!-- Role Permissions Summary -->
-          <div class="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-5 text-white">
-            <h3 class="text-sm font-bold mb-3 text-slate-200">Your Permissions</h3>
+          <div class="bg-white border border-slate-100 shadow-sm rounded-2xl p-5">
+            <h3 class="text-sm font-bold mb-3 text-slate-900">Your Permissions</h3>
             <div class="space-y-2">
               <div class="flex items-center gap-2 text-sm">
-                <svg class="w-4 h-4 text-teal-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
-                <span class="text-slate-300">View & manage users</span>
+                <svg class="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                <span class="text-slate-600 font-medium">View & manage users</span>
               </div>
               <div class="flex items-center gap-2 text-sm">
-                <svg class="w-4 h-4 text-teal-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
-                <span class="text-slate-300">Approve/reject products</span>
+                <svg class="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                <span class="text-slate-600 font-medium">Approve/reject products</span>
               </div>
               <div class="flex items-center gap-2 text-sm">
                 @if (isSuperAdmin()) {
-                  <svg class="w-4 h-4 text-teal-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
-                  <span class="text-slate-300">Assign Admin roles</span>
+                  <svg class="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                  <span class="text-slate-600 font-medium">Assign Admin roles</span>
                 } @else {
-                  <svg class="w-4 h-4 text-slate-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                  <span class="text-slate-500">Assign roles (SuperAdmin)</span>
+                  <svg class="w-4 h-4 text-slate-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                  <span class="text-slate-400">Assign roles (SuperAdmin)</span>
                 }
               </div>
               <div class="flex items-center gap-2 text-sm">
                 @if (isSuperAdmin()) {
-                  <svg class="w-4 h-4 text-teal-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
-                  <span class="text-slate-300">Delete products</span>
+                  <svg class="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                  <span class="text-slate-600 font-medium">Delete products</span>
                 } @else {
-                  <svg class="w-4 h-4 text-slate-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                  <span class="text-slate-500">Delete products (SuperAdmin)</span>
+                  <svg class="w-4 h-4 text-slate-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                  <span class="text-slate-400">Delete products (SuperAdmin)</span>
                 }
               </div>
             </div>
