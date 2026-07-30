@@ -9,26 +9,26 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
   imports: [RouterLink, ProductCardComponent],
   template: `
     <!-- ══ Hero ══ -->
-    <section class="relative overflow-hidden bg-gradient-to-br from-violet-950 via-violet-900 to-fuchsia-900">
+    <section class="relative overflow-hidden bg-gradient-to-br from-teal-950 via-teal-900 to-teal-800">
       <!-- Decorative blurs -->
-      <div class="absolute top-0 left-1/4 w-96 h-96 bg-fuchsia-500/20 rounded-full blur-3xl"></div>
-      <div class="absolute bottom-0 right-1/4 w-80 h-80 bg-violet-400/20 rounded-full blur-3xl"></div>
-      <div class="absolute top-1/3 right-10 w-64 h-64 bg-purple-500/10 rounded-full blur-2xl"></div>
+      <div class="absolute top-0 left-1/4 w-96 h-96 bg-teal-500/20 rounded-full blur-3xl"></div>
+      <div class="absolute bottom-0 right-1/4 w-80 h-80 bg-teal-400/20 rounded-full blur-3xl"></div>
+      <div class="absolute top-1/3 right-10 w-64 h-64 bg-teal-300/10 rounded-full blur-2xl"></div>
 
       <div class="relative max-w-7xl mx-auto px-4 sm:px-6 py-16 lg:py-24 grid lg:grid-cols-2 gap-12 items-center">
         <div class="text-center lg:text-left">
-          <span class="badge bg-white/10 text-violet-200 ring-1 ring-white/20 backdrop-blur px-4 py-1.5">
+          <span class="badge bg-white/10 text-teal-200 ring-1 ring-white/20 backdrop-blur px-4 py-1.5">
             Summer Sale — up to 40% off
           </span>
           <h1 class="mt-6 text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.1]">
             Shop smarter.<br />
-            <span class="bg-gradient-to-r from-violet-300 to-fuchsia-300 bg-clip-text text-transparent">Spend wiser.</span>
+            <span class="bg-gradient-to-r from-teal-300 to-teal-100 bg-clip-text text-transparent">Spend wiser.</span>
           </h1>
-          <p class="mt-6 text-lg text-violet-200/80 leading-relaxed max-w-xl mx-auto lg:mx-0">
+          <p class="mt-6 text-lg text-teal-100/80 leading-relaxed max-w-xl mx-auto lg:mx-0">
             Discover hand-picked deals from 200+ trusted vendors. Premium quality, honest prices, delivered to your door.
           </p>
           <div class="mt-8 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
-            <a routerLink="/shop" class="btn-primary px-8 py-4 text-base shadow-lg shadow-violet-950/40">
+            <a routerLink="/shop" class="btn-primary bg-teal-600 hover:bg-teal-500 px-8 py-4 text-base shadow-lg shadow-teal-950/40">
               Shop the Collection
               <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
@@ -45,15 +45,15 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
           <div class="mt-12 grid grid-cols-3 gap-6 max-w-md mx-auto lg:mx-0">
             <div class="text-center lg:text-left">
               <div class="text-2xl font-bold text-white">50K+</div>
-              <div class="text-xs text-violet-300/70 mt-1">Happy Shoppers</div>
+              <div class="text-xs text-teal-200/70 mt-1">Happy Shoppers</div>
             </div>
             <div class="text-center lg:text-left">
               <div class="text-2xl font-bold text-white">200+</div>
-              <div class="text-xs text-violet-300/70 mt-1">Trusted Vendors</div>
+              <div class="text-xs text-teal-200/70 mt-1">Trusted Vendors</div>
             </div>
             <div class="text-center lg:text-left">
               <div class="text-2xl font-bold text-white">4.9★</div>
-              <div class="text-xs text-violet-300/70 mt-1">Average Rating</div>
+              <div class="text-xs text-teal-200/70 mt-1">Average Rating</div>
             </div>
           </div>
         </div>
@@ -61,7 +61,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
         <!-- Hero product collage -->
         <div class="hidden lg:grid grid-cols-2 gap-5 relative">
           <div class="space-y-5 pt-10">
-            <div class="card overflow-hidden rounded-3xl border-white/10 shadow-2xl shadow-violet-950/50 rotate-[-2deg] hover:rotate-0 transition-transform duration-500">
+            <div class="card overflow-hidden rounded-3xl border-white/10 shadow-2xl shadow-teal-950/50 rotate-[-2deg] hover:rotate-0 transition-transform duration-500">
               <img src="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80" alt="Wireless headphones" class="aspect-[4/5] object-cover w-full" />
             </div>
             <div class="glass-card rounded-2xl p-4 flex items-center gap-3 backdrop-blur-xl">
@@ -72,7 +72,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
               </div>
               <div>
                 <p class="text-sm font-semibold text-white">Order delivered</p>
-                <p class="text-xs text-violet-200/70">2,341 orders shipped today</p>
+                <p class="text-xs text-teal-100/70">2,341 orders shipped today</p>
               </div>
             </div>
           </div>
@@ -85,10 +85,10 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
               </div>
               <div>
                 <p class="text-sm font-semibold text-white">Rated 4.9/5</p>
-                <p class="text-xs text-violet-200/70">from 12,000+ reviews</p>
+                <p class="text-xs text-teal-100/70">from 12,000+ reviews</p>
               </div>
             </div>
-            <div class="card overflow-hidden rounded-3xl border-white/10 shadow-2xl shadow-violet-950/50 rotate-[2deg] hover:rotate-0 transition-transform duration-500">
+            <div class="card overflow-hidden rounded-3xl border-white/10 shadow-2xl shadow-teal-950/50 rotate-[2deg] hover:rotate-0 transition-transform duration-500">
               <img src="https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80" alt="Running sneakers" class="aspect-[4/5] object-cover w-full" />
             </div>
           </div>
@@ -101,8 +101,8 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       <div class="card grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 shadow-lg shadow-slate-200/60">
         @for (prop of valueProps; track prop.title) {
           <div class="flex items-center gap-4 p-6">
-            <div class="h-12 w-12 rounded-2xl bg-violet-50 flex items-center justify-center shrink-0">
-              <svg class="w-6 h-6 text-violet-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <div class="h-12 w-12 rounded-2xl bg-teal-50 flex items-center justify-center shrink-0">
+              <svg class="w-6 h-6 text-teal-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" [attr.d]="prop.icon" />
               </svg>
             </div>
@@ -122,7 +122,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
           <h2 class="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Shop by Category</h2>
           <p class="mt-1.5 text-sm text-slate-500">Browse our most popular departments</p>
         </div>
-        <a routerLink="/shop" class="hidden sm:inline-flex items-center gap-1 text-sm font-semibold text-violet-600 hover:text-violet-500 transition-colors duration-300">
+        <a routerLink="/shop" class="hidden sm:inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors duration-300">
           View all
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
@@ -137,12 +137,12 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
             [queryParams]="{ category: category.slug }"
             class="group flex flex-col items-center text-center">
             <div class="relative w-full aspect-square max-w-[8.5rem] rounded-full overflow-hidden ring-4 ring-transparent
-                        group-hover:ring-violet-200 shadow-md shadow-slate-200/80 transition-all duration-300">
+                        group-hover:ring-teal-200 shadow-md shadow-slate-200/80 transition-all duration-300">
               <img [src]="category.image" [alt]="category.name" loading="lazy"
                    class="h-full w-full object-cover group-hover:scale-110 transition-transform duration-500" />
-              <div class="absolute inset-0 bg-violet-900/0 group-hover:bg-violet-900/20 transition-colors duration-300"></div>
+              <div class="absolute inset-0 bg-teal-900/0 group-hover:bg-teal-900/20 transition-colors duration-300"></div>
             </div>
-            <span class="mt-3 text-sm font-semibold text-slate-800 group-hover:text-violet-600 transition-colors duration-300">{{ category.name }}</span>
+            <span class="mt-3 text-sm font-semibold text-slate-800 group-hover:text-teal-600 transition-colors duration-300">{{ category.name }}</span>
             <span class="text-xs text-slate-400">{{ category.productCount }} items</span>
           </a>
         }
@@ -156,7 +156,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
           <h2 class="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Featured Deals</h2>
           <p class="mt-1.5 text-sm text-slate-500">Hand-picked favorites at their best prices</p>
         </div>
-        <a routerLink="/shop" [queryParams]="{ deals: 1 }" class="hidden sm:inline-flex items-center gap-1 text-sm font-semibold text-violet-600 hover:text-violet-500 transition-colors duration-300">
+        <a routerLink="/shop" [queryParams]="{ deals: 1 }" class="hidden sm:inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors duration-300">
           All deals
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
@@ -173,17 +173,17 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
 
     <!-- ══ Promo banner ══ -->
     <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20">
-      <div class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-violet-700 to-fuchsia-700 px-8 py-12 sm:px-14 sm:py-16">
+      <div class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-teal-700 to-teal-800 px-8 py-12 sm:px-14 sm:py-16">
         <div class="absolute -top-16 -right-16 w-64 h-64 bg-white/10 rounded-full blur-2xl"></div>
-        <div class="absolute -bottom-20 left-1/4 w-72 h-72 bg-fuchsia-400/20 rounded-full blur-3xl"></div>
+        <div class="absolute -bottom-20 left-1/4 w-72 h-72 bg-teal-400/20 rounded-full blur-3xl"></div>
         <div class="relative max-w-xl">
           <span class="badge bg-white/15 text-white ring-1 ring-white/25 px-3 py-1">Limited time</span>
           <h2 class="mt-4 text-3xl sm:text-4xl font-extrabold text-white tracking-tight">Get 20% off your next order</h2>
-          <p class="mt-3 text-violet-100/90 leading-relaxed">
+          <p class="mt-3 text-teal-50/90 leading-relaxed">
             Apply code <span class="font-bold bg-white/15 rounded-md px-2 py-0.5 tracking-wider">SAVE20</span> at checkout on any order. New arrivals included.
           </p>
-          <a routerLink="/shop" class="mt-7 inline-flex items-center justify-center rounded-xl bg-white px-7 py-3.5 text-sm font-bold text-violet-700
-                                       hover:bg-violet-50 shadow-lg shadow-violet-950/30 transition-all duration-300">
+          <a routerLink="/shop" class="mt-7 inline-flex items-center justify-center rounded-xl bg-white px-7 py-3.5 text-sm font-bold text-teal-700
+                                       hover:bg-teal-50 shadow-lg shadow-teal-950/30 transition-all duration-300">
             Claim the Deal
           </a>
         </div>
@@ -197,7 +197,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
           <h2 class="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">New Arrivals</h2>
           <p class="mt-1.5 text-sm text-slate-500">Fresh drops, just landed</p>
         </div>
-        <a routerLink="/shop" [queryParams]="{ sort: 'newest' }" class="hidden sm:inline-flex items-center gap-1 text-sm font-semibold text-violet-600 hover:text-violet-500 transition-colors duration-300">
+        <a routerLink="/shop" [queryParams]="{ sort: 'newest' }" class="hidden sm:inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors duration-300">
           View all
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />

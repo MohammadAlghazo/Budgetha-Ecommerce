@@ -85,6 +85,9 @@ export class ProductService {
   priceBounds(): Observable<{ min: number; max: number }> {
     return this.getAll().pipe(
       map(items => {
+        if (!items || items.length === 0) {
+          return { min: 0, max: 1000 };
+        }
         const prices = items.map(p => p.price);
         return { min: Math.floor(Math.min(...prices)), max: Math.ceil(Math.max(...prices)) };
       })

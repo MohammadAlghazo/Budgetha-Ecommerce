@@ -1,8 +1,35 @@
 import { Routes, Router } from '@angular/router';
 import { inject } from '@angular/core';
 import { authGuard } from './core/guards/auth.guard';
+import { adminGuard } from './core/guards/admin.guard';
+import { sellerGuard } from './core/guards/seller.guard';
 
 export const routes: Routes = [
+  // --- Admin routes ---
+  {
+    path: 'admin',
+    loadComponent: () => import('./features/admin/admin-layout.component').then(m => m.AdminLayoutComponent),
+    canActivate: [adminGuard],
+    children: [
+      { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
+      { path: 'dashboard', loadComponent: () => import('./features/admin/admin-dashboard.component').then(m => m.AdminDashboardComponent) },
+      { path: 'users', loadComponent: () => import('./features/admin/admin-users.component').then(m => m.AdminUsersComponent) },
+      { path: 'products', loadComponent: () => import('./features/admin/admin-products.component').then(m => m.AdminProductsComponent) }
+    ]
+  },
+
+  // --- Seller routes ---
+  {
+    path: 'seller',
+    loadComponent: () => import('./features/seller/seller-layout.component').then(m => m.SellerLayoutComponent),
+    canActivate: [sellerGuard],
+    children: [
+      { path: '', redirectTo: 'products', pathMatch: 'full' },
+      { path: 'products', loadComponent: () => import('./features/seller/seller-products.component').then(m => m.SellerProductsComponent) },
+      { path: 'add-product', loadComponent: () => import('./features/seller/add-product.component').then(m => m.AddProductComponent) }
+    ]
+  },
+
   // --- Auth routes (declared BEFORE the shell so they resolve before the
   //     shell's `**` wildcard child, which would otherwise swallow them). ---
   {

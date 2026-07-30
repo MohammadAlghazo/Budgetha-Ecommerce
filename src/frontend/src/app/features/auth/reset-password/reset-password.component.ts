@@ -14,13 +14,9 @@ import { ToastService } from '../../../core/services/toast.service';
       <div class="w-full max-w-[420px]">
         <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 sm:p-10">
           <!-- Logo -->
-          <div class="flex items-center gap-3 mb-8">
-            <div class="w-10 h-10 bg-violet-600 rounded-xl flex items-center justify-center">
-              <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-              </svg>
-            </div>
-            <span class="text-xl font-bold text-slate-900 tracking-tight">Budgetha</span>
+          <div class="flex items-center justify-center sm:justify-start gap-2 mb-8 sm:-ml-2">
+            <img src="/images/logo.png" alt="Budgetha" class="h-16 w-auto object-contain" />
+            <span class="text-3xl font-black text-slate-900 tracking-tighter" style="font-family: 'Outfit', sans-serif; padding-top: 4px;">Budgetha</span>
           </div>
 
           <div class="mb-6">

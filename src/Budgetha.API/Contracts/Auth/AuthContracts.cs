@@ -29,6 +29,10 @@ public record AuthResponse(
     string? Token,
     DateTime? Expiration,
     string? UserId,
+    string? Email,
+    string? FirstName,
+    string? LastName,
+    IList<string>? Roles,
     IEnumerable<string>? Errors);
 
 public record AssignRoleRequest(

@@ -37,6 +37,54 @@ public class ProductsController : ControllerBase
         return Ok(result);
     }
 
+    [Authorize(Roles = "Seller,Admin,SuperAdmin")]
+    [HttpPost]
+    public async Task<ActionResult<Guid>> CreateProduct([FromBody] CreateProductRequest request)
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+        var command = new CreateProductCommand(
+            request.Name,
+            request.Description,
+            request.Price,
+            request.StockQuantity,
+            request.CategoryId,
+            request.ImageUrls ?? new List<string>(),
+            request.IsAvailableForRent,
+            request.RentalPricePerDay,
+            userId
+        );
+
+        var productId = await _mediator.Send(command);
+        return Ok(productId);
+    }
+
+    [Authorize(Roles = "Seller")]
+    [HttpGet("my-products")]
+    public async Task<ActionResult<CatalogResultDto>> GetMyProducts([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+        var query = new GetProductsQuery(
+            Search: null,
+            Categories: null,
+            Brands: null,
+            MinPrice: 0,
+            MaxPrice: int.MaxValue,
+            MinRating: 0,
+            Sort: "newest",
+            Page: page,
+            PageSize: pageSize,
+            Status: null, // Get all statuses for this seller
+            SellerId: userId
+        );
+
+        var result = await _mediator.Send(query);
+        return Ok(result);
+    }
+
     [Authorize(Roles = "Admin,SuperAdmin")]
     [HttpPatch("{id:guid}/approve")]
     public async Task<ActionResult> ApproveProduct(Guid id, [FromBody] ApprovalStatus status)
@@ -46,3 +94,14 @@ public class ProductsController : ControllerBase
         return NoContent();
     }
 }
+
+public record CreateProductRequest(
+    string Name,
+    string Description,
+    decimal Price,
+    int StockQuantity,
+    Guid CategoryId,
+    List<string> ImageUrls,
+    bool IsAvailableForRent,
+    decimal? RentalPricePerDay
+);

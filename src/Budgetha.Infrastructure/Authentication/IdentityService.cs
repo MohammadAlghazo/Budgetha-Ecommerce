@@ -42,7 +42,8 @@ public class IdentityService : IIdentityService
         await _userManager.AddToRoleAsync(user, "User");
 
         var (token, expiration) = await _tokenService.GenerateTokenAsync(user);
-        return AuthResult.Success(token, expiration, user.Id);
+        var roles = await _userManager.GetRolesAsync(user);
+        return AuthResult.Success(token, expiration, user.Id, user.Email!, user.FirstName, user.LastName, roles);
     }
 
     public async Task<AuthResult> LoginAsync(string email, string password)
@@ -58,7 +59,8 @@ public class IdentityService : IIdentityService
             return AuthResult.Failure("Invalid email or password.");
 
         var (token, expiration) = await _tokenService.GenerateTokenAsync(user);
-        return AuthResult.Success(token, expiration, user.Id);
+        var roles = await _userManager.GetRolesAsync(user);
+        return AuthResult.Success(token, expiration, user.Id, user.Email!, user.FirstName, user.LastName, roles);
     }
 
     public async Task<string> GenerateEmailConfirmationTokenAsync(string userId)
@@ -148,6 +150,7 @@ public class IdentityService : IIdentityService
         }
 
         var (token, expiration) = await _tokenService.GenerateTokenAsync(user);
-        return AuthResult.Success(token, expiration, user.Id);
+        var roles = await _userManager.GetRolesAsync(user);
+        return AuthResult.Success(token, expiration, user.Id, user.Email!, user.FirstName, user.LastName, roles);
     }
 }

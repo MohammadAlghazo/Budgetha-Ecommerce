@@ -2,6 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .animate-gradient-slow {
+    animation: gradientShift 15s ease infinite;
+  }
+  
+  @keyframes gradientShift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  .animate-pan-bg {
+    animation: panBg 40s linear infinite;
+  }
+
+  @keyframes panBg {
+    0% { background-position: 0px 0px; }
+    100% { background-position: 100px 100px; }
+  }
+}
+
 /* ── Global resets ── */
 
 * {

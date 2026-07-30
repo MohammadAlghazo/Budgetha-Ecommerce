@@ -15,7 +15,8 @@ public record GetProductsQuery(
     string? Sort,
     int Page,
     int PageSize,
-    ApprovalStatus? Status = ApprovalStatus.Approved) : IRequest<CatalogResultDto>;
+    ApprovalStatus? Status = ApprovalStatus.Approved,
+    string? SellerId = null) : IRequest<CatalogResultDto>;
 
 public class CatalogResultDto
 {
@@ -40,6 +41,11 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
         if (request.Status.HasValue)
         {
             query = query.Where(p => p.ApprovalStatus == request.Status.Value);
+        }
+
+        if (!string.IsNullOrEmpty(request.SellerId))
+        {
+            query = query.Where(p => p.SellerId == request.SellerId);
         }
 
         if (!string.IsNullOrWhiteSpace(request.Search))

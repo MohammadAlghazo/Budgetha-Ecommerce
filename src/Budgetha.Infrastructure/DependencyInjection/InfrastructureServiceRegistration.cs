@@ -69,6 +69,7 @@ public static class InfrastructureServiceRegistration
 
         services.AddScoped<TokenService>();
         services.AddScoped<IIdentityService, IdentityService>();
+        services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<IDateTimeService, DateTimeService>();
 
         services.Configure<CloudinarySettings>(configuration.GetSection(CloudinarySettings.SectionName));

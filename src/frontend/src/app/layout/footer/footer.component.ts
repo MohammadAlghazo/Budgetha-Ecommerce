@@ -33,13 +33,11 @@ import { PwaService } from '../../core/services/pwa.service';
       <!-- Link columns -->
       <div class="max-w-7xl mx-auto px-4 sm:px-6 py-12 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-8">
         <div class="col-span-2 lg:col-span-2">
-          <div class="flex items-center gap-2.5">
-            <div class="w-9 h-9 bg-gradient-to-br from-violet-600 to-fuchsia-600 rounded-xl flex items-center justify-center">
-              <svg class="w-4.5 h-4.5 w-[18px] h-[18px] text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
-              </svg>
+          <div class="flex items-center gap-3 mb-6">
+            <div class="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg flex-shrink-0 overflow-hidden">
+              <img src="/images/logo.png" alt="Budgetha" class="h-10 w-auto object-contain" />
             </div>
-            <span class="text-lg font-bold text-white tracking-tight">Budgetha</span>
+            <span class="text-3xl font-black text-white tracking-tighter" style="font-family: 'Outfit', sans-serif;">Budgetha</span>
           </div>
           <p class="mt-4 text-sm text-slate-400 leading-relaxed max-w-xs">
             Shop smarter, spend wiser. Budgetha brings the best deals from 200+ trusted vendors into one beautiful storefront.

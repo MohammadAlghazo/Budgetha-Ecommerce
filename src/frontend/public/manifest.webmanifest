@@ -10,8 +10,8 @@
   "orientation": "portrait-primary",
   "scope": "/",
   "start_url": "/?source=pwa",
-  "theme_color": "#7c3aed",
-  "background_color": "#f8fafc",
+  "theme_color": "#0f766e",
+  "background_color": "#ffffff",
   "categories": ["shopping", "lifestyle"],
   "prefer_related_applications": false,
   "icons": [

@@ -1,4 +1,4 @@
-import { Component, signal, NgZone, inject } from '@angular/core';
+import { Component, signal, NgZone, inject, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators, AbstractControl, ValidationErrors } from '@angular/forms';
 import { RouterLink, Router, ActivatedRoute } from '@angular/router';
@@ -32,7 +32,30 @@ export class RegisterComponent {
   loading = signal(false);
   showPassword = signal(false);
   showConfirmPassword = signal(false);
+  currentCardIndex = signal(0);
+  readonly totalCards = 4;
 
+  prevCard(): void {
+    this.currentCardIndex.update(i => (i - 1 + this.totalCards) % this.totalCards);
+  }
+
+  nextCard(): void {
+    this.currentCardIndex.update(i => (i + 1) % this.totalCards);
+  }
+
+  getCardStyle(index: number) {
+    const diff = (index - this.currentCardIndex() + this.totalCards) % this.totalCards;
+    
+    if (diff === 0) {
+      return { transform: 'translateX(0) scale(1)', zIndex: 30, opacity: 1, visibility: 'visible' };
+    } else if (diff === 1) {
+      return { transform: 'translateX(60%) scale(0.85)', zIndex: 20, opacity: 0.5, visibility: 'visible' };
+    } else if (diff === this.totalCards - 1) {
+      return { transform: 'translateX(-60%) scale(0.85)', zIndex: 20, opacity: 0.5, visibility: 'visible' };
+    } else {
+      return { transform: 'translateX(0) scale(0.7)', zIndex: 10, opacity: 0, visibility: 'hidden' };
+    }
+  }
   /** Same contract as the login page — resume whatever the guard interrupted. */
   private get returnUrl(): string {
     const target = this.route.snapshot.queryParamMap.get('returnUrl');

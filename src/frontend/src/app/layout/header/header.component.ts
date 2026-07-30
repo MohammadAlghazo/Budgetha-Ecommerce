@@ -13,7 +13,7 @@ import { InstallButtonComponent } from '../../shared/components/install-button/i
   imports: [RouterLink, RouterLinkActive, FormsModule, InstallButtonComponent],
   template: `
     <!-- Announcement bar -->
-    <div class="bg-gradient-to-r from-violet-700 via-violet-600 to-fuchsia-600 text-white text-center text-xs sm:text-sm font-medium py-2 px-4">
+    <div class="bg-gradient-to-r from-teal-800 via-teal-700 to-teal-900 text-white text-center text-xs sm:text-sm font-medium py-2 px-4">
       Free shipping on orders over $75 · Use code <span class="font-bold tracking-wide">WELCOME10</span> for 10% off your first order
     </div>
 
@@ -39,13 +39,9 @@ import { InstallButtonComponent } from '../../shared/components/install-button/i
               }
             </button>
 
-            <a routerLink="/" class="flex items-center gap-2.5" aria-label="Budgetha home">
-              <div class="w-10 h-10 bg-gradient-to-br from-violet-600 to-fuchsia-600 rounded-xl flex items-center justify-center shadow-md shadow-violet-600/30">
-                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-                </svg>
-              </div>
-              <span class="text-xl font-bold text-slate-900 tracking-tight hidden sm:block">Budgetha</span>
+            <a routerLink="/" class="flex items-center gap-2 group -ml-3">
+              <img src="/images/logo.png" alt="Budgetha" class="h-16 w-auto object-contain" />
+              <span class="text-3xl font-black text-slate-900 tracking-tighter hidden sm:block" style="font-family: 'Outfit', sans-serif; padding-top: 4px;">Budgetha</span>
             </a>
           </div>
 
@@ -55,9 +51,9 @@ import { InstallButtonComponent } from '../../shared/components/install-button/i
               <a
                 [routerLink]="link.path"
                 [queryParams]="link.query"
-                routerLinkActive="text-violet-700 bg-violet-50"
+                routerLinkActive="text-teal-700 bg-teal-50"
                 [routerLinkActiveOptions]="{ exact: link.exact }"
-                class="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-violet-700 hover:bg-violet-50 transition-all duration-300">
+                class="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 transition-all duration-300">
                 {{ link.label }}
               </a>
             }
@@ -80,8 +76,8 @@ import { InstallButtonComponent } from '../../shared/components/install-button/i
                 placeholder="Search products…"
                 aria-label="Search products"
                 class="w-44 lg:w-64 rounded-full border border-slate-200 bg-slate-50/70 pl-10 pr-4 py-2.5 text-sm
-                       placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20
-                       focus:border-violet-500 focus:bg-white transition-all duration-300" />
+                       placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20
+                       focus:border-teal-500 focus:bg-white transition-all duration-300" />
             </form>
 
             <!-- Wishlist -->
@@ -102,7 +98,7 @@ import { InstallButtonComponent } from '../../shared/components/install-button/i
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
               </svg>
               @if (cartCount() > 0) {
-                <span class="absolute -top-0.5 -right-0.5 h-5 min-w-5 px-1 rounded-full bg-violet-600 text-white text-[11px] font-bold flex items-center justify-center">
+                <span class="absolute -top-0.5 -right-0.5 h-5 min-w-5 px-1 rounded-full bg-teal-600 text-white text-[11px] font-bold flex items-center justify-center">
                   {{ cartCount() }}
                 </span>
               }
@@ -113,11 +109,11 @@ import { InstallButtonComponent } from '../../shared/components/install-button/i
               <div class="relative">
                 <button
                   type="button"
-                  (click)="userMenuOpen.set(!userMenuOpen()); $event.stopPropagation()"
+                  (click)="toggleUserMenu($event)"
                   [attr.aria-expanded]="userMenuOpen()"
                   aria-label="Account menu"
                   class="flex items-center gap-2 rounded-full pl-1 pr-1 sm:pr-3 py-1 hover:bg-slate-100 transition-colors duration-300">
-                  <span class="h-8 w-8 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white text-xs font-bold flex items-center justify-center">
+                  <span class="h-8 w-8 rounded-full bg-gradient-to-br from-teal-500 to-teal-700 text-white text-xs font-bold flex items-center justify-center">
                     {{ initials() }}
                   </span>
                   <svg class="hidden sm:block w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -131,11 +127,19 @@ import { InstallButtonComponent } from '../../shared/components/install-button/i
                       <p class="text-sm font-semibold text-slate-900 truncate">{{ auth.user()?.firstName }} {{ auth.user()?.lastName }}</p>
                       <p class="text-xs text-slate-400 truncate">{{ auth.user()?.email }}</p>
                     </div>
+                    @if (auth.user()?.roles?.includes('Admin') || auth.user()?.roles?.includes('SuperAdmin')) {
+                      <a
+                        routerLink="/admin"
+                        (click)="userMenuOpen.set(false)"
+                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors duration-200 mb-1 font-medium">
+                        Admin Dashboard
+                      </a>
+                    }
                     @for (item of accountLinks; track item.path) {
                       <a
                         [routerLink]="item.path"
                         (click)="userMenuOpen.set(false)"
-                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-violet-50 hover:text-violet-700 transition-colors duration-200">
+                        class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-teal-50 hover:text-teal-700 transition-colors duration-200">
                         {{ item.label }}
                       </a>
                     }
@@ -151,7 +155,7 @@ import { InstallButtonComponent } from '../../shared/components/install-button/i
             } @else {
               <a
                 routerLink="/auth/login"
-                class="hidden sm:inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:text-violet-700 hover:bg-violet-50 transition-all duration-300">
+                class="hidden sm:inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 transition-all duration-300">
                 Sign in
               </a>
               <a routerLink="/auth/register" class="btn-primary px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm ml-1">Sign up</a>
@@ -171,8 +175,8 @@ import { InstallButtonComponent } from '../../shared/components/install-button/i
             placeholder="Search products…"
             aria-label="Search products"
             class="w-full rounded-full border border-slate-200 bg-slate-50/70 pl-10 pr-4 py-2.5 text-sm
-                   placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20
-                   focus:border-violet-500 focus:bg-white transition-all duration-300" />
+                   placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20
+                   focus:border-teal-500 focus:bg-white transition-all duration-300" />
         </form>
       </div>
 
@@ -184,9 +188,9 @@ import { InstallButtonComponent } from '../../shared/components/install-button/i
               [routerLink]="link.path"
               [queryParams]="link.query"
               (click)="mobileMenuOpen.set(false)"
-              routerLinkActive="text-violet-700 bg-violet-50"
+              routerLinkActive="text-teal-700 bg-teal-50"
               [routerLinkActiveOptions]="{ exact: link.exact }"
-              class="block px-4 py-3 rounded-xl text-sm font-medium text-slate-700 hover:bg-violet-50 hover:text-violet-700 transition-colors duration-200">
+              class="block px-4 py-3 rounded-xl text-sm font-medium text-slate-700 hover:bg-teal-50 hover:text-teal-700 transition-colors duration-200">
               {{ link.label }}
             </a>
           }
@@ -202,7 +206,7 @@ import { InstallButtonComponent } from '../../shared/components/install-button/i
             <button
               type="button"
               (click)="installApp()"
-              class="mt-2 w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 transition-colors duration-200">
+              class="mt-2 w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition-colors duration-200">
               <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v13.5m0 0l4.5-4.5M12 16.5L7.5 12M3.75 18.75h16.5" />
               </svg>
@@ -256,6 +260,11 @@ export class HeaderComponent {
   @HostListener('document:click')
   closeMenus(): void {
     this.userMenuOpen.set(false);
+  }
+
+  toggleUserMenu(event: Event): void {
+    event.stopPropagation();
+    this.userMenuOpen.update(v => !v);
   }
 
   submitSearch(event: Event): void {

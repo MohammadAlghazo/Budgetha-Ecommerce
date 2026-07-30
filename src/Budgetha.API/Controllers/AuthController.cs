@@ -26,9 +26,9 @@ public class AuthController : ControllerBase
             request.Email, request.Password, request.FirstName, request.LastName);
 
         if (!result.Succeeded)
-            return BadRequest(new AuthResponse(false, null, null, null, result.Errors));
+            return BadRequest(new AuthResponse(false, null, null, null, null, null, null, null, result.Errors));
 
-        return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, null));
+        return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, result.Email, result.FirstName, result.LastName, result.Roles, null));
     }
 
     [HttpPost("login")]
@@ -37,9 +37,9 @@ public class AuthController : ControllerBase
         var result = await _identityService.LoginAsync(request.Email, request.Password);
 
         if (!result.Succeeded)
-            return Unauthorized(new AuthResponse(false, null, null, null, result.Errors));
+            return Unauthorized(new AuthResponse(false, null, null, null, null, null, null, null, result.Errors));
 
-        return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, null));
+        return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, result.Email, result.FirstName, result.LastName, result.Roles, null));
     }
 
     [HttpPost("forgot-password")]
@@ -119,13 +119,13 @@ public class AuthController : ControllerBase
                 payload.FamilyName ?? "");
 
             if (!result.Succeeded)
-                return BadRequest(new AuthResponse(false, null, null, null, result.Errors));
+                return BadRequest(new AuthResponse(false, null, null, null, null, null, null, null, result.Errors));
 
-            return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, null));
+            return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, result.Email, result.FirstName, result.LastName, result.Roles, null));
         }
         catch (InvalidJwtException)
         {
-            return Unauthorized(new AuthResponse(false, null, null, null, new[] { "Invalid Google token." }));
+            return Unauthorized(new AuthResponse(false, null, null, null, null, null, null, null, new[] { "Invalid Google token." }));
         }
     }
 }
