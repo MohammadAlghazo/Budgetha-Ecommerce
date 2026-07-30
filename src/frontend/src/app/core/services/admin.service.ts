@@ -1,7 +1,8 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { TransactionHistoryDto } from '../../features/admin/admin-logs.component';
 
 export interface AdminStats {
   totalUsers: number;
@@ -99,5 +100,13 @@ export class AdminService {
 
   deleteUser(userId: string): Observable<any> {
     return this.http.delete(`${this.apiUrl}/users/${userId}`);
+  }
+
+  getTransactionHistory(type: string, startDate?: string, endDate?: string): Observable<TransactionHistoryDto[]> {
+    let params = new HttpParams().set('type', type);
+    if (startDate) params = params.set('startDate', startDate);
+    if (endDate) params = params.set('endDate', endDate);
+
+    return this.http.get<TransactionHistoryDto[]>(`${environment.apiUrl}/orders/history`, { params });
   }
 }

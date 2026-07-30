@@ -19,7 +19,8 @@ export const routes: Routes = [
       { path: 'add-product', loadComponent: () => import('./features/admin/admin-add-product.component').then(m => m.AdminAddProductComponent) },
       { path: 'categories', loadComponent: () => import('./features/admin/admin-categories.component').then(m => m.AdminCategoriesComponent) },
       { path: 'seller-requests', loadComponent: () => import('./features/admin/admin-seller-requests.component').then(m => m.AdminSellerRequestsComponent) },
-      { path: 'announcements', loadComponent: () => import('./features/admin/admin-announcements.component').then(m => m.AdminAnnouncementsComponent) }
+      { path: 'announcements', loadComponent: () => import('./features/admin/admin-announcements.component').then(m => m.AdminAnnouncementsComponent) },
+      { path: 'logs', loadComponent: () => import('./features/admin/admin-logs.component').then(m => m.AdminLogsComponent) }
     ]
   },
 

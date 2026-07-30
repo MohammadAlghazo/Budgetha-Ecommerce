@@ -112,7 +112,17 @@ export class RegisterComponent {
         
         
         this.toastService.success('Your account is ready. Welcome to Budgetha!');
-        this.router.navigateByUrl(this.returnUrl);
+        
+        const u = this.authService.user();
+        let target = this.returnUrl;
+        const isAdminRoute = target.startsWith('/admin');
+        const hasAdminPrivileges = u?.roles?.includes('Admin') || u?.roles?.includes('SuperAdmin') || u?.roles?.includes('Seller');
+        
+        if (isAdminRoute && !hasAdminPrivileges) {
+          target = '/';
+        }
+        
+        this.router.navigateByUrl(target);
       },
       error: () => {
         this.loading.set(false);
@@ -135,7 +145,17 @@ export class RegisterComponent {
             next: () => {
               this.loading.set(false);
               this.toastService.success('Signed up with Google.');
-              this.router.navigateByUrl(this.returnUrl);
+              
+              const u = this.authService.user();
+              let target = this.returnUrl;
+              const isAdminRoute = target.startsWith('/admin');
+              const hasAdminPrivileges = u?.roles?.includes('Admin') || u?.roles?.includes('SuperAdmin') || u?.roles?.includes('Seller');
+              
+              if (isAdminRoute && !hasAdminPrivileges) {
+                target = '/';
+              }
+              
+              this.router.navigateByUrl(target);
             },
             error: () => {
               this.loading.set(false);

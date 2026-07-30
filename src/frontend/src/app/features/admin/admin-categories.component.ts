@@ -100,6 +100,14 @@ import { DatePipe, NgIf } from '@angular/common';
       }
 
       <!-- Categories List -->
+      @if (isLoading()) {
+        <div class="py-12 text-center">
+          <div class="flex flex-col items-center justify-center gap-3">
+            <div class="w-8 h-8 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+            <p class="text-sm text-slate-500 font-medium">Loading categories...</p>
+          </div>
+        </div>
+      } @else {
       <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         @for (category of categories(); track category.id) {
           <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col items-center text-center hover:shadow-md transition-shadow">
@@ -116,6 +124,7 @@ import { DatePipe, NgIf } from '@angular/common';
           </div>
         }
       </div>
+      }
 
     </div>
   `
@@ -129,6 +138,7 @@ export class AdminCategoriesComponent implements OnInit {
   categories = signal<Category[]>([]);
   isAdding = signal(false);
   isSubmitting = signal(false);
+  isLoading = signal(true);
   imageUrl = signal<string | null>(null);
 
   form = this.fb.group({
@@ -152,8 +162,17 @@ export class AdminCategoriesComponent implements OnInit {
   }
 
   loadCategories() {
-    this.productService.getCategories().subscribe(res => {
-      this.categories.set(res);
+    this.isLoading.set(true);
+    this.productService.getCategories().subscribe({
+      next: (res) => {
+        this.categories.set(res || []);
+        this.isLoading.set(false);
+      },
+      error: (err) => {
+        console.error('Failed to load categories:', err);
+        this.isLoading.set(false);
+        this.categories.set([]);
+      }
     });
   }
 

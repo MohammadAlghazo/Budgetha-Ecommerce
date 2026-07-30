@@ -22,6 +22,8 @@ public static class InfrastructureServiceRegistration
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("Missing connection string 'DefaultConnection'.");
 
+        services.AddMemoryCache();
+
         services.AddDbContext<ApplicationDbContext>(options =>
             options.UseNpgsql(connectionString, npgsql =>
                 npgsql.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName)));

@@ -23,12 +23,10 @@ public class GetSellerRequestsQuery : IRequest<List<SellerRequestDto>>
 public class GetSellerRequestsQueryHandler : IRequestHandler<GetSellerRequestsQuery, List<SellerRequestDto>>
 {
     private readonly IApplicationDbContext _context;
-    private readonly IAdminService _adminService;
 
-    public GetSellerRequestsQueryHandler(IApplicationDbContext context, IAdminService adminService)
+    public GetSellerRequestsQueryHandler(IApplicationDbContext context)
     {
         _context = context;
-        _adminService = adminService;
     }
 
     public async Task<List<SellerRequestDto>> Handle(GetSellerRequestsQuery request, CancellationToken cancellationToken)
@@ -40,25 +38,22 @@ public class GetSellerRequestsQueryHandler : IRequestHandler<GetSellerRequestsQu
             query = query.Where(r => r.Status == request.Status);
         }
 
-        var requests = await query.OrderByDescending(r => r.Created).ToListAsync(cancellationToken);
-        
-        var userIds = requests.Select(r => r.UserId).Distinct().ToList();
-        var users = await _adminService.GetUsersByIdsAsync(userIds);
-
-        var result = requests.Select(r =>
-        {
-            var user = users.FirstOrDefault(u => u.Id == r.UserId);
-            return new SellerRequestDto
-            {
-                Id = r.Id,
-                UserId = r.UserId,
-                Email = user?.Email ?? "Unknown",
-                FullName = user != null ? $"{user.FirstName} {user.LastName}" : "Unknown",
-                Status = r.Status,
-                Reason = r.Reason,
-                Created = r.Created
-            };
-        }).ToList();
+        var result = await query
+            .OrderByDescending(r => r.Created)
+            .Join(_context.Users, 
+                  r => r.UserId, 
+                  u => u.Id, 
+                  (r, u) => new SellerRequestDto
+                  {
+                      Id = r.Id,
+                      UserId = r.UserId,
+                      Email = u.Email ?? "Unknown",
+                      FullName = u.FirstName + " " + u.LastName,
+                      Status = r.Status,
+                      Reason = r.Reason,
+                      Created = r.Created
+                  })
+            .ToListAsync(cancellationToken);
 
         return result;
     }

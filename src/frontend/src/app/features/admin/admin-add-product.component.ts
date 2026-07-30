@@ -7,12 +7,11 @@ import { ProductService } from '../../core/services/product.service';
 import { CloudinaryService } from '../../core/services/cloudinary.service';
 import { Category } from '../../core/models/shop.models';
 import { environment } from '../../../environments/environment';
-import { ImageCroppedEvent, ImageCropperComponent } from 'ngx-image-cropper';
 import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 
 @Component({
   selector: 'app-admin-add-product',
-  imports: [ReactiveFormsModule, RouterLink, ImageCropperComponent],
+  imports: [ReactiveFormsModule, RouterLink],
   template: `
     <div class="max-w-4xl mx-auto space-y-6 pb-20">
       <div>
@@ -119,7 +118,7 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
             
             <!-- Upload Area -->
             <div class="relative group">
-              <input type="file" (change)="onFileSelected($event)" accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" [disabled]="isUploadingImage()">
+              <input type="file" multiple (change)="onFileSelected($event)" accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" [disabled]="isUploadingImage()">
               <div class="w-full border-2 border-dashed rounded-2xl p-8 text-center transition-all"
                    [class.border-indigo-300]="!isUploadingImage()"
                    [class.bg-indigo-50]="!isUploadingImage()"
@@ -149,8 +148,8 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
             @if (uploadedImages().length > 0) {
               <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-6">
                 @for (img of uploadedImages(); track img; let i = $index) {
-                  <div class="group relative aspect-square rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 shadow-sm">
-                    <img [src]="img" alt="Product Image" class="w-full h-full object-cover">
+                  <div class="group relative aspect-square rounded-2xl overflow-hidden bg-white border border-slate-200 shadow-sm p-1">
+                    <img [src]="img" alt="Product Image" class="w-full h-full object-contain rounded-xl">
                     <!-- Delete Button -->
                     <button type="button" (click)="removeImage(i)" 
                             class="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/90 text-rose-500 shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-50 hover:text-rose-600 focus:outline-none">
@@ -193,41 +192,22 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
       </div>
     </div>
 
-    <!-- Cropper Modal -->
-    @if (imageChangedEvent()) {
-      <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-200">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-          
+    <!-- Image Editor Modal -->
+    @if (editingFile()) {
+      <div class="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="relative w-full h-full max-w-6xl max-h-[90vh] bg-white rounded-2xl overflow-hidden shadow-2xl flex flex-col">
           <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
-            <h3 class="text-lg font-bold text-slate-900">Crop & Edit Image</h3>
-            <button type="button" (click)="cancelCrop()" class="text-slate-400 hover:text-slate-600 transition-colors">
-              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-            </button>
+            <h3 class="text-lg font-bold text-slate-900">Advanced Image Editor</h3>
+            <div class="flex items-center gap-3">
+              <button type="button" (click)="closeEditor()" class="px-5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+                Cancel
+              </button>
+              <button type="button" (click)="saveAndUpload()" class="px-6 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-sm shadow-indigo-200">
+                Save & Upload
+              </button>
+            </div>
           </div>
-          
-          <div class="p-6 bg-slate-100 flex-1 overflow-auto flex flex-col items-center justify-center min-h-[300px]">
-            <!-- ngx-image-cropper component -->
-            <image-cropper
-              [imageChangedEvent]="imageChangedEvent()"
-              [maintainAspectRatio]="true"
-              [aspectRatio]="1 / 1"
-              format="jpeg"
-              (imageCropped)="imageCropped($event)"
-              class="max-h-[50vh]">
-            </image-cropper>
-          </div>
-          
-          <div class="px-6 py-4 border-t border-slate-100 bg-white flex items-center justify-end gap-3 flex-shrink-0">
-            <button type="button" (click)="cancelCrop()" class="px-5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
-              Cancel
-            </button>
-            <button type="button" (click)="confirmCropAndUpload()"
-                    class="inline-flex items-center gap-2 px-6 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-sm shadow-indigo-200">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-              Crop & Upload
-            </button>
-          </div>
-
+          <div id="filerobot-editor-container" class="w-full flex-1"></div>
         </div>
       </div>
     }
@@ -245,13 +225,10 @@ export class AdminAddProductComponent implements OnInit {
   isSubmitting = false;
   isUploadingImage = signal(false);
 
-  
   uploadedImages = signal<string[]>([]);
   categories = signal<Category[]>([]);
-
-  
-  imageChangedEvent = signal<any>(null);
-  croppedImageFile: File | null = null;
+  editingFile = signal<File | null>(null);
+  editorInstance: any = null;
 
   form = this.fb.group({
     name: ['', [Validators.required, Validators.maxLength(200)]],
@@ -285,49 +262,118 @@ export class AdminAddProductComponent implements OnInit {
     }
   }
 
-  
-
   onFileSelected(event: any): void {
     if (event.target.files && event.target.files.length > 0) {
+      const file = event.target.files[0];
+      this.editingFile.set(file);
       
-      this.imageChangedEvent.set(event);
+      // Delay to let Angular render the container
+      setTimeout(() => {
+        this.initEditor(file);
+      }, 100);
     }
     
     event.target.value = '';
   }
 
-  imageCropped(event: ImageCroppedEvent) {
-    if (event.blob) {
+  initEditor(file: File) {
+    const container = document.getElementById('filerobot-editor-container');
+    if (!container) return;
+    
+    const imageUrl = URL.createObjectURL(file);
+    
+    // @ts-ignore
+    const { TABS, TOOLS } = window.FilerobotImageEditor;
+    
+    const config = {
+      source: imageUrl,
+      removeSaveButton: true,
+      onClose: () => {
+        this.closeEditor();
+      },
+      annotationsCommon: { fill: '#0f766e' },
+      Text: { text: 'Budgetha' },
+      theme: {
+        colors: {
+          primaryBg: '#ffffff',
+          primaryBgHover: '#f8fafc',
+          secondaryBg: '#f1f5f9',
+          secondaryBgHover: '#e2e8f0',
+          text: '#0f172a',
+          textHover: '#000000',
+          textMuted: '#64748b',
+          textWarn: '#f87171',
+          textError: '#ef4444',
+          border: '#e2e8f0',
+          borderLight: '#f1f5f9',
+          borderActive: '#0f766e',
+        },
+      }
+    };
+    
+    // @ts-ignore
+    this.editorInstance = new window.FilerobotImageEditor(container, config);
+    this.editorInstance.render({
+      onClose: () => this.closeEditor()
+    });
+  }
+
+  closeEditor() {
+    if (this.editorInstance) {
+      this.editorInstance.terminate();
+      this.editorInstance = null;
+    }
+    this.editingFile.set(null);
+  }
+
+  saveAndUpload() {
+    if (!this.editorInstance) return;
+    
+    const file = this.editingFile();
+    const originalName = file?.name || 'edited.jpg';
+    
+    // Fallback if getCurrentImgData is async or structured differently
+    try {
+      const data = this.editorInstance.getCurrentImgData({
+        imageFileInfo: { name: originalName, extension: 'jpeg' }
+      });
       
-      const filename = 'cropped_image_' + new Date().getTime() + '.jpg';
-      this.croppedImageFile = new File([event.blob], filename, { type: 'image/jpeg' });
+      // Sometimes it returns a promise, sometimes an object directly
+      if (data && data.then) {
+        data.then((res: any) => {
+          this.uploadEditedImage(res.imageData, originalName);
+          this.closeEditor();
+        });
+      } else if (data && data.imageData) {
+        this.uploadEditedImage(data.imageData, originalName);
+        this.closeEditor();
+      }
+    } catch (e) {
+      console.error(e);
+      this.toast.error("Could not capture edited image.");
     }
   }
 
-  cancelCrop(): void {
-    this.imageChangedEvent.set(null);
-    this.croppedImageFile = null;
-  }
-
-  confirmCropAndUpload(): void {
-    if (!this.croppedImageFile) return;
-
-    const fileToUpload = this.croppedImageFile;
-    this.cancelCrop(); 
-    this.isUploadingImage.set(true);
-
-    this.cloudinary.uploadImage(fileToUpload).subscribe({
-      next: (response) => {
-        this.uploadedImages.update(images => [...images, response.url]);
-        this.isUploadingImage.set(false);
-        this.toast.success('Image cropped and uploaded to Cloudinary!');
-      },
-      error: (err) => {
-        console.error('Cloudinary upload error:', err);
-        this.toast.error('Failed to upload image. Please check backend connection.');
-        this.isUploadingImage.set(false);
-      }
-    });
+  uploadEditedImage(base64: string, originalName: string) {
+    fetch(base64)
+      .then(res => res.blob())
+      .then(blob => {
+        const newFile = new File([blob], 'edited_' + originalName, { type: 'image/jpeg' });
+        
+        this.isUploadingImage.set(true);
+        this.cloudinary.uploadImage(newFile).subscribe({
+          next: (response) => {
+            this.uploadedImages.update(images => [...images, response.url]);
+            this.isUploadingImage.set(false);
+            this.toast.success('Image edited and uploaded successfully!');
+          },
+          error: (err) => {
+            console.error('Cloudinary upload error:', err);
+            this.toast.error('Failed to upload edited image.');
+            this.isUploadingImage.set(false);
+          }
+        });
+      });
   }
 
   removeImage(index: number): void {

@@ -9,7 +9,7 @@ import { Toast, ToastService, ToastType } from '../../../core/services/toast.ser
          pointer-events are off on the stack and back on per card, so the
          container never blocks clicks on the page beneath it. -->
     <div
-      class="fixed inset-x-4 top-4 z-[60] flex flex-col items-end gap-3 sm:inset-x-auto sm:right-6 sm:top-6 sm:max-w-sm pointer-events-none"
+      class="fixed inset-x-4 top-20 z-[60] flex flex-col items-end gap-3 sm:inset-x-auto sm:right-6 sm:top-24 sm:max-w-sm pointer-events-none"
       role="region"
       aria-label="Notifications">
       <div aria-live="polite" aria-atomic="false" class="sr-only">

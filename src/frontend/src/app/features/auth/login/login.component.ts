@@ -83,7 +83,17 @@ export class LoginComponent {
       next: response => {
         this.loading.set(false);
         this.toastService.success(`Welcome back${response?.firstName ? ', ' + response.firstName : ''}!`);
-        this.router.navigateByUrl(this.returnUrl);
+        
+        const u = this.authService.user();
+        let target = this.returnUrl;
+        const isAdminRoute = target.startsWith('/admin');
+        const hasAdminPrivileges = u?.roles?.includes('Admin') || u?.roles?.includes('SuperAdmin') || u?.roles?.includes('Seller');
+        
+        if (isAdminRoute && !hasAdminPrivileges) {
+          target = '/';
+        }
+        
+        this.router.navigateByUrl(target);
       },
       error: () => {
         
@@ -108,7 +118,17 @@ export class LoginComponent {
             next: () => {
               this.loading.set(false);
               this.toastService.success('Signed in with Google.');
-              this.router.navigateByUrl(this.returnUrl);
+              
+              const u = this.authService.user();
+              let target = this.returnUrl;
+              const isAdminRoute = target.startsWith('/admin');
+              const hasAdminPrivileges = u?.roles?.includes('Admin') || u?.roles?.includes('SuperAdmin') || u?.roles?.includes('Seller');
+              
+              if (isAdminRoute && !hasAdminPrivileges) {
+                target = '/';
+              }
+              
+              this.router.navigateByUrl(target);
             },
             error: () => {
               this.loading.set(false);

@@ -1,10 +1,11 @@
 import { Component, computed, inject, signal } from '@angular/core';
-import { CurrencyPipe } from '@angular/common';
+import { CurrencyPipe, DatePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../core/services/product.service';
 import { CartService } from '../../core/services/cart.service';
 import { WishlistService } from '../../core/services/wishlist.service';
+import { ToastService } from '../../core/services/toast.service';
 import { Product, Review } from '../../core/models/shop.models';
 import { StarRatingComponent } from '../../shared/components/star-rating/star-rating.component';
 import { ProductCardComponent } from '../../shared/components/product-card/product-card.component';
@@ -121,14 +122,14 @@ type Tab = 'description' | 'specs' | 'reviews';
             }
 
             <!-- Size pills -->
-            @if (p.sizes?.length) {
+            @if (p.sizes.length) {
               <div class="mt-6">
                 <div class="flex items-center justify-between">
                   <span class="text-sm font-semibold text-slate-900">Size: <span class="font-normal text-slate-500">{{ selectedSize() || 'Select a size' }}</span></span>
                   <button type="button" class="text-xs font-medium text-violet-600 hover:text-violet-500 underline underline-offset-2 transition-colors duration-300">Size guide</button>
                 </div>
                 <div class="mt-3 flex flex-wrap gap-2.5">
-                  @for (size of (p.sizes || []); track size) {
+                  @for (size of p.sizes; track size) {
                     <button
                       type="button"
                       (click)="selectedSize.set(size)"
@@ -387,6 +388,37 @@ type Tab = 'description' | 'specs' | 'reviews';
         </div>
       </div>
     }
+
+    <!-- Confirmation Modal -->
+    @if (confirmDeleteReviewId()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" (click)="closeConfirmModal()"></div>
+        
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-[toastIn_0.2s_ease-out]">
+          <div class="p-6 text-center">
+            <div class="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-4 bg-rose-100 text-rose-600">
+              <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </div>
+            
+            <h3 class="text-xl font-bold text-slate-900 mb-2">Delete Review</h3>
+            <p class="text-sm text-slate-500 mb-6">
+              Are you sure you want to delete this review?
+              <br>This action cannot be undone.
+            </p>
+            
+            <div class="flex items-center gap-3 w-full">
+              <button (click)="closeConfirmModal()" class="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold transition-colors">
+                Cancel
+              </button>
+              <button (click)="executeDeleteReview()" 
+                      class="flex-1 px-4 py-2 text-white bg-rose-600 hover:bg-rose-700 rounded-xl font-semibold transition-colors shadow-sm">
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    }
   `,
 })
 export class ProductDetailComponent {
@@ -395,8 +427,10 @@ export class ProductDetailComponent {
   private readonly wishlist = inject(WishlistService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly toastService = inject(ToastService);
 
   readonly product = signal<Product | undefined>(undefined);
+  readonly confirmDeleteReviewId = signal<string | number | null>(null);
   readonly activeIndex = signal(0);
   readonly selectedColor = signal('');
   readonly selectedSize = signal('');
@@ -560,20 +594,36 @@ export class ProductDetailComponent {
     }).subscribe({
       next: () => {
         this.isEditingReview.set(null);
+        this.toastService.success('Review updated successfully.');
         this.reviewService.getReviews(p.id.toString()).subscribe(revs => this.reviews.set(revs));
-      }
+      },
+      error: () => this.toastService.error('Failed to update review.')
     });
   }
 
   deleteReview(id: string | number): void {
-    if (!confirm('Are you sure you want to delete this review?')) return;
+    this.confirmDeleteReviewId.set(id);
+  }
+
+  closeConfirmModal(): void {
+    this.confirmDeleteReviewId.set(null);
+  }
+
+  executeDeleteReview(): void {
+    const id = this.confirmDeleteReviewId();
+    if (!id) return;
+    
+    this.closeConfirmModal();
+
     const p = this.product();
     if (!p) return;
     
     this.reviewService.deleteReview(id.toString()).subscribe({
       next: () => {
+        this.toastService.success('Review deleted successfully.');
         this.reviewService.getReviews(p.id.toString()).subscribe(revs => this.reviews.set(revs));
-      }
+      },
+      error: () => this.toastService.error('Failed to delete review.')
     });
   }
   

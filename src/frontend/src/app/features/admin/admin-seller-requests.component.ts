@@ -39,6 +39,16 @@ interface SellerRequest {
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 text-slate-700">
+              @if (isLoading()) {
+                <tr>
+                  <td colspan="5" class="px-6 py-12 text-center">
+                    <div class="flex flex-col items-center justify-center gap-3">
+                      <div class="w-8 h-8 border-4 border-teal-100 border-t-teal-600 rounded-full animate-spin"></div>
+                      <p class="text-sm text-slate-500 font-medium">Loading requests...</p>
+                    </div>
+                  </td>
+                </tr>
+              } @else {
               @for (req of requests(); track req.id) {
                 <tr class="hover:bg-slate-50/50 transition-colors">
                   <td class="px-6 py-4">
@@ -84,6 +94,7 @@ interface SellerRequest {
                   </td>
                 </tr>
               }
+              }
             </tbody>
           </table>
         </div>
@@ -97,14 +108,24 @@ export class AdminSellerRequestsComponent implements OnInit {
 
   requests = signal<SellerRequest[]>([]);
   isProcessing = signal(false);
+  isLoading = signal(true);
 
   ngOnInit() {
     this.loadRequests();
   }
 
   loadRequests() {
-    this.http.get<SellerRequest[]>(`${environment.apiUrl}/sellerrequests`).subscribe(res => {
-      this.requests.set(res);
+    this.isLoading.set(true);
+    this.http.get<any>(`${environment.apiUrl}/sellerrequests`).subscribe({
+      next: (res) => {
+        this.requests.set(res.items || res || []);
+        this.isLoading.set(false);
+      },
+      error: (err) => {
+        console.error('Failed to load seller requests:', err);
+        this.isLoading.set(false);
+        this.requests.set([]);
+      }
     });
   }
 

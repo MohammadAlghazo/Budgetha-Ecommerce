@@ -9,7 +9,7 @@ namespace Budgetha.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin,SuperAdmin")]
+[Authorize(Roles = "Admin,SuperAdmin,Seller")]
 public class AdminController : ControllerBase
 {
     private readonly IAdminService _adminService;
@@ -29,6 +29,7 @@ public class AdminController : ControllerBase
     }
 
     [HttpGet("users")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> GetAllUsers([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
         var result = await _adminService.GetAllUsersAsync(page, pageSize);
@@ -72,6 +73,7 @@ public class AdminController : ControllerBase
     }
 
     [HttpGet("users/{id}/profile")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> GetUserProfile(string id)
     {
         var profile = await _adminService.GetUserProfileAsync(id);
@@ -80,6 +82,7 @@ public class AdminController : ControllerBase
     }
 
     [HttpPost("users/{id}/ban")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> BanUser(string id)
     {
         var success = await _adminService.BanUserAsync(id);
@@ -88,6 +91,7 @@ public class AdminController : ControllerBase
     }
 
     [HttpPost("users/{id}/unban")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> UnbanUser(string id)
     {
         var success = await _adminService.UnbanUserAsync(id);
@@ -96,6 +100,7 @@ public class AdminController : ControllerBase
     }
 
     [HttpDelete("users/{id}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> DeleteUser(string id)
     {
         var success = await _adminService.DeleteUserAsync(id);

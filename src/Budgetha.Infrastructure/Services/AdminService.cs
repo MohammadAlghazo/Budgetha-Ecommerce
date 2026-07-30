@@ -27,44 +27,29 @@ public class AdminService : IAdminService
 
     public async Task<PagedResult<AdminUserDto>> GetAllUsersAsync(int page = 1, int pageSize = 50)
     {
-        if (!_cache.TryGetValue(UsersCacheKey, out List<AdminUserDto>? allUserDtos) || allUserDtos == null)
-        {
-            var users = await _userManager.Users.ToListAsync();
-            allUserDtos = new List<AdminUserDto>();
-
-            foreach (var user in users)
-            {
-                var roles = await _userManager.GetRolesAsync(user);
-                var isBanned = user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTimeOffset.UtcNow;
-                allUserDtos.Add(new AdminUserDto
-                {
-                    Id = user.Id,
-                    Email = user.Email!,
-                    FirstName = user.FirstName,
-                    LastName = user.LastName,
-                    Roles = roles,
-                    CreatedAt = user.Created,
-                    IsBanned = isBanned
-                });
-            }
-            
-            allUserDtos = allUserDtos.OrderByDescending(u => u.CreatedAt).ToList();
-
-            var cacheOptions = new MemoryCacheEntryOptions
-            {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
-                SlidingExpiration = TimeSpan.FromMinutes(2)
-            };
-            _cache.Set(UsersCacheKey, allUserDtos, cacheOptions);
-        }
-
-        var total = allUserDtos.Count;
+        var total = await _userManager.Users.CountAsync();
         var totalPages = (int)Math.Ceiling(total / (double)pageSize);
-        var pagedItems = allUserDtos.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+        var users = await _context.Users
+            .OrderByDescending(u => u.Created)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(u => new AdminUserDto
+            {
+                Id = u.Id,
+                Email = u.Email!,
+                FirstName = u.FirstName,
+                LastName = u.LastName,
+                CreatedAt = u.Created,
+                IsBanned = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow,
+                Roles = _context.UserRoles.Where(ur => ur.UserId == u.Id)
+                    .Join(_context.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => r.Name).ToList()
+            })
+            .ToListAsync();
 
         return new PagedResult<AdminUserDto>
         {
-            Items = pagedItems,
+            Items = users,
             Total = total,
             TotalPages = totalPages,
             Page = page,
@@ -93,30 +78,23 @@ public class AdminService : IAdminService
 
     public async Task<List<AdminUserDto>> GetRecentUsersAsync(int count)
     {
-        var users = await _userManager.Users
+        var users = await _context.Users
             .OrderByDescending(u => u.Created)
             .Take(count)
+            .Select(u => new AdminUserDto
+            {
+                Id = u.Id,
+                Email = u.Email!,
+                FirstName = u.FirstName,
+                LastName = u.LastName,
+                CreatedAt = u.Created,
+                IsBanned = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow,
+                Roles = _context.UserRoles.Where(ur => ur.UserId == u.Id)
+                    .Join(_context.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => r.Name).ToList()
+            })
             .ToListAsync();
 
-        var userDtos = new List<AdminUserDto>();
-
-        foreach (var user in users)
-        {
-            var roles = await _userManager.GetRolesAsync(user);
-            var isBanned = user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTimeOffset.UtcNow;
-            userDtos.Add(new AdminUserDto
-            {
-                Id = user.Id,
-                Email = user.Email!,
-                FirstName = user.FirstName,
-                LastName = user.LastName,
-                Roles = roles,
-                CreatedAt = user.Created,
-                IsBanned = isBanned
-            });
-        }
-
-        return userDtos;
+        return users;
     }
 
     public async Task<AdminStatsDto> GetStatsAsync()

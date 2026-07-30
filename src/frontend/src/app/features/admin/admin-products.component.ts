@@ -60,6 +60,16 @@ import { AuthService } from '../../core/services/auth.service';
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-50 text-slate-700">
+              @if (isLoading()) {
+                <tr>
+                  <td colspan="5" class="px-6 py-12 text-center">
+                    <div class="flex flex-col items-center justify-center gap-3">
+                      <div class="w-8 h-8 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+                      <p class="text-sm text-slate-500 font-medium">Loading products...</p>
+                    </div>
+                  </td>
+                </tr>
+              } @else {
               @for (product of filteredProducts(); track product.id) {
                 <tr class="hover:bg-slate-50/60 transition-colors" [class.opacity-50]="processingId() === product.id">
                   <td class="px-6 py-4">
@@ -146,6 +156,7 @@ import { AuthService } from '../../core/services/auth.service';
                   </td>
                 </tr>
               }
+              }
             </tbody>
           </table>
         </div>
@@ -191,6 +202,7 @@ export class AdminProductsComponent implements OnInit {
   readonly processingId = signal<string | null>(null);
   readonly productToDelete = signal<any>(null);
   readonly activeFilter = signal<string>('All');
+  readonly isLoading = signal(true);
 
   readonly filterTabs = [
     { label: 'All', value: 'All' },
@@ -219,7 +231,17 @@ export class AdminProductsComponent implements OnInit {
   }
 
   loadProducts(): void {
-    this.adminService.getAllProducts().subscribe(result => this.productsResult.set(result));
+    this.isLoading.set(true);
+    this.adminService.getAllProducts().subscribe({
+      next: (result) => {
+        this.productsResult.set(result);
+        this.isLoading.set(false);
+      },
+      error: (err) => {
+        console.error('Failed to load products:', err);
+        this.isLoading.set(false);
+      }
+    });
   }
 
   changeStatus(product: any, status: 'Approved' | 'Rejected'): void {

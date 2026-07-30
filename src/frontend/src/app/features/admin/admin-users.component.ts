@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { AdminService, AdminUser } from '../../core/services/admin.service';
 import { AuthService } from '../../core/services/auth.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   selector: 'app-admin-users',
@@ -195,9 +196,9 @@ import { AuthService } from '../../core/services/auth.service';
                         [class.bg-teal-600]="hasRole('Admin')"
                         [class.bg-slate-200]="!hasRole('Admin')"
                         class="relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-2">
-                  <span [class.translate-x-7]="hasRole('Admin')"
-                        [class.translate-x-1]="!hasRole('Admin')"
-                        class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
+                  <span [class.translate-x-6]="hasRole('Admin')"
+                        [class.translate-x-0]="!hasRole('Admin')"
+                        class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
                 </button>
               </div>
 
@@ -216,32 +217,15 @@ import { AuthService } from '../../core/services/auth.service';
                         [class.bg-indigo-600]="hasRole('Seller')"
                         [class.bg-slate-200]="!hasRole('Seller')"
                         class="relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2">
-                  <span [class.translate-x-7]="hasRole('Seller')"
-                        [class.translate-x-1]="!hasRole('Seller')"
-                        class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
+                  <span [class.translate-x-6]="hasRole('Seller')"
+                        [class.translate-x-0]="!hasRole('Seller')"
+                        class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
                 </button>
               </div>
 
 
             </div>
 
-            <!-- Status message -->
-            @if (roleActionMsg()) {
-              <div class="flex items-center gap-2 p-3 rounded-lg text-sm"
-                   [class.bg-emerald-50]="!roleActionError()"
-                   [class.text-emerald-700]="!roleActionError()"
-                   [class.bg-rose-50]="roleActionError()"
-                   [class.text-rose-700]="roleActionError()">
-                <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  @if (!roleActionError()) {
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path>
-                  } @else {
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                  }
-                </svg>
-                {{ roleActionMsg() }}
-              </div>
-            }
           </div>
 
           <!-- Footer -->
@@ -249,6 +233,53 @@ import { AuthService } from '../../core/services/auth.service';
             <button (click)="closeModal()" class="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-colors text-sm">
               Done
             </button>
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- Confirmation Modal -->
+    @if (confirmAction()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" (click)="closeConfirmModal()"></div>
+        
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-[toastIn_0.2s_ease-out]">
+          <div class="p-6 text-center">
+            <div class="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-4"
+                 [class.bg-rose-100]="confirmAction()?.type === 'delete' || confirmAction()?.type === 'ban'"
+                 [class.text-rose-600]="confirmAction()?.type === 'delete' || confirmAction()?.type === 'ban'"
+                 [class.bg-emerald-100]="confirmAction()?.type === 'unban'"
+                 [class.text-emerald-600]="confirmAction()?.type === 'unban'">
+              @if (confirmAction()?.type === 'delete') {
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+              } @else if (confirmAction()?.type === 'ban') {
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+              } @else {
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              }
+            </div>
+            
+            <h3 class="text-xl font-bold text-slate-900 mb-2">Confirm Action</h3>
+            <p class="text-sm text-slate-500 mb-6">
+              Are you sure you want to <strong>{{ confirmAction()?.type }}</strong> {{ confirmAction()?.user?.firstName }}?
+              @if (confirmAction()?.type === 'delete') {
+                <br>This action cannot be undone.
+              }
+            </p>
+            
+            <div class="flex items-center gap-3 w-full">
+              <button (click)="closeConfirmModal()" class="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold transition-colors">
+                Cancel
+              </button>
+              <button (click)="executeConfirmAction()" 
+                      class="flex-1 px-4 py-2 text-white rounded-xl font-semibold transition-colors shadow-sm"
+                      [class.bg-rose-600]="confirmAction()?.type === 'delete' || confirmAction()?.type === 'ban'"
+                      [class.hover:bg-rose-700]="confirmAction()?.type === 'delete' || confirmAction()?.type === 'ban'"
+                      [class.bg-emerald-600]="confirmAction()?.type === 'unban'"
+                      [class.hover:bg-emerald-700]="confirmAction()?.type === 'unban'">
+                Confirm
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -266,8 +297,9 @@ export class AdminUsersComponent implements OnInit {
   readonly hasMore = signal(false);
   
   readonly selectedUser = signal<AdminUser | null>(null);
-  readonly roleActionMsg = signal<string>('');
-  readonly roleActionError = signal<boolean>(false);
+  readonly confirmAction = signal<{ type: 'ban' | 'unban' | 'delete', user: AdminUser } | null>(null);
+  
+  private readonly toastService = inject(ToastService);
 
   readonly isSuperAdmin = computed(() =>
     this.authService.user()?.roles?.includes('SuperAdmin') ?? false
@@ -275,10 +307,16 @@ export class AdminUsersComponent implements OnInit {
 
   ngOnInit(): void {
     this.isLoading.set(true);
-    this.adminService.getAllUsers(1, 20).subscribe(res => {
-      this.users.set(res.items);
-      this.hasMore.set(res.page < res.totalPages);
-      this.isLoading.set(false);
+    this.adminService.getAllUsers(1, 20).subscribe({
+      next: (res) => {
+        this.users.set(res.items);
+        this.hasMore.set(res.page < res.totalPages);
+        this.isLoading.set(false);
+      },
+      error: () => {
+        this.isLoading.set(false);
+        this.toastService.error('Failed to load users. Please refresh the page.');
+      }
     });
   }
 
@@ -302,12 +340,18 @@ export class AdminUsersComponent implements OnInit {
 
   openRoleModal(user: AdminUser): void {
     this.selectedUser.set({ ...user, roles: [...user.roles] });
-    this.roleActionMsg.set('');
-    this.roleActionError.set(false);
   }
 
   closeModal(): void {
     this.selectedUser.set(null);
+  }
+
+  openConfirmModal(type: 'ban' | 'unban' | 'delete', user: AdminUser): void {
+    this.confirmAction.set({ type, user });
+  }
+
+  closeConfirmModal(): void {
+    this.confirmAction.set(null);
   }
 
   hasRole(role: string): boolean {
@@ -318,11 +362,7 @@ export class AdminUsersComponent implements OnInit {
     const user = this.selectedUser();
     if (!user) return;
 
-    const alreadyHas = user.roles.includes(role);
-    this.roleActionMsg.set('');
-    this.roleActionError.set(false);
-
-    
+    const alreadyHas = user.roles.includes(role);    
     const updatedRoles = alreadyHas
       ? user.roles.filter(r => r !== role)
       : [...user.roles, role];
@@ -336,55 +376,59 @@ export class AdminUsersComponent implements OnInit {
 
     action$.subscribe({
       next: () => {
-        this.roleActionMsg.set(`Role "${role}" ${alreadyHas ? 'removed' : 'assigned'} successfully.`);
-        this.roleActionError.set(false);
+        this.toastService.success(`Role "${role}" ${alreadyHas ? 'removed' : 'assigned'} successfully.`);
       },
       error: () => {
-        
         this.selectedUser.set(user);
         this.users.update(users => users.map(u => u.id === user.id ? user : u));
-        
-        this.roleActionMsg.set(`Failed to ${alreadyHas ? 'remove' : 'assign'} role "${role}". Please try again.`);
-        this.roleActionError.set(true);
+        this.toastService.error(`Failed to ${alreadyHas ? 'remove' : 'assign'} role "${role}".`);
       }
     });
   }
 
   toggleBan(user: AdminUser): void {
-    if (confirm(`Are you sure you want to ${user.isBanned ? 'unban' : 'ban'} ${user.firstName}?`)) {
-      
-      const newStatus = !user.isBanned;
+    this.openConfirmModal(user.isBanned ? 'unban' : 'ban', user);
+  }
+
+  deleteUser(user: AdminUser): void {
+    this.openConfirmModal('delete', user);
+  }
+
+  executeConfirmAction(): void {
+    const action = this.confirmAction();
+    if (!action) return;
+
+    const { type, user } = action;
+    this.closeConfirmModal();
+
+    if (type === 'ban' || type === 'unban') {
+      const newStatus = type === 'ban';
       this.users.update(users => users.map(u => u.id === user.id ? { ...u, isBanned: newStatus } : u));
       
-      const action$ = user.isBanned
+      const action$ = type === 'unban'
         ? this.adminService.unbanUser(user.id)
         : this.adminService.banUser(user.id);
 
       action$.subscribe({
-        next: () => {},
-        error: (err) => {
-          console.error('Failed to toggle ban status:', err);
-          
+        next: () => {
+            this.toastService.success(`User successfully ${type}ned.`);
+        },
+        error: () => {
           this.users.update(users => users.map(u => u.id === user.id ? user : u));
-          alert('Failed to update user ban status.');
+          this.toastService.error(`Failed to ${type} user.`);
         }
       });
-    }
-  }
-
-  deleteUser(user: AdminUser): void {
-    if (confirm(`Are you sure you want to permanently delete ${user.firstName}? This action cannot be undone.`)) {
-      
+    } else if (type === 'delete') {
       const previousUsers = this.users();
       this.users.set(previousUsers.filter(u => u.id !== user.id));
       
       this.adminService.deleteUser(user.id).subscribe({
-        next: () => {},
-        error: (err) => {
-          console.error('Failed to delete user:', err);
-          
+        next: () => {
+            this.toastService.success(`User deleted permanently.`);
+        },
+        error: () => {
           this.users.set(previousUsers);
-          alert('Failed to delete user.');
+          this.toastService.error('Failed to delete user.');
         }
       });
     }

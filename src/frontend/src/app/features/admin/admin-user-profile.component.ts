@@ -3,6 +3,7 @@ import { CommonModule, DatePipe, CurrencyPipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AdminService, AdminUserProfile } from '../../core/services/admin.service';
 import { AuthService } from '../../core/services/auth.service';
+import { ToastService } from '../../core/services/toast.service';
 
 @Component({
   selector: 'app-admin-user-profile',
@@ -141,6 +142,53 @@ import { AuthService } from '../../core/services/auth.service';
           <p class="text-slate-500 mt-1">The user might have been deleted or the ID is incorrect.</p>
         </div>
       }
+
+    <!-- Confirmation Modal -->
+    @if (confirmAction()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" (click)="closeConfirmModal()"></div>
+        
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-[toastIn_0.2s_ease-out]">
+          <div class="p-6 text-center">
+            <div class="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-4"
+                 [class.bg-rose-100]="confirmAction()?.type === 'delete' || confirmAction()?.type === 'ban'"
+                 [class.text-rose-600]="confirmAction()?.type === 'delete' || confirmAction()?.type === 'ban'"
+                 [class.bg-emerald-100]="confirmAction()?.type === 'unban'"
+                 [class.text-emerald-600]="confirmAction()?.type === 'unban'">
+              @if (confirmAction()?.type === 'delete') {
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+              } @else if (confirmAction()?.type === 'ban') {
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
+              } @else {
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              }
+            </div>
+            
+            <h3 class="text-xl font-bold text-slate-900 mb-2">Confirm Action</h3>
+            <p class="text-sm text-slate-500 mb-6">
+              Are you sure you want to <strong>{{ confirmAction()?.type }}</strong> {{ profile()?.firstName }}?
+              @if (confirmAction()?.type === 'delete') {
+                <br>This action cannot be undone.
+              }
+            </p>
+            
+            <div class="flex items-center gap-3 w-full">
+              <button (click)="closeConfirmModal()" class="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold transition-colors">
+                Cancel
+              </button>
+              <button (click)="executeConfirmAction()" 
+                      class="flex-1 px-4 py-2 text-white rounded-xl font-semibold transition-colors shadow-sm"
+                      [class.bg-rose-600]="confirmAction()?.type === 'delete' || confirmAction()?.type === 'ban'"
+                      [class.hover:bg-rose-700]="confirmAction()?.type === 'delete' || confirmAction()?.type === 'ban'"
+                      [class.bg-emerald-600]="confirmAction()?.type === 'unban'"
+                      [class.hover:bg-emerald-700]="confirmAction()?.type === 'unban'">
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    }
     </div>
   `
 })
@@ -149,9 +197,11 @@ export class AdminUserProfileComponent implements OnInit {
   private readonly authService = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly toastService = inject(ToastService);
 
   readonly profile = signal<AdminUserProfile | null>(null);
   readonly loading = signal<boolean>(true);
+  readonly confirmAction = signal<{ type: 'ban' | 'unban' | 'delete' } | null>(null);
 
   readonly isSuperAdmin = computed(() =>
     this.authService.user()?.roles?.includes('SuperAdmin') ?? false
@@ -180,32 +230,51 @@ export class AdminUserProfileComponent implements OnInit {
     });
   }
 
+  openConfirmModal(type: 'ban' | 'unban' | 'delete'): void {
+    this.confirmAction.set({ type });
+  }
+
+  closeConfirmModal(): void {
+    this.confirmAction.set(null);
+  }
+
   toggleBan(): void {
     const user = this.profile();
     if (!user) return;
-    if (confirm(`Are you sure you want to ${user.isBanned ? 'unban' : 'ban'} ${user.firstName}?`)) {
-      const action$ = user.isBanned
+    this.openConfirmModal(user.isBanned ? 'unban' : 'ban');
+  }
+
+  deleteUser(): void {
+    this.openConfirmModal('delete');
+  }
+
+  executeConfirmAction(): void {
+    const action = this.confirmAction();
+    const user = this.profile();
+    if (!action || !user) return;
+
+    const { type } = action;
+    this.closeConfirmModal();
+
+    if (type === 'ban' || type === 'unban') {
+      const action$ = type === 'unban'
         ? this.adminService.unbanUser(user.id)
         : this.adminService.banUser(user.id);
 
       action$.subscribe({
         next: () => {
+          this.toastService.success(`User successfully ${type}ned.`);
           this.loadProfile(user.id);
         },
-        error: (err) => alert('Failed to update user ban status.')
+        error: () => this.toastService.error(`Failed to ${type} user.`)
       });
-    }
-  }
-
-  deleteUser(): void {
-    const user = this.profile();
-    if (!user) return;
-    if (confirm(`Are you sure you want to permanently delete ${user.firstName}? This action cannot be undone.`)) {
+    } else if (type === 'delete') {
       this.adminService.deleteUser(user.id).subscribe({
         next: () => {
+          this.toastService.success(`User deleted permanently.`);
           this.router.navigate(['/admin/users']);
         },
-        error: (err) => alert('Failed to delete user.')
+        error: () => this.toastService.error('Failed to delete user.')
       });
     }
   }

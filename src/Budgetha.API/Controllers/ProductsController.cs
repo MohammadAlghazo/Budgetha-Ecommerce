@@ -37,7 +37,7 @@ public class ProductsController : ControllerBase
         return Ok(result);
     }
 
-    [Authorize(Roles = "Admin,SuperAdmin")]
+    [Authorize(Roles = "Admin,SuperAdmin,Seller")]
     [HttpPost]
     public async Task<ActionResult<Guid>> CreateProduct([FromBody] CreateProductRequest request)
     {

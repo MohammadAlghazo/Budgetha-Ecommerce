@@ -1,6 +1,6 @@
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { RouterLink, Router } from '@angular/router';
 import { AdminService, AdminStats, AdminUser } from '../../core/services/admin.service';
 import { AuthService } from '../../core/services/auth.service';
 
@@ -23,18 +23,25 @@ import { AuthService } from '../../core/services/auth.service';
                 <span class="w-2 h-2 rounded-full bg-purple-400 inline-block"></span>
                 Super Administrator — Full system access
               </span>
-            } @else {
+            } @else if (isAdminOrSuperAdmin()) {
               <span class="inline-flex items-center gap-1.5">
                 <span class="w-2 h-2 rounded-full bg-teal-300 inline-block"></span>
                 Administrator — Product & content management
+              </span>
+            } @else {
+              <span class="inline-flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-amber-400 inline-block"></span>
+                Store Seller — Manage your products
               </span>
             }
           </p>
         </div>
         <div class="relative z-10 hidden sm:flex gap-3">
-          <a routerLink="/admin/users" class="px-4 py-2 bg-white/20 hover:bg-white/30 text-white text-sm font-medium rounded-xl transition-colors backdrop-blur-sm border border-white/10">
-            Manage Users
-          </a>
+          @if (isAdminOrSuperAdmin()) {
+            <a routerLink="/admin/users" class="px-4 py-2 bg-white/20 hover:bg-white/30 text-white text-sm font-medium rounded-xl transition-colors backdrop-blur-sm border border-white/10">
+              Manage Users
+            </a>
+          }
           <a routerLink="/admin/products" class="px-4 py-2 bg-white text-teal-800 text-sm font-bold rounded-xl hover:bg-teal-50 transition-colors shadow-sm">
             View Products
           </a>
@@ -279,8 +286,9 @@ import { AuthService } from '../../core/services/auth.service';
       <!-- Recent Users Table + Quick Actions -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        <!-- Recent Users -->
-        <div class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        @if (isAdminOrSuperAdmin()) {
+          <!-- Recent Users -->
+          <div class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
           <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
             <h3 class="text-base font-bold text-slate-900">Recent Users</h3>
             <a routerLink="/admin/users" class="text-sm font-medium text-teal-600 hover:text-teal-700 transition-colors">View all →</a>
@@ -332,25 +340,29 @@ import { AuthService } from '../../core/services/auth.service';
             </table>
           </div>
         </div>
+        }
 
         <!-- Quick Actions & System Info -->
-        <div class="space-y-4">
+        <div class="space-y-4" [class.lg:col-span-3]="!isAdminOrSuperAdmin()">
 
           <!-- Quick Actions -->
           <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
             <h3 class="text-base font-bold text-slate-900 mb-4">Quick Actions</h3>
-            <div class="space-y-2">
-              <a routerLink="/admin/users"
-                 class="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 text-slate-700 transition-colors group">
-                <div class="w-9 h-9 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center group-hover:bg-teal-100 transition-colors">
-                  <svg class="w-4.5 h-4.5 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
-                </div>
-                <div>
-                  <p class="text-sm font-semibold">Manage Users</p>
-                  <p class="text-xs text-slate-400">View & assign roles</p>
-                </div>
-                <svg class="w-4 h-4 ml-auto text-slate-300 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-              </a>
+            <div class="space-y-2" [class.grid]="!isAdminOrSuperAdmin()" [class.grid-cols-2]="!isAdminOrSuperAdmin()" [class.gap-4]="!isAdminOrSuperAdmin()">
+              
+              @if (isAdminOrSuperAdmin()) {
+                <a routerLink="/admin/users"
+                   class="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 text-slate-700 transition-colors group">
+                  <div class="w-9 h-9 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center group-hover:bg-teal-100 transition-colors">
+                    <svg class="w-4.5 h-4.5 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                  </div>
+                  <div>
+                    <p class="text-sm font-semibold">Manage Users</p>
+                    <p class="text-xs text-slate-400">View & assign roles</p>
+                  </div>
+                  <svg class="w-4 h-4 ml-auto text-slate-300 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                </a>
+              }
 
               <a routerLink="/admin/products"
                  class="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 text-slate-700 transition-colors group">
@@ -425,12 +437,17 @@ import { AuthService } from '../../core/services/auth.service';
 export class AdminDashboardComponent implements OnInit {
   private readonly adminService = inject(AdminService);
   readonly authService = inject(AuthService);
+  private readonly router = inject(Router);
 
   readonly stats = signal<AdminStats | null>(null);
   readonly recentUsers = signal<AdminUser[]>([]);
 
   readonly isSuperAdmin = computed(() =>
     this.authService.user()?.roles?.includes('SuperAdmin') ?? false
+  );
+
+  readonly isAdminOrSuperAdmin = computed(() =>
+    this.authService.user()?.roles?.some(r => r === 'Admin' || r === 'SuperAdmin') ?? false
   );
 
   readonly totalPlatformItems = computed(() => {
@@ -477,7 +494,18 @@ export class AdminDashboardComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.adminService.getStats().subscribe(stats => this.stats.set(stats));
-    this.adminService.getRecentUsers(5).subscribe(users => this.recentUsers.set(users));
+    if (!this.isAdminOrSuperAdmin()) {
+      this.router.navigate(['/admin/products'], { replaceUrl: true });
+      return;
+    }
+
+    this.adminService.getStats().subscribe({
+      next: stats => this.stats.set(stats),
+      error: () => this.stats.set(null)
+    });
+    this.adminService.getRecentUsers(5).subscribe({
+      next: users => this.recentUsers.set(users || []),
+      error: () => this.recentUsers.set([])
+    });
   }
 }
