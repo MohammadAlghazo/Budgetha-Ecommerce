@@ -42,7 +42,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     {
         base.OnModelCreating(builder);
 
-        // BaseEvent is a domain event carrier, not a persisted entity.
+        
         builder.Ignore<BaseEvent>();
 
         builder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);

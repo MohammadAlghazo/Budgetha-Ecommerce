@@ -23,6 +23,15 @@ public class AdminUserDto
     public bool IsBanned { get; set; }
 }
 
+public class PagedResult<T>
+{
+    public List<T> Items { get; set; } = new();
+    public int Total { get; set; }
+    public int TotalPages { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+}
+
 public class AdminUserProfileDto : AdminUserDto
 {
     public List<Budgetha.Application.Features.Products.Queries.ProductDto> Products { get; set; } = new();
@@ -32,7 +41,8 @@ public interface IAdminService
 {
     Task<AdminStatsDto> GetStatsAsync();
     Task<List<AdminUserDto>> GetRecentUsersAsync(int count);
-    Task<List<AdminUserDto>> GetAllUsersAsync();
+    Task<PagedResult<AdminUserDto>> GetAllUsersAsync(int page = 1, int pageSize = 50);
+    Task<List<AdminUserDto>> GetUsersByIdsAsync(IEnumerable<string> userIds);
     Task<AdminUserProfileDto?> GetUserProfileAsync(string userId);
     Task<bool> BanUserAsync(string userId);
     Task<bool> UnbanUserAsync(string userId);

@@ -1,11 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { PwaService } from '../../../core/services/pwa.service';
 
-/**
- * Persistent strip shown while the browser reports no connection, so a shopper
- * understands why fresh prices or checkout might not be available — instead of
- * hitting silent failures.
- */
+
 @Component({
   selector: 'app-offline-banner',
   standalone: true,

@@ -27,7 +27,7 @@ public class SubmitSellerRequestCommandHandler : IRequestHandler<SubmitSellerReq
         if (string.IsNullOrEmpty(userId))
             throw new UnauthorizedAccessException();
 
-        // Check if there is an existing pending request
+        
         var existing = await _context.SellerRequests
             .FirstOrDefaultAsync(r => r.UserId == userId && r.Status == "Pending", cancellationToken);
             

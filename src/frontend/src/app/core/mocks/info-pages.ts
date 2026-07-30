@@ -1,8 +1,4 @@
-/**
- * Content for the static support and legal pages. Keeping it in one map means a
- * single lightweight component can serve every one of them, and adding a page is
- * a data change plus a route entry — no new component.
- */
+
 export interface InfoSection {
   heading: string;
   body: string[];
@@ -13,7 +9,7 @@ export interface InfoPage {
   title: string;
   intro: string;
   sections: InfoSection[];
-  /** Rendered as a note under the title on legal pages. */
+  
   updated?: string;
 }
 

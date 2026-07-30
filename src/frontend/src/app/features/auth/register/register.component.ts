@@ -56,7 +56,7 @@ export class RegisterComponent {
       return { transform: 'translateX(0) scale(0.7)', zIndex: 10, opacity: 0, visibility: 'hidden' };
     }
   }
-  /** Same contract as the login page — resume whatever the guard interrupted. */
+  
   private get returnUrl(): string {
     const target = this.route.snapshot.queryParamMap.get('returnUrl');
     if (!target || !target.startsWith('/') || target.startsWith('//')) return '/';
@@ -64,7 +64,7 @@ export class RegisterComponent {
     return target;
   }
 
-  /** Carries returnUrl across to /auth/login so the round-trip survives. */
+  
   get linkQuery(): { returnUrl: string | null } {
     const target = this.returnUrl;
     return { returnUrl: target === '/' ? null : target };
@@ -109,8 +109,8 @@ export class RegisterComponent {
     this.authService.register(payload).subscribe({
       next: () => {
         this.loading.set(false);
-        // register() already established the session, so send the new user
-        // straight on rather than bouncing them to the sign-in page.
+        
+        
         this.toastService.success('Your account is ready. Welcome to Budgetha!');
         this.router.navigateByUrl(this.returnUrl);
       },
@@ -159,7 +159,7 @@ function passwordMatchValidator(control: AbstractControl): ValidationErrors | nu
     return { passwordMismatch: true };
   }
 
-  // Clear only our own error so a `required` error from the control itself survives.
+  
   if (confirmPassword.hasError('passwordMismatch')) {
     const { passwordMismatch, ...rest } = confirmPassword.errors ?? {};
     confirmPassword.setErrors(Object.keys(rest).length ? rest : null);

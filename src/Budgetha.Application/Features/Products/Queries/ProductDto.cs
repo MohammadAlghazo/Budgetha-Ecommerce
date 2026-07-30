@@ -5,7 +5,7 @@ public class ProductDto
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
-    public string Brand { get; set; } = string.Empty; // Not in Entity? Wait, Entity has Name, Slug, Description...
+    public string Brand { get; set; } = string.Empty; 
     public string Category { get; set; } = string.Empty;
     public decimal Price { get; set; }
     public decimal? OriginalPrice { get; set; }

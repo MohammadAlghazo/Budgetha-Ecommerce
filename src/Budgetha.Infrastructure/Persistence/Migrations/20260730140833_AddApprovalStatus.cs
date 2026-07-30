@@ -4,10 +4,10 @@
 
 namespace Budgetha.Infrastructure.Persistence.Migrations
 {
-    /// <inheritdoc />
+    
     public partial class AddApprovalStatus : Migration
     {
-        /// <inheritdoc />
+        
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AddColumn<int>(
@@ -23,7 +23,7 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                 column: "ApprovalStatus");
         }
 
-        /// <inheritdoc />
+        
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropIndex(

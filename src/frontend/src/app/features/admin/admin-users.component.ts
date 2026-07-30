@@ -129,6 +129,22 @@ import { AuthService } from '../../core/services/auth.service';
             </tbody>
           </table>
         </div>
+        
+        @if (hasMore()) {
+          <div class="px-6 py-4 border-t border-slate-100 flex justify-center">
+            <button (click)="loadMore()" [disabled]="loadingMore()"
+                    class="px-5 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50">
+              @if (loadingMore()) {
+                <span class="flex items-center gap-2">
+                  <div class="w-4 h-4 border-2 border-slate-300 border-t-slate-700 rounded-full animate-spin"></div>
+                  Loading...
+                </span>
+              } @else {
+                Load More Users
+              }
+            </button>
+          </div>
+        }
       </div>
     </div>
 
@@ -245,6 +261,10 @@ export class AdminUsersComponent implements OnInit {
 
   readonly users = signal<AdminUser[]>([]);
   readonly isLoading = signal(true);
+  readonly loadingMore = signal(false);
+  readonly currentPage = signal(1);
+  readonly hasMore = signal(false);
+  
   readonly selectedUser = signal<AdminUser | null>(null);
   readonly roleActionMsg = signal<string>('');
   readonly roleActionError = signal<boolean>(false);
@@ -255,9 +275,28 @@ export class AdminUsersComponent implements OnInit {
 
   ngOnInit(): void {
     this.isLoading.set(true);
-    this.adminService.getAllUsers().subscribe(users => {
-      this.users.set(users);
+    this.adminService.getAllUsers(1, 20).subscribe(res => {
+      this.users.set(res.items);
+      this.hasMore.set(res.page < res.totalPages);
       this.isLoading.set(false);
+    });
+  }
+
+  loadMore(): void {
+    if (this.loadingMore() || !this.hasMore()) return;
+    
+    this.loadingMore.set(true);
+    const nextPage = this.currentPage() + 1;
+    this.adminService.getAllUsers(nextPage, 20).subscribe({
+      next: (res) => {
+        this.users.update(current => [...current, ...res.items]);
+        this.currentPage.set(res.page);
+        this.hasMore.set(res.page < res.totalPages);
+        this.loadingMore.set(false);
+      },
+      error: () => {
+        this.loadingMore.set(false);
+      }
     });
   }
 
@@ -269,12 +308,6 @@ export class AdminUsersComponent implements OnInit {
 
   closeModal(): void {
     this.selectedUser.set(null);
-    // Reload users to reflect any changes
-    this.isLoading.set(true);
-    this.adminService.getAllUsers().subscribe(users => {
-      this.users.set(users);
-      this.isLoading.set(false);
-    });
   }
 
   hasRole(role: string): boolean {
@@ -289,21 +322,28 @@ export class AdminUsersComponent implements OnInit {
     this.roleActionMsg.set('');
     this.roleActionError.set(false);
 
+    
+    const updatedRoles = alreadyHas
+      ? user.roles.filter(r => r !== role)
+      : [...user.roles, role];
+      
+    this.selectedUser.set({ ...user, roles: updatedRoles });
+    this.users.update(users => users.map(u => u.id === user.id ? { ...u, roles: updatedRoles } : u));
+
     const action$ = alreadyHas
       ? this.adminService.removeRole(user.id, role)
       : this.adminService.assignRole(user.id, role);
 
     action$.subscribe({
       next: () => {
-        // Optimistically update local roles
-        const updated = alreadyHas
-          ? user.roles.filter(r => r !== role)
-          : [...user.roles, role];
-        this.selectedUser.set({ ...user, roles: updated });
         this.roleActionMsg.set(`Role "${role}" ${alreadyHas ? 'removed' : 'assigned'} successfully.`);
         this.roleActionError.set(false);
       },
       error: () => {
+        
+        this.selectedUser.set(user);
+        this.users.update(users => users.map(u => u.id === user.id ? user : u));
+        
         this.roleActionMsg.set(`Failed to ${alreadyHas ? 'remove' : 'assign'} role "${role}". Please try again.`);
         this.roleActionError.set(true);
       }
@@ -312,16 +352,20 @@ export class AdminUsersComponent implements OnInit {
 
   toggleBan(user: AdminUser): void {
     if (confirm(`Are you sure you want to ${user.isBanned ? 'unban' : 'ban'} ${user.firstName}?`)) {
+      
+      const newStatus = !user.isBanned;
+      this.users.update(users => users.map(u => u.id === user.id ? { ...u, isBanned: newStatus } : u));
+      
       const action$ = user.isBanned
         ? this.adminService.unbanUser(user.id)
         : this.adminService.banUser(user.id);
 
       action$.subscribe({
-        next: () => {
-          this.adminService.getAllUsers().subscribe(users => this.users.set(users));
-        },
+        next: () => {},
         error: (err) => {
           console.error('Failed to toggle ban status:', err);
+          
+          this.users.update(users => users.map(u => u.id === user.id ? user : u));
           alert('Failed to update user ban status.');
         }
       });
@@ -330,12 +374,16 @@ export class AdminUsersComponent implements OnInit {
 
   deleteUser(user: AdminUser): void {
     if (confirm(`Are you sure you want to permanently delete ${user.firstName}? This action cannot be undone.`)) {
+      
+      const previousUsers = this.users();
+      this.users.set(previousUsers.filter(u => u.id !== user.id));
+      
       this.adminService.deleteUser(user.id).subscribe({
-        next: () => {
-          this.users.set(this.users().filter(u => u.id !== user.id));
-        },
+        next: () => {},
         error: (err) => {
           console.error('Failed to delete user:', err);
+          
+          this.users.set(previousUsers);
           alert('Failed to delete user.');
         }
       });

@@ -48,12 +48,12 @@ public class AuthController : ControllerBase
         try
         {
             var token = await _identityService.GeneratePasswordResetTokenAsync(request.Email);
-            // In production, send this token via email. For now, return it directly.
+            
             return Ok(new { Message = "Password reset token generated.", Token = token });
         }
         catch (InvalidOperationException)
         {
-            // Don't reveal whether the email exists
+            
             return Ok(new { Message = "If an account with that email exists, a reset link has been sent." });
         }
     }

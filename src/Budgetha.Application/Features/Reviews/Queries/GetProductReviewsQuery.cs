@@ -53,10 +53,10 @@ public class GetProductReviewsQueryHandler : IRequestHandler<GetProductReviewsQu
                 initials,
                 r.Rating,
                 r.Created.ToString("MMMM d, yyyy"),
-                r.Rating >= 4 ? "Great Product!" : r.Rating == 3 ? "It's okay" : "Not satisfied", // Dummy title based on rating
+                r.Rating >= 4 ? "Great Product!" : r.Rating == 3 ? "It's okay" : "Not satisfied", 
                 r.Comment,
-                true, // We can assume verified for now
-                0, // Helpful count
+                true, 
+                0, 
                 r.UserId == currentUserId
             );
         }).ToList();

@@ -245,11 +245,11 @@ export class AdminAddProductComponent implements OnInit {
   isSubmitting = false;
   isUploadingImage = signal(false);
 
-  // Gallery state
+  
   uploadedImages = signal<string[]>([]);
   categories = signal<Category[]>([]);
 
-  // Cropper state
+  
   imageChangedEvent = signal<any>(null);
   croppedImageFile: File | null = null;
 
@@ -285,20 +285,20 @@ export class AdminAddProductComponent implements OnInit {
     }
   }
 
-  // --- Image Cropper & Upload Logic ---
+  
 
   onFileSelected(event: any): void {
     if (event.target.files && event.target.files.length > 0) {
-      // Trigger cropper modal
+      
       this.imageChangedEvent.set(event);
     }
-    // Clear the input so selecting the same file again triggers change event
+    
     event.target.value = '';
   }
 
   imageCropped(event: ImageCroppedEvent) {
     if (event.blob) {
-      // Convert cropped blob back to a File
+      
       const filename = 'cropped_image_' + new Date().getTime() + '.jpg';
       this.croppedImageFile = new File([event.blob], filename, { type: 'image/jpeg' });
     }
@@ -313,7 +313,7 @@ export class AdminAddProductComponent implements OnInit {
     if (!this.croppedImageFile) return;
 
     const fileToUpload = this.croppedImageFile;
-    this.cancelCrop(); // Close modal immediately
+    this.cancelCrop(); 
     this.isUploadingImage.set(true);
 
     this.cloudinary.uploadImage(fileToUpload).subscribe({
@@ -334,7 +334,7 @@ export class AdminAddProductComponent implements OnInit {
     this.uploadedImages.update(images => images.filter((_, i) => i !== index));
   }
 
-  // --- Form Submit ---
+  
 
   onSubmit(): void {
     if (this.form.invalid) {
@@ -351,7 +351,7 @@ export class AdminAddProductComponent implements OnInit {
     this.isSubmitting = true;
     const val = this.form.value;
 
-    // In a real app we'd query categories, here we fallback to a dummy guid if empty
+    
     const categoryId = val.categoryId || '00000000-0000-0000-0000-000000000001';
 
     const payload = {

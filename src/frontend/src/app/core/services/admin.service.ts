@@ -30,6 +30,14 @@ export interface AdminProductResult {
   totalPages: number;
 }
 
+export interface PagedUserResult {
+  items: AdminUser[];
+  total: number;
+  totalPages: number;
+  page: number;
+  pageSize: number;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -47,15 +55,15 @@ export class AdminService {
     return this.http.get<AdminUser[]>(`${this.apiUrl}/recent-users?count=${count}`);
   }
 
-  getAllUsers(): Observable<AdminUser[]> {
-    return this.http.get<AdminUser[]>(`${this.apiUrl}/users`);
+  getAllUsers(page: number = 1, pageSize: number = 20): Observable<PagedUserResult> {
+    return this.http.get<PagedUserResult>(`${this.apiUrl}/users?page=${page}&pageSize=${pageSize}`);
   }
 
   getAllProducts(page: number = 1, pageSize: number = 50): Observable<AdminProductResult> {
     return this.http.get<AdminProductResult>(`${this.apiUrl}/products?page=${page}&pageSize=${pageSize}`);
   }
 
-  // Role management (SuperAdmin only)
+  
   assignRole(userId: string, role: string): Observable<any> {
     return this.http.post(`${this.rolesUrl}/assign`, { userId, role });
   }
@@ -64,19 +72,19 @@ export class AdminService {
     return this.http.post(`${this.rolesUrl}/remove`, { userId, role });
   }
 
-  // Product approval (Admin + SuperAdmin)
+  
   approveProduct(productId: string, status: 'Approved' | 'Rejected'): Observable<any> {
     return this.http.patch(`${this.productsUrl}/${productId}/approve`, status, {
       headers: { 'Content-Type': 'application/json' }
     });
   }
 
-  // Product deletion (SuperAdmin only)
+  
   deleteProduct(productId: string): Observable<any> {
     return this.http.delete(`${this.apiUrl}/products/${productId}`);
   }
 
-  // User Management
+  
   getUserProfile(userId: string): Observable<AdminUserProfile> {
     return this.http.get<AdminUserProfile>(`${this.apiUrl}/users/${userId}/profile`);
   }

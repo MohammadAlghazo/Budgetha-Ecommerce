@@ -139,7 +139,7 @@ export class AdminCategoriesComponent implements OnInit {
   ngOnInit() {
     this.loadCategories();
     
-    // Auto-generate slug from name
+    
     this.form.get('name')?.valueChanges.subscribe(name => {
       if (name && !this.form.get('slug')?.dirty) {
         const slug = name.toLowerCase()

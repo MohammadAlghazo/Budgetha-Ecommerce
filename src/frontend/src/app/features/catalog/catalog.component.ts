@@ -309,9 +309,9 @@ export class CatalogComponent {
   readonly router = inject(Router);
 
   readonly categories = toSignal(this.productService.getCategories(), { initialValue: [] });
-  readonly brands = this.productService.getBrands(); // mocked synchronously
+  readonly brands = this.productService.getBrands(); 
   
-  // Wait, priceBounds is now Observable<{min:number, max:number}>
+  
   readonly bounds = toSignal(this.productService.priceBounds(), { initialValue: { min: 0, max: 10000 } });
 
   readonly search = signal('');
@@ -327,12 +327,12 @@ export class CatalogComponent {
   readonly dealsOnly = signal(false);
   readonly wishlistOnly = signal(false);
 
-  // We need to fetch data. We can use an effect, or toSignal(toObservable(computed(...)).pipe(switchMap(...)))
-  // To avoid circular or complex RxJS, I'll just use a signal and update it in an effect, OR use rxMethod/toSignal.
-  // Actually, Angular 16+ has a neat way: toObservable
   
-  // Since we don't have toObservable imported, and I don't want to mess up imports:
-  // I will just use an effect() to subscribe and set a writable signal `result`.
+  
+  
+  
+  
+  
   
   readonly result = signal<CatalogResult>({ items: [], total: 0, totalPages: 1 });
 
@@ -388,13 +388,13 @@ export class CatalogComponent {
       this.page.set(1);
     });
 
-    // Auto-update price range based on bounds when they load
+    
     this.productService.priceBounds().pipe(takeUntilDestroyed()).subscribe(b => {
        this.minPrice.set(b.min);
        this.maxPrice.set(b.max);
     });
 
-    // We can fetch data whenever params change using effect
+    
     effect(() => {
       const q = {
         search: this.search(),

@@ -451,13 +451,13 @@ export class AdminDashboardComponent implements OnInit {
     return Math.round((s.pendingProducts / s.totalProducts) * 100);
   });
 
-  // SVG bar: returns bar height (max 160px)
+  
   barHeight(value: number | undefined, max: number): number {
     if (!value || !max) return 4;
     return Math.max(4, Math.round((value / max) * 160));
   }
 
-  // SVG donut helpers (circumference = 2*pi*60 ≈ 377)
+  
   private readonly CIRC = 2 * Math.PI * 60;
 
   donutSegment(value: number, total: number): string {

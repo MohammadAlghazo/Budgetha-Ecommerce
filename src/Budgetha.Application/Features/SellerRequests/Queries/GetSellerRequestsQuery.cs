@@ -41,7 +41,9 @@ public class GetSellerRequestsQueryHandler : IRequestHandler<GetSellerRequestsQu
         }
 
         var requests = await query.OrderByDescending(r => r.Created).ToListAsync(cancellationToken);
-        var users = await _adminService.GetAllUsersAsync();
+        
+        var userIds = requests.Select(r => r.UserId).Distinct().ToList();
+        var users = await _adminService.GetUsersByIdsAsync(userIds);
 
         var result = requests.Select(r =>
         {

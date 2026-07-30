@@ -226,7 +226,7 @@ export class AdminProductsComponent implements OnInit {
     this.processingId.set(product.id);
     this.adminService.approveProduct(product.id, status).subscribe({
       next: () => {
-        // Update local state optimistically
+        
         const current = this.productsResult();
         if (current) {
           const updated = current.items.map((p: any) =>

@@ -112,7 +112,7 @@ export class ForgotPasswordComponent {
       },
       error: () => {
         this.loading.set(false);
-        // Still show success to avoid revealing whether the email exists
+        
         this.submitted.set(true);
       }
     });

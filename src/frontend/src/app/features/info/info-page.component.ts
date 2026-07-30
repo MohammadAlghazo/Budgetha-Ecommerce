@@ -4,11 +4,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { INFO_PAGES, InfoPage } from '../../core/mocks/info-pages';
 
-/**
- * Renders every static support and legal page from the INFO_PAGES map. The route
- * supplies a `key` in its data, so one component covers Help, Shipping & Returns,
- * Warranty, Contact, Privacy, Terms, and Cookies.
- */
+
 @Component({
   selector: 'app-info-page',
   standalone: true,
@@ -61,7 +57,7 @@ import { INFO_PAGES, InfoPage } from '../../core/mocks/info-pages';
 export class InfoPageComponent {
   private readonly route = inject(ActivatedRoute);
 
-  /** Re-reads on every navigation so switching between info pages updates the view. */
+  
   private readonly key = toSignal(this.route.data.pipe(map(data => data['key'] as string)), {
     initialValue: this.route.snapshot.data['key'] as string,
   });

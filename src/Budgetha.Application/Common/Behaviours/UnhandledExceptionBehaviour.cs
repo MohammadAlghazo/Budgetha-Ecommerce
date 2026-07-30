@@ -4,9 +4,9 @@ using Microsoft.Extensions.Logging;
 
 namespace Budgetha.Application.Common.Behaviours;
 
-/// <summary>
-/// MediatR pipeline behaviour that logs unhandled exceptions before they propagate.
-/// </summary>
+
+
+
 public class UnhandledExceptionBehaviour<TRequest, TResponse>(
     ILogger<TRequest> logger) : IPipelineBehavior<TRequest, TResponse>
     where TRequest : notnull

@@ -2,6 +2,7 @@ using Budgetha.Application.Common.Interfaces;
 using Budgetha.Application.Common.Models;
 using Budgetha.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Budgetha.Infrastructure.Authentication;
 
@@ -10,15 +11,19 @@ public class IdentityService : IIdentityService
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly TokenService _tokenService;
+    private readonly IMemoryCache _cache;
+    private const string UsersCacheKey = "Admin_AllUsersCache";
 
     public IdentityService(
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager,
-        TokenService tokenService)
+        TokenService tokenService,
+        IMemoryCache cache)
     {
         _userManager = userManager;
         _signInManager = signInManager;
         _tokenService = tokenService;
+        _cache = cache;
     }
 
     public async Task<AuthResult> RegisterAsync(string email, string password, string firstName, string lastName)
@@ -101,6 +106,8 @@ public class IdentityService : IIdentityService
         if (user is null) return false;
 
         var result = await _userManager.AddToRoleAsync(user, role);
+        if (result.Succeeded)
+            _cache.Remove(UsersCacheKey);
         return result.Succeeded;
     }
 
@@ -110,6 +117,8 @@ public class IdentityService : IIdentityService
         if (user is null) return false;
 
         var result = await _userManager.RemoveFromRoleAsync(user, role);
+        if (result.Succeeded)
+            _cache.Remove(UsersCacheKey);
         return result.Succeeded;
     }
 

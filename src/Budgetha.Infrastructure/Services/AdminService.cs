@@ -4,6 +4,7 @@ using Budgetha.Domain.Entities;
 using Budgetha.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -14,35 +15,80 @@ public class AdminService : IAdminService
 {
     private readonly ApplicationDbContext _context;
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly IMemoryCache _cache;
+    private const string UsersCacheKey = "Admin_AllUsersCache";
 
-    public AdminService(ApplicationDbContext context, UserManager<ApplicationUser> userManager)
+    public AdminService(ApplicationDbContext context, UserManager<ApplicationUser> userManager, IMemoryCache cache)
     {
         _context = context;
         _userManager = userManager;
+        _cache = cache;
     }
 
-    public async Task<List<AdminUserDto>> GetAllUsersAsync()
+    public async Task<PagedResult<AdminUserDto>> GetAllUsersAsync(int page = 1, int pageSize = 50)
     {
-        var users = await _userManager.Users.ToListAsync();
+        if (!_cache.TryGetValue(UsersCacheKey, out List<AdminUserDto>? allUserDtos) || allUserDtos == null)
+        {
+            var users = await _userManager.Users.ToListAsync();
+            allUserDtos = new List<AdminUserDto>();
+
+            foreach (var user in users)
+            {
+                var roles = await _userManager.GetRolesAsync(user);
+                var isBanned = user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTimeOffset.UtcNow;
+                allUserDtos.Add(new AdminUserDto
+                {
+                    Id = user.Id,
+                    Email = user.Email!,
+                    FirstName = user.FirstName,
+                    LastName = user.LastName,
+                    Roles = roles,
+                    CreatedAt = user.Created,
+                    IsBanned = isBanned
+                });
+            }
+            
+            allUserDtos = allUserDtos.OrderByDescending(u => u.CreatedAt).ToList();
+
+            var cacheOptions = new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10),
+                SlidingExpiration = TimeSpan.FromMinutes(2)
+            };
+            _cache.Set(UsersCacheKey, allUserDtos, cacheOptions);
+        }
+
+        var total = allUserDtos.Count;
+        var totalPages = (int)Math.Ceiling(total / (double)pageSize);
+        var pagedItems = allUserDtos.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+        return new PagedResult<AdminUserDto>
+        {
+            Items = pagedItems,
+            Total = total,
+            TotalPages = totalPages,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
+    public async Task<List<AdminUserDto>> GetUsersByIdsAsync(IEnumerable<string> userIds)
+    {
+        var users = await _userManager.Users.Where(u => userIds.Contains(u.Id)).ToListAsync();
         var userDtos = new List<AdminUserDto>();
 
         foreach (var user in users)
         {
-            var roles = await _userManager.GetRolesAsync(user);
-            var isBanned = user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTimeOffset.UtcNow;
             userDtos.Add(new AdminUserDto
             {
                 Id = user.Id,
                 Email = user.Email!,
                 FirstName = user.FirstName,
-                LastName = user.LastName,
-                Roles = roles,
-                CreatedAt = user.Created,
-                IsBanned = isBanned
+                LastName = user.LastName
             });
         }
 
-        return userDtos.OrderByDescending(u => u.CreatedAt).ToList();
+        return userDtos;
     }
 
     public async Task<List<AdminUserDto>> GetRecentUsersAsync(int count)
@@ -146,14 +192,16 @@ public class AdminService : IAdminService
         var user = await _userManager.FindByIdAsync(userId);
         if (user == null) return false;
 
-        // Set lockout enabled if not already
+        
         if (!await _userManager.GetLockoutEnabledAsync(user))
         {
             await _userManager.SetLockoutEnabledAsync(user, true);
         }
 
-        // Ban for 100 years
+        
         var result = await _userManager.SetLockoutEndDateAsync(user, DateTimeOffset.UtcNow.AddYears(100));
+        if (result.Succeeded)
+            _cache.Remove(UsersCacheKey);
         return result.Succeeded;
     }
 
@@ -163,6 +211,8 @@ public class AdminService : IAdminService
         if (user == null) return false;
 
         var result = await _userManager.SetLockoutEndDateAsync(user, null);
+        if (result.Succeeded)
+            _cache.Remove(UsersCacheKey);
         return result.Succeeded;
     }
 
@@ -171,9 +221,11 @@ public class AdminService : IAdminService
         var user = await _userManager.FindByIdAsync(userId);
         if (user == null) return false;
 
-        // Optional: Manual cleanup if EF cascade delete isn't configured for all user-related tables.
-        // Assuming EF handles cascade delete properly or we just delete the user.
+        
+        
         var result = await _userManager.DeleteAsync(user);
+        if (result.Succeeded)
+            _cache.Remove(UsersCacheKey);
         return result.Succeeded;
     }
 }

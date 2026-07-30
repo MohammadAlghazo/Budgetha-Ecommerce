@@ -11,17 +11,17 @@ export interface Toast {
   id: number;
   message: string;
   type: ToastType;
-  /** Optional inline button, e.g. "Reload" on a new-version notice. */
+  
   action?: ToastAction;
 }
 
 export interface ToastOptions {
-  /** Milliseconds before auto-dismiss. Pass 0 to require a manual dismiss. */
+  
   duration?: number;
   action?: ToastAction;
 }
 
-/** Newest toasts push older ones out rather than filling the whole screen. */
+
 const MAX_VISIBLE = 4;
 
 const DEFAULT_DURATION: Record<ToastType, number> = {
@@ -39,13 +39,13 @@ export class ToastService {
   readonly toasts = signal<Toast[]>([]);
 
   show(message: string, type: ToastType = 'info', options: ToastOptions | number = {}): number {
-    // `options` accepts a bare number so older `show(msg, type, 4000)` calls keep working.
+    
     const opts: ToastOptions = typeof options === 'number' ? { duration: options } : options;
     const duration = opts.duration ?? DEFAULT_DURATION[type];
     const id = this.nextId++;
 
     this.toasts.update(current => {
-      // Collapse an identical message that's already on screen instead of stacking it.
+      
       const deduped = current.filter(t => !(t.message === message && t.type === type));
       const next = [...deduped, { id, message, type, action: opts.action }];
       const overflow = next.slice(0, Math.max(0, next.length - MAX_VISIBLE));

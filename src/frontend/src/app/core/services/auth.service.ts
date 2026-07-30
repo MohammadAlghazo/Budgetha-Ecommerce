@@ -10,10 +10,10 @@ export class AuthService {
   private readonly tokenKey = 'token';
   private readonly userKey = 'user';
 
-  // The token lives in a signal (not just localStorage) so that everything
-  // derived from it — `isAuthenticated`, the header, the route guards — updates
-  // the moment the session changes. Reading localStorage inside a computed()
-  // would never re-evaluate, leaving the UI showing "Sign in" after a login.
+  
+  
+  
+  
   private readonly token = signal<string | null>(null);
   private readonly currentUser = signal<AuthResponse | null>(null);
 
@@ -55,17 +55,13 @@ export class AuthService {
     this.router.navigate(['/auth/login']);
   }
 
-  /**
-   * Drops the session without navigating. Used by the error interceptor when the
-   * API reports an expired token, so it can pick its own redirect target while
-   * still keeping the signals in sync.
-   */
+  
   clearSession(): void {
     try {
       localStorage.removeItem(this.tokenKey);
       localStorage.removeItem(this.userKey);
     } catch {
-      // Storage can be unavailable (private mode, quota). Signals still clear.
+      
     }
     this.token.set(null);
     this.currentUser.set(null);
@@ -80,7 +76,7 @@ export class AuthService {
       localStorage.setItem(this.tokenKey, response.token);
       localStorage.setItem(this.userKey, JSON.stringify(response));
     } catch {
-      // Session still works for this tab even if it can't be persisted.
+      
     }
     this.token.set(response.token);
     this.currentUser.set(response);
@@ -98,7 +94,7 @@ export class AuthService {
     }
 
     if (!token) {
-      // A stale user blob without a token is not a session — discard it.
+      
       if (stored) this.clearSession();
       return;
     }
@@ -109,8 +105,8 @@ export class AuthService {
       try {
         this.currentUser.set(JSON.parse(stored) as AuthResponse);
       } catch {
-        // Corrupt payload shouldn't take the whole app down on boot.
-        try { localStorage.removeItem(this.userKey); } catch { /* ignore */ }
+        
+        try { localStorage.removeItem(this.userKey); } catch {  }
         this.currentUser.set(null);
       }
     }

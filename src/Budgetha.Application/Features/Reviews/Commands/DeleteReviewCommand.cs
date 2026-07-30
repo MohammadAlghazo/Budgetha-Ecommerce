@@ -33,7 +33,7 @@ public class DeleteReviewCommandHandler : IRequestHandler<DeleteReviewCommand>
         if (review == null)
             throw new NotFoundException(nameof(Review), request.ReviewId);
 
-        // Allow deletion if the user is the author or if the user is an admin
+        
         bool isAuthor = review.UserId == userId;
         bool isAdmin = await _identityService.IsInRoleAsync(userId, "Admin") || await _identityService.IsInRoleAsync(userId, "SuperAdmin");
 

@@ -137,7 +137,7 @@ export class QuickViewComponent {
   });
 
   constructor() {
-    // Reset gallery and variant selections whenever a new product opens.
+    
     effect(() => {
       const p = this.product();
       this.activeIndex.set(0);

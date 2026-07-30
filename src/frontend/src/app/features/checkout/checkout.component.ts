@@ -343,7 +343,7 @@ export class CheckoutComponent implements OnInit {
   private initConfig(): void {
     this.payPalConfig = {
       currency: 'USD',
-      clientId: 'sb', // sandbox client id
+      clientId: 'sb', 
       createOrderOnClient: (data) => <ICreateOrderRequest>{
         intent: 'CAPTURE',
         purchase_units: [
@@ -389,14 +389,14 @@ export class CheckoutComponent implements OnInit {
         layout: 'vertical'
       },
       onApprove: (data, actions) => {
-        // Log transaction start
+        
         this.placing.set(true);
         actions.order.get().then((details: any) => {
-          // You could show a loading spinner here while verifying on your server
+          
         });
       },
       onClientAuthorization: (data) => {
-        // Payment successful
+        
         this.completeOrder('PayPal Transaction ID: ' + data.id);
       },
       onCancel: (data, actions) => {
@@ -409,13 +409,13 @@ export class CheckoutComponent implements OnInit {
         console.log('PayPal Error', err);
       },
       onClick: (data, actions) => {
-        // Run validations before popup opens
+        
         this.submitted.set(true);
         if (this.form.invalid) {
           this.form.markAllAsTouched();
           this.toast.error('Please complete your delivery address first.');
-          // Unfortunately ngx-paypal doesn't let us easily block the popup here if invalid, 
-          // but we disabled the button wrapper via an @if (form.valid) check in the HTML.
+          
+          
         }
       },
     };
@@ -442,7 +442,7 @@ export class CheckoutComponent implements OnInit {
 
   placeOrder(): void {
     if (this.paymentMethod() !== 'cod') {
-      return; // Only process regular form submission for COD
+      return; 
     }
 
     this.submitted.set(true);
@@ -454,7 +454,7 @@ export class CheckoutComponent implements OnInit {
     }
 
     this.placing.set(true);
-    // Simulate a short payment-processing delay for realistic UX.
+    
     setTimeout(() => {
       this.completeOrder('Cash on Delivery');
     }, 900);

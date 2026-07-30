@@ -3,7 +3,7 @@ import { SwUpdate, VersionReadyEvent } from '@angular/service-worker';
 import { filter } from 'rxjs';
 import { ToastService } from './toast.service';
 
-/** The `beforeinstallprompt` event isn't in TypeScript's DOM lib yet. */
+
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
@@ -11,12 +11,7 @@ interface BeforeInstallPromptEvent extends Event {
 
 const DISMISS_KEY = 'budgetha:install-dismissed';
 
-/**
- * Owns everything install/offline related:
- *  - captures the browser's install prompt so we can trigger it from our own UI
- *  - tells the user when a new version is ready, with a one-tap reload
- *  - exposes online/offline state for the connectivity banner
- */
+
 @Injectable({ providedIn: 'root' })
 export class PwaService {
   private readonly toast = inject(ToastService);
@@ -31,17 +26,13 @@ export class PwaService {
 
   readonly online = signal(true);
 
-  /** True when we can actually show a working "Install app" button. */
+  
   readonly canInstall = computed(() => this.promptAvailable() && !this.installed() && !this.dismissed());
 
-  /**
-   * Whether to offer installation in the UI at all. Broader than `canInstall`
-   * because Safari and Firefox never fire `beforeinstallprompt` — there we still
-   * show the button and explain the manual "Add to Home Screen" path on click.
-   */
+  
   readonly showInstallAffordance = computed(() => !this.installed() && !this.dismissed());
 
-  /** True once the app is running in a standalone window. */
+  
   readonly isStandalone = signal(false);
 
   constructor() {
@@ -52,7 +43,7 @@ export class PwaService {
     this.installed.set(detectStandalone());
 
     const onBeforeInstall = (event: Event) => {
-      // Suppress Chrome's mini-infobar so our own button is the entry point.
+      
       event.preventDefault();
       this.deferredPrompt = event as BeforeInstallPromptEvent;
       this.promptAvailable.set(true);
@@ -90,12 +81,12 @@ export class PwaService {
     this.watchForUpdates();
   }
 
-  /** Opens the native install dialog. Returns true if the user accepted. */
+  
   async install(): Promise<boolean> {
     const prompt = this.deferredPrompt;
 
     if (!prompt) {
-      // Safari and Firefox never fire beforeinstallprompt — explain the manual path.
+      
       this.toast.info(installHint(), { duration: 8000 });
       return false;
     }
@@ -104,7 +95,7 @@ export class PwaService {
       await prompt.prompt();
       const { outcome } = await prompt.userChoice;
 
-      // The event can only be used once, whatever the outcome.
+      
       this.deferredPrompt = null;
       this.promptAvailable.set(false);
 
@@ -120,13 +111,13 @@ export class PwaService {
     }
   }
 
-  /** Hides the install affordance for this browser until storage is cleared. */
+  
   dismissInstall(): void {
     this.dismissed.set(true);
     try {
       localStorage.setItem(DISMISS_KEY, '1');
     } catch {
-      // Non-fatal — the button simply reappears next visit.
+      
     }
   }
 
@@ -145,7 +136,7 @@ export class PwaService {
         });
       });
 
-    // An unrecoverable cache state means the SW can no longer serve the app.
+    
     this.swUpdate.unrecoverable.subscribe(() => {
       this.toast.error('Budgetha needs to reload to recover from a caching problem.', {
         duration: 0,

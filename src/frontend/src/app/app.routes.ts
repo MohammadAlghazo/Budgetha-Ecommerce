@@ -5,7 +5,7 @@ import { adminGuard } from './core/guards/admin.guard';
 import { sellerGuard } from './core/guards/seller.guard';
 
 export const routes: Routes = [
-  // --- Admin routes ---
+  
   {
     path: 'admin',
     loadComponent: () => import('./features/admin/admin-layout.component').then(m => m.AdminLayoutComponent),
@@ -25,8 +25,8 @@ export const routes: Routes = [
 
 
 
-  // --- Auth routes (declared BEFORE the shell so they resolve before the
-  //     shell's `**` wildcard child, which would otherwise swallow them). ---
+  
+  
   {
     path: 'auth/login',
     title: 'Sign in · Budgetha',
@@ -48,8 +48,8 @@ export const routes: Routes = [
     loadComponent: () => import('./features/auth/reset-password/reset-password.component').then(m => m.ResetPasswordComponent),
   },
 
-  // Convenience aliases. Anything a user or an old link might reasonably try
-  // resolves instead of falling through to the 404 page.
+  
+  
   { path: 'login', redirectTo: 'auth/login', pathMatch: 'full' },
   { path: 'signin', redirectTo: 'auth/login', pathMatch: 'full' },
   { path: 'sign-in', redirectTo: 'auth/login', pathMatch: 'full' },
@@ -59,7 +59,7 @@ export const routes: Routes = [
   { path: 'forgot-password', redirectTo: 'auth/forgot-password', pathMatch: 'full' },
   { path: 'reset-password', redirectTo: 'auth/reset-password', pathMatch: 'full' },
 
-  // --- Main app shell ---
+  
   {
     path: '',
     loadComponent: () => import('./layout/shell/shell.component').then(m => m.ShellComponent),
@@ -74,9 +74,9 @@ export const routes: Routes = [
         title: 'Shop all products · Budgetha',
         loadComponent: () => import('./features/catalog/catalog.component').then(m => m.CatalogComponent),
       },
-      // Common aliases for the catalog. The deals/wishlist views are query-param
-      // states of /shop, so they redirect through a UrlTree — a plain string
-      // redirectTo can't carry query params.
+      
+      
+      
       { path: 'products', redirectTo: 'shop', pathMatch: 'full' },
       { path: 'catalog', redirectTo: 'shop', pathMatch: 'full' },
       { path: 'deals', pathMatch: 'full', redirectTo: () => inject(Router).parseUrl('/shop?deals=1') },
@@ -124,8 +124,8 @@ export const routes: Routes = [
             title: 'Account settings · Budgetha',
             loadComponent: () => import('./features/account/account-settings.component').then(m => m.AccountSettingsComponent),
           },
-          // Any unknown /account/* path goes to the orders tab rather than a 404
-          // inside the account layout.
+          
+          
           { path: '**', redirectTo: 'orders' },
         ],
       },
@@ -134,7 +134,7 @@ export const routes: Routes = [
       { path: 'profile', redirectTo: 'account/settings', pathMatch: 'full' },
       { path: 'settings', redirectTo: 'account/settings', pathMatch: 'full' },
 
-      // --- Support & legal pages (all driven by INFO_PAGES) ---
+      
       {
         path: 'help',
         title: 'Help Center · Budgetha',
@@ -177,7 +177,7 @@ export const routes: Routes = [
         data: { key: 'legal/cookies' },
         loadComponent: () => import('./features/info/info-page.component').then(m => m.InfoPageComponent),
       },
-      // Aliases for the legal pages.
+      
       { path: 'privacy', redirectTo: 'legal/privacy', pathMatch: 'full' },
       { path: 'terms', redirectTo: 'legal/terms', pathMatch: 'full' },
       { path: 'cookies', redirectTo: 'legal/cookies', pathMatch: 'full' },

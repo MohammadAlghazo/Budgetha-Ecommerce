@@ -13,14 +13,14 @@ export const appConfig: ApplicationConfig = {
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(
       routes,
-      // Land at the top of each new page, but restore position on back/forward.
+      
       withInMemoryScrolling({ scrollPositionRestoration: 'enabled', anchorScrolling: 'enabled' }),
-      // Re-run guards and resolvers when only query params change (e.g. /shop?category=…).
+      
       withRouterConfig({ paramsInheritanceStrategy: 'always' })
     ),
     provideHttpClient(withInterceptors([authInterceptor, errorInterceptor])),
-    // Catches everything the HTTP interceptor can't: template/runtime throws,
-    // rejected promises, and failed lazy-chunk loads.
+    
+    
     { provide: ErrorHandler, useClass: GlobalErrorHandler },
     provideServiceWorker('ngsw-worker.js', {
       enabled: !isDevMode(),

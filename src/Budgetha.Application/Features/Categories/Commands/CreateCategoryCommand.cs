@@ -23,11 +23,11 @@ public class CreateCategoryCommandHandler : IRequestHandler<CreateCategoryComman
 
     public async Task<Guid> Handle(CreateCategoryCommand request, CancellationToken cancellationToken)
     {
-        // Simple slug generation
+        
         var slug = Regex.Replace(request.Name.ToLowerInvariant(), @"[^a-z0-9\s-]", "");
         slug = Regex.Replace(slug, @"\s+", "-").Trim('-');
 
-        // Handle duplicates if necessary
+        
         var exists = _context.Categories.Any(c => c.Slug == slug);
         if (exists)
         {

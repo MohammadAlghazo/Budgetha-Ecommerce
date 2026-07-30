@@ -61,7 +61,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
 
         query = query.Where(p => p.Price >= request.MinPrice && p.Price <= request.MaxPrice);
 
-        // Sorting
+        
         query = request.Sort switch
         {
             "price-asc" => query.OrderBy(p => p.Price),
@@ -82,12 +82,12 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
             Id = p.Id,
             Name = p.Name,
             Slug = p.Slug,
-            Brand = "Generic", // Entity missing brand
+            Brand = "Generic", 
             Category = p.Category?.Slug ?? "",
             Price = p.Price,
-            OriginalPrice = p.Price * 1.2m, // mock
-            Rating = 4.5m, // mock
-            ReviewCount = 120, // mock
+            OriginalPrice = p.Price * 1.2m, 
+            Rating = 4.5m, 
+            ReviewCount = 120, 
             ShortDescription = p.Description.Length > 50 ? p.Description.Substring(0, 50) + "..." : p.Description,
             Description = p.Description,
             Stock = p.StockQuantity,

@@ -29,10 +29,10 @@ public class AdminController : ControllerBase
     }
 
     [HttpGet("users")]
-    public async Task<IActionResult> GetAllUsers()
+    public async Task<IActionResult> GetAllUsers([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
-        var users = await _adminService.GetAllUsersAsync();
-        return Ok(users);
+        var result = await _adminService.GetAllUsersAsync(page, pageSize);
+        return Ok(result);
     }
 
     [HttpGet("recent-users")]
@@ -55,7 +55,7 @@ public class AdminController : ControllerBase
             Sort: "newest",
             Page: page,
             PageSize: pageSize,
-            Status: null // null gets all products
+            Status: null 
         );
 
         var result = await _mediator.Send(query);

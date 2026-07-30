@@ -30,19 +30,19 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
 
     public async Task<Guid> Handle(CreateProductCommand request, CancellationToken cancellationToken)
     {
-        // Verify category exists
+        
         var categoryExists = await _context.Categories.AnyAsync(c => c.Id == request.CategoryId, cancellationToken);
         if (!categoryExists)
         {
             throw new Exception($"Category with ID {request.CategoryId} not found.");
         }
 
-        // Generate base slug
+        
         var slug = GenerateSlug(request.Name);
         var originalSlug = slug;
         var counter = 1;
 
-        // Ensure slug is unique
+        
         while (await _context.Products.AnyAsync(p => p.Slug == slug, cancellationToken))
         {
             slug = $"{originalSlug}-{counter}";
@@ -87,13 +87,13 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
     private string GenerateSlug(string name)
     {
         string str = name.ToLower();
-        // invalid chars           
+        
         str = Regex.Replace(str, @"[^a-z0-9\s-]", "");
-        // convert multiple spaces into one space   
+        
         str = Regex.Replace(str, @"\s+", " ").Trim();
-        // cut and trim 
+        
         str = str.Substring(0, str.Length <= 45 ? str.Length : 45).Trim();
-        str = Regex.Replace(str, @"\s", "-"); // hyphens   
+        str = Regex.Replace(str, @"\s", "-"); 
         return str;
     }
 }

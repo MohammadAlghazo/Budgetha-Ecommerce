@@ -52,14 +52,10 @@ export class LoginComponent {
       return { transform: 'translateX(0) scale(0.7)', zIndex: 10, opacity: 0, visibility: 'hidden' };
     }
   }
-  /**
-   * Where to send the user after a successful sign-in. The auth guard puts the
-   * page they were blocked from (e.g. /checkout) here, so guests who tried to
-   * check out resume exactly where they left off instead of landing on home.
-   */
+  
   private get returnUrl(): string {
     const target = this.route.snapshot.queryParamMap.get('returnUrl');
-    // Only allow same-app paths — never an absolute or protocol-relative URL.
+    
     if (!target || !target.startsWith('/') || target.startsWith('//')) return '/';
     if (target.startsWith('/auth/')) return '/';
     return target;
@@ -69,7 +65,7 @@ export class LoginComponent {
     this.showPassword.update(v => !v);
   }
 
-  /** Carries returnUrl across to /auth/register so the round-trip survives. */
+  
   get linkQuery(): { returnUrl: string | null } {
     const target = this.returnUrl;
     return { returnUrl: target === '/' ? null : target };
@@ -90,8 +86,8 @@ export class LoginComponent {
         this.router.navigateByUrl(this.returnUrl);
       },
       error: () => {
-        // The error interceptor already surfaced a specific message; just
-        // release the button so the user can retry.
+        
+        
         this.loading.set(false);
       }
     });

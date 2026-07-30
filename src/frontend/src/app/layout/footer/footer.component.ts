@@ -116,10 +116,7 @@ export class FooterComponent {
   readonly pwa = inject(PwaService);
   private readonly toast = inject(ToastService);
 
-  /**
-   * There's no newsletter endpoint yet, but the form must never look like it
-   * silently failed — validate locally and confirm what happened either way.
-   */
+  
   subscribe(event: Event): void {
     event.preventDefault();
     const form = event.target as HTMLFormElement;

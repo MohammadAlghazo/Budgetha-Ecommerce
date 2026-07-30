@@ -146,7 +146,7 @@ export class AdminAnnouncementsComponent implements OnInit {
       message: item.message,
       linkUrl: item.linkUrl,
       isActive: item.isActive,
-      startDate: item.startDate ? item.startDate.substring(0, 16) : '', // for datetime-local
+      startDate: item.startDate ? item.startDate.substring(0, 16) : '', 
       endDate: item.endDate ? item.endDate.substring(0, 16) : ''
     });
     this.showForm.set(true);

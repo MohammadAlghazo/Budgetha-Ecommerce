@@ -3,11 +3,7 @@ import { inject } from '@angular/core';
 import { AuthService } from '../services/auth.service';
 import { ToastService } from '../services/toast.service';
 
-/**
- * Gate for pages that need a signed-in shopper. Rather than silently bouncing
- * to a login screen, it explains why — and stashes the blocked URL so the user
- * is returned there the moment they sign in.
- */
+
 export const authGuard: CanActivateFn = (_route, state) => {
   const auth = inject(AuthService);
   const toast = inject(ToastService);

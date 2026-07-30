@@ -1,10 +1,7 @@
 import { Component, inject, input } from '@angular/core';
 import { PwaService } from '../../../core/services/pwa.service';
 
-/**
- * "Install app" affordance. Rendered as a compact icon button in the header and
- * as a full-width card in the footer, driven by the `variant` input.
- */
+
 @Component({
   selector: 'app-install-button',
   standalone: true,

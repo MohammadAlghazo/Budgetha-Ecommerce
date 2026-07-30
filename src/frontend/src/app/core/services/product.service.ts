@@ -32,7 +32,7 @@ export class ProductService {
   }
 
   getBrands(): string[] {
-    return BRANDS; // Still mocked for now
+    return BRANDS; 
   }
 
   getAll(): Observable<Product[]> {
@@ -51,7 +51,7 @@ export class ProductService {
     return this.http.get<Product>(`${this.apiUrl}/products/${slug}`).pipe(
       catchError(err => {
         console.error(`Failed to fetch product ${slug}`, err);
-        throw err; // Re-throw so components can handle 404
+        throw err; 
       })
     );
   }

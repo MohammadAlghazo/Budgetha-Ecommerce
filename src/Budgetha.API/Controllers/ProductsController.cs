@@ -21,7 +21,7 @@ public class ProductsController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<CatalogResultDto>> GetProducts([FromQuery] GetProductsQuery query)
     {
-        // Set default pagination if not provided
+        
         if (query.Page <= 0) query = query with { Page = 1 };
         if (query.PageSize <= 0) query = query with { PageSize = 12 };
 
