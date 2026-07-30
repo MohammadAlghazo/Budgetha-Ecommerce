@@ -62,7 +62,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
         <div class="hidden lg:grid grid-cols-2 gap-5 relative">
           <div class="space-y-5 pt-10">
             <div class="card overflow-hidden rounded-3xl border-white/10 shadow-2xl shadow-teal-950/50 rotate-[-2deg] hover:rotate-0 transition-transform duration-500">
-              <img src="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80" alt="Wireless headphones" class="aspect-[4/5] object-cover w-full" />
+              <img src="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80" alt="Wireless headphones" class="aspect-[4/5] object-cover object-[75%_center] w-full" />
             </div>
             <div class="glass-card rounded-2xl p-4 flex items-center gap-3 backdrop-blur-xl">
               <div class="h-10 w-10 rounded-full bg-emerald-400/20 flex items-center justify-center">
