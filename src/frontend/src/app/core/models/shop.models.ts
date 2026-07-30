@@ -40,7 +40,7 @@ export interface Product {
 }
 
 export interface Review {
-  id: number;
+  id: string | number;
   author: string;
   initials: string;
   rating: number;
@@ -49,6 +49,7 @@ export interface Review {
   comment: string;
   verified: boolean;
   helpful: number;
+  isAuthor?: boolean;
 }
 
 export interface RatingBucket {

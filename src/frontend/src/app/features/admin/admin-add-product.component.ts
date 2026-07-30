@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, OnInit } from '@angular/core';
 import { FormBuilder, Validators, ReactiveFormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
@@ -233,7 +233,7 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
     }
   `
 })
-export class AdminAddProductComponent implements OnInit {
+export class AdminAddProductComponent {
   private fb = inject(FormBuilder);
   private http = inject(HttpClient);
   private router = inject(Router);

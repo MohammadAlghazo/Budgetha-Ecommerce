@@ -5,16 +5,19 @@ import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../core/services/product.service';
 import { CartService } from '../../core/services/cart.service';
 import { WishlistService } from '../../core/services/wishlist.service';
-import { Product } from '../../core/models/shop.models';
+import { Product, Review } from '../../core/models/shop.models';
 import { StarRatingComponent } from '../../shared/components/star-rating/star-rating.component';
 import { ProductCardComponent } from '../../shared/components/product-card/product-card.component';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
+import { FormsModule } from '@angular/forms';
+import { ReviewService } from '../../core/services/review.service';
+import { AuthService } from '../../core/services/auth.service';
 
 type Tab = 'description' | 'specs' | 'reviews';
 
 @Component({
   selector: 'app-product-detail',
-  imports: [CurrencyPipe, RouterLink, StarRatingComponent, ProductCardComponent, EmptyStateComponent],
+  imports: [CurrencyPipe, RouterLink, StarRatingComponent, ProductCardComponent, EmptyStateComponent, FormsModule],
   template: `
     @if (product(); as p) {
       <div class="max-w-7xl mx-auto px-4 sm:px-6 py-8 lg:py-10">
@@ -64,10 +67,10 @@ type Tab = 'description' | 'specs' | 'reviews';
             <h1 class="mt-2 text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight leading-tight">{{ p.name }}</h1>
 
             <button type="button" (click)="activeTab.set('reviews'); scrollToTabs()" class="mt-3 flex items-center gap-2 w-fit group">
-              <app-star-rating [rating]="p.rating" size="md" />
-              <span class="text-sm font-semibold text-slate-700">{{ p.rating }}</span>
+              <app-star-rating [rating]="averageRating()" size="md" />
+              <span class="text-sm font-semibold text-slate-700">{{ averageRating() }}</span>
               <span class="text-sm text-slate-400 group-hover:text-violet-600 underline-offset-2 group-hover:underline transition-colors duration-300">
-                {{ p.reviewCount }} reviews
+                {{ reviews().length }} reviews
               </span>
             </button>
 
@@ -205,7 +208,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                 [class]="activeTab() === tab.key ? 'text-violet-700' : 'text-slate-500 hover:text-slate-800'">
                 {{ tab.label }}
                 @if (tab.key === 'reviews') {
-                  <span class="ml-1.5 badge bg-slate-100 text-slate-500">{{ p.reviewCount }}</span>
+                  <span class="ml-1.5 badge bg-slate-100 text-slate-500">{{ reviews().length }}</span>
                 }
                 @if (activeTab() === tab.key) {
                   <span class="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-violet-600"></span>
@@ -259,47 +262,70 @@ type Tab = 'description' | 'specs' | 'reviews';
 
               <!-- Reviews -->
               @case ('reviews') {
-                @if (p.reviewCount === 0) {
-                  <div class="card max-w-2xl mx-auto">
-                    <app-empty-state
-                      icon="reviews"
-                      title="No reviews yet"
-                      message="Be the first to share your experience with this product — your review helps other shoppers decide." />
-                  </div>
-                } @else {
-                  <div class="grid lg:grid-cols-3 gap-10">
-                    <!-- Ratings summary -->
-                    <div class="lg:col-span-1">
-                      <div class="card p-6 lg:sticky lg:top-24">
-                        <div class="flex items-end gap-3">
-                          <span class="text-5xl font-extrabold text-slate-900 leading-none">{{ p.rating }}</span>
-                          <div class="pb-1">
-                            <app-star-rating [rating]="p.rating" size="md" />
-                            <p class="mt-1 text-xs text-slate-400">Based on {{ p.reviewCount }} reviews</p>
-                          </div>
+                <div class="grid lg:grid-cols-3 gap-10">
+                  <!-- Ratings summary -->
+                  <div class="lg:col-span-1">
+                    <div class="card p-6 lg:sticky lg:top-24">
+                      <div class="flex items-end gap-3">
+                        <span class="text-5xl font-extrabold text-slate-900 leading-none">{{ averageRating() }}</span>
+                        <div class="pb-1">
+                          <app-star-rating [rating]="averageRating()" size="md" />
+                          <p class="mt-1 text-xs text-slate-400">Based on {{ reviews().length }} reviews</p>
                         </div>
-
-                        <!-- Star distribution -->
-                        <div class="mt-6 space-y-2.5">
-                          @for (bucket of ratingBuckets(); track bucket.stars) {
-                            <div class="flex items-center gap-3">
-                              <span class="text-xs font-medium text-slate-600 w-10 shrink-0">{{ bucket.stars }} star</span>
-                              <div class="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
-                                <div class="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 transition-all duration-500" [style.width.%]="bucket.percent"></div>
-                              </div>
-                              <span class="text-xs text-slate-400 w-9 text-right shrink-0">{{ bucket.percent }}%</span>
-                            </div>
-                          }
-                        </div>
-
-                        <button type="button" class="btn-primary w-full mt-6">Write a Review</button>
                       </div>
-                    </div>
 
-                    <!-- Review cards -->
-                    <div class="lg:col-span-2 space-y-5">
-                      @for (review of reviews(); track review.id) {
-                        <article class="card p-6">
+                      <!-- Star distribution -->
+                      <div class="mt-6 space-y-2.5">
+                        @for (bucket of ratingBuckets(); track bucket.stars) {
+                          <div class="flex items-center gap-3">
+                            <span class="text-xs font-medium text-slate-600 w-10 shrink-0">{{ bucket.stars }} star</span>
+                            <div class="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+                              <div class="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 transition-all duration-500" [style.width.%]="bucket.percent"></div>
+                            </div>
+                            <span class="text-xs text-slate-400 w-9 text-right shrink-0">{{ bucket.percent }}%</span>
+                          </div>
+                        }
+                      </div>
+
+                      @if (authService.isAuthenticated()) {
+                        <div class="mt-8 border-t border-slate-100 pt-6">
+                          <h3 class="font-bold text-sm mb-3">Write a Review</h3>
+                          <div class="flex items-center gap-1 mb-4">
+                            @for (star of [1,2,3,4,5]; track star) {
+                              <button type="button" (click)="newReviewRating.set(star)" class="text-2xl transition-colors" [class]="star <= newReviewRating() ? 'text-amber-400' : 'text-slate-200'">★</button>
+                            }
+                          </div>
+                          <textarea [(ngModel)]="newReviewComment" rows="3" class="w-full rounded-xl border-slate-200 text-sm focus:border-violet-500 focus:ring-violet-500 mb-3" placeholder="Share your thoughts..."></textarea>
+                          <button type="button" (click)="submitReview()" [disabled]="isSubmittingReview()" class="btn-primary w-full disabled:opacity-50">Submit Review</button>
+                        </div>
+                      } @else {
+                        <button type="button" routerLink="/login" class="btn-primary w-full mt-6">Log in to Review</button>
+                      }
+                    </div>
+                  </div>
+
+                  <!-- Review cards -->
+                  <div class="lg:col-span-2 space-y-5">
+                    @if (reviews().length === 0) {
+                      <app-empty-state
+                        icon="reviews"
+                        title="No reviews yet"
+                        message="Be the first to share your experience with this product — your review helps other shoppers decide." />
+                    }
+                    @for (review of reviews(); track review.id) {
+                      <article class="card p-6">
+                        @if (isEditingReview() === review.id) {
+                          <div class="flex items-center gap-1 mb-4">
+                            @for (star of [1,2,3,4,5]; track star) {
+                              <button type="button" (click)="editReviewRating.set(star)" class="text-2xl transition-colors" [class]="star <= editReviewRating() ? 'text-amber-400' : 'text-slate-200'">★</button>
+                            }
+                          </div>
+                          <textarea [(ngModel)]="editReviewComment" rows="3" class="w-full rounded-xl border-slate-200 text-sm focus:border-violet-500 focus:ring-violet-500 mb-3"></textarea>
+                          <div class="flex gap-2">
+                            <button type="button" (click)="saveEdit()" class="btn-primary flex-1 py-2 text-sm">Save</button>
+                            <button type="button" (click)="cancelEdit()" class="px-4 py-2 bg-slate-100 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">Cancel</button>
+                          </div>
+                        } @else {
                           <div class="flex items-start justify-between gap-4">
                             <div class="flex items-center gap-3">
                               <span class="h-11 w-11 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white text-sm font-bold flex items-center justify-center shrink-0">
@@ -308,36 +334,31 @@ type Tab = 'description' | 'specs' | 'reviews';
                               <div>
                                 <p class="text-sm font-bold text-slate-900 flex items-center gap-2">
                                   {{ review.author }}
-                                  @if (review.verified) {
-                                    <span class="badge bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
-                                      <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75" />
-                                      </svg>
-                                      Verified purchase
-                                    </span>
-                                  }
                                 </p>
                                 <p class="text-xs text-slate-400 mt-0.5">{{ review.date }}</p>
                               </div>
                             </div>
-                            <app-star-rating [rating]="review.rating" size="sm" />
+                            <div class="flex flex-col items-end gap-2">
+                              <app-star-rating [rating]="review.rating" size="sm" />
+                              <div class="flex items-center gap-2">
+                                @if (review.isAuthor) {
+                                  <button type="button" (click)="startEdit(review)" class="text-xs text-violet-600 font-medium hover:underline">Edit</button>
+                                }
+                                @if (review.isAuthor || isAdmin()) {
+                                  <button type="button" (click)="deleteReview(review.id)" class="text-xs text-rose-500 font-medium hover:underline">Delete</button>
+                                }
+                              </div>
+                            </div>
                           </div>
-                          <h3 class="mt-4 text-sm font-bold text-slate-900">{{ review.title }}</h3>
+                          @if (review.title) {
+                            <h3 class="mt-4 text-sm font-bold text-slate-900">{{ review.title }}</h3>
+                          }
                           <p class="mt-2 text-sm text-slate-600 leading-relaxed">{{ review.comment }}</p>
-                          <div class="mt-4 flex items-center gap-4">
-                            <button type="button" class="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-violet-600 transition-colors duration-300">
-                              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M6.633 10.25c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 012.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 00.322-1.672V3a.75.75 0 01.75-.75 2.25 2.25 0 012.25 2.25c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282m0 0h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 01-2.649 7.521c-.388.482-.987.729-1.605.729H13.48c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 00-1.423-.23H5.904m10.598-9.75H14.25M5.904 18.5c.083.205.173.405.27.602.197.4-.078.898-.523.898h-.908c-.889 0-1.713-.518-1.972-1.368a12 12 0 01-.521-3.507c0-1.553.295-3.036.831-4.398C3.387 9.953 4.167 9.5 5 9.5h1.053c.472 0 .745.556.5.96a8.958 8.958 0 00-1.302 4.665c0 1.194.232 2.333.654 3.375z" />
-                              </svg>
-                              Helpful ({{ review.helpful }})
-                            </button>
-                            <button type="button" class="text-xs font-medium text-slate-400 hover:text-slate-600 transition-colors duration-300">Report</button>
-                          </div>
-                        </article>
-                      }
-                    </div>
+                        }
+                      </article>
+                    }
                   </div>
-                }
+                </div>
               }
             }
           </div>
@@ -414,14 +435,36 @@ export class ProductDetailComponent {
       : '';
   });
 
-  readonly reviews = computed(() => {
-    const p = this.product();
-    return p ? this.productService.getReviews(p) : [];
-  });
+  private readonly reviewService = inject(ReviewService);
+  readonly authService = inject(AuthService);
+
+  readonly reviews = signal<Review[]>([]);
+  readonly isSubmittingReview = signal(false);
+  readonly newReviewRating = signal(5);
+  readonly newReviewComment = signal('');
+  
+  readonly isEditingReview = signal<string | number | null>(null);
+  readonly editReviewRating = signal(5);
+  readonly editReviewComment = signal('');
 
   readonly ratingBuckets = computed(() => {
-    const p = this.product();
-    return p ? this.productService.getRatingBuckets(p) : [];
+    const revs = this.reviews();
+    const total = revs.length;
+    return [5, 4, 3, 2, 1].map(stars => {
+      const count = revs.filter(r => r.rating === stars).length;
+      return {
+        stars,
+        count,
+        percent: total ? Math.round((count / total) * 100) : 0
+      };
+    });
+  });
+  
+  readonly averageRating = computed(() => {
+    const revs = this.reviews();
+    if (revs.length === 0) return 0;
+    const sum = revs.reduce((acc, r) => acc + r.rating, 0);
+    return Number((sum / revs.length).toFixed(1));
   });
 
   constructor() {
@@ -440,6 +483,9 @@ export class ProductDetailComponent {
           if (product) {
             this.productService.getRelated(product).subscribe(related => {
               this.relatedProducts.set(related);
+            });
+            this.reviewService.getReviews(product.id.toString()).subscribe(revs => {
+              this.reviews.set(revs);
             });
           } else {
              this.relatedProducts.set([]);
@@ -471,5 +517,67 @@ export class ProductDetailComponent {
 
   scrollToTabs(): void {
     document.getElementById('product-tabs')?.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  submitReview(): void {
+    const p = this.product();
+    if (!p) return;
+    this.isSubmittingReview.set(true);
+    this.reviewService.addReview({
+      productId: p.id.toString(),
+      rating: this.newReviewRating(),
+      comment: this.newReviewComment()
+    }).subscribe({
+      next: () => {
+        this.newReviewComment.set('');
+        this.newReviewRating.set(5);
+        this.isSubmittingReview.set(false);
+        this.reviewService.getReviews(p.id.toString()).subscribe(revs => this.reviews.set(revs));
+      },
+      error: () => this.isSubmittingReview.set(false)
+    });
+  }
+
+  startEdit(review: Review): void {
+    this.isEditingReview.set(review.id);
+    this.editReviewRating.set(review.rating);
+    this.editReviewComment.set(review.comment || '');
+  }
+
+  cancelEdit(): void {
+    this.isEditingReview.set(null);
+  }
+
+  saveEdit(): void {
+    const p = this.product();
+    const id = this.isEditingReview();
+    if (!p || !id) return;
+    
+    this.reviewService.updateReview(id.toString(), {
+      reviewId: id.toString(),
+      rating: this.editReviewRating(),
+      comment: this.editReviewComment()
+    }).subscribe({
+      next: () => {
+        this.isEditingReview.set(null);
+        this.reviewService.getReviews(p.id.toString()).subscribe(revs => this.reviews.set(revs));
+      }
+    });
+  }
+
+  deleteReview(id: string | number): void {
+    if (!confirm('Are you sure you want to delete this review?')) return;
+    const p = this.product();
+    if (!p) return;
+    
+    this.reviewService.deleteReview(id.toString()).subscribe({
+      next: () => {
+        this.reviewService.getReviews(p.id.toString()).subscribe(revs => this.reviews.set(revs));
+      }
+    });
+  }
+  
+  isAdmin(): boolean {
+    return this.authService.user()?.roles?.includes('Admin') || this.authService.user()?.roles?.includes('SuperAdmin') || false;
   }
 }
