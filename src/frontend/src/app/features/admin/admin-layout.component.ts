@@ -1,14 +1,27 @@
-import { Component, inject, computed } from '@angular/core';
+import { Component, inject, computed, signal } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
+import { NgTemplateOutlet } from '@angular/common';
 import { AuthService } from '../../core/services/auth.service';
 
 @Component({
   selector: 'app-admin-layout',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, NgTemplateOutlet],
   template: `
     <div class="min-h-screen bg-slate-50 flex">
       <!-- Sidebar -->
       <aside class="w-64 bg-gradient-to-b from-teal-950 to-slate-900 text-teal-100 flex-shrink-0 flex flex-col hidden md:flex">
+        <ng-container *ngTemplateOutlet="sidebarContent"></ng-container>
+      </aside>
+
+      <!-- Mobile Sidebar Overlay -->
+      @if (mobileMenuOpen()) {
+        <div class="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm md:hidden" (click)="mobileMenuOpen.set(false)"></div>
+        <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-teal-950 to-slate-900 text-teal-100 shadow-2xl flex flex-col md:hidden animate-[slideInLeft_0.3s_ease-out]">
+          <ng-container *ngTemplateOutlet="sidebarContent"></ng-container>
+        </aside>
+      }
+
+      <ng-template #sidebarContent>
         <!-- Logo -->
         <div class="h-16 flex items-center px-6 border-b border-white/10">
           <div class="flex items-center gap-2.5">
@@ -73,13 +86,22 @@ import { AuthService } from '../../core/services/auth.service';
             }
           </a>
 
-          <a routerLink="/admin/products"
+          <a routerLink="/admin/products" (click)="mobileMenuOpen.set(false)"
              routerLinkActive="bg-teal-700/60 text-white border-teal-600/40"
              class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-teal-200 hover:bg-white/10 hover:text-white border border-transparent group">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-white/5">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
             </div>
             <span class="text-sm font-medium">Products</span>
+          </a>
+
+          <a routerLink="/admin/announcements" (click)="mobileMenuOpen.set(false)"
+             routerLinkActive="bg-teal-700/60 text-white border-teal-600/40"
+             class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-teal-200 hover:bg-white/10 hover:text-white border border-transparent group">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-white/5">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"></path></svg>
+            </div>
+            <span class="text-sm font-medium">Announcements</span>
           </a>
         </nav>
 
@@ -96,7 +118,7 @@ import { AuthService } from '../../core/services/auth.service';
             Sign Out
           </button>
         </div>
-      </aside>
+      </ng-template>
 
       <!-- Main Content -->
       <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -104,7 +126,7 @@ import { AuthService } from '../../core/services/auth.service';
         <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:px-8 shadow-sm flex-shrink-0">
           <div class="flex items-center gap-4">
             <!-- Mobile menu placeholder -->
-            <button class="md:hidden p-2 rounded-lg hover:bg-slate-100 text-slate-500">
+            <button class="md:hidden p-2 rounded-lg hover:bg-slate-100 text-slate-500" (click)="mobileMenuOpen.set(true)">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
             </button>
             <h1 class="text-lg font-bold text-slate-800">Budgetha Admin</h1>
@@ -132,6 +154,7 @@ import { AuthService } from '../../core/services/auth.service';
 })
 export class AdminLayoutComponent {
   readonly authService = inject(AuthService);
+  readonly mobileMenuOpen = signal(false);
 
   readonly isSuperAdmin = computed(() =>
     this.authService.user()?.roles?.includes('SuperAdmin') ?? false

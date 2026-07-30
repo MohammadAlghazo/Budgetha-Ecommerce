@@ -357,20 +357,20 @@ export class CatalogComponent {
     return 'All Products';
   });
 
-  readonly minPercent = computed(
-    () => {
-      const min = this.bounds().min;
-      const max = this.bounds().max;
-      return max === min ? 0 : ((this.minPrice() - min) / (max - min)) * 100;
-    }
-  );
-  readonly maxPercent = computed(
-    () => {
-      const min = this.bounds().min;
-      const max = this.bounds().max;
-      return max === min ? 100 : ((this.maxPrice() - min) / (max - min)) * 100;
-    }
-  );
+  readonly minPercent = computed(() => {
+    const min = this.bounds().min;
+    const max = this.bounds().max;
+    if (max === min) return 0;
+    const pct = ((this.minPrice() - min) / (max - min)) * 100;
+    return Math.max(0, Math.min(100, pct));
+  });
+  readonly maxPercent = computed(() => {
+    const min = this.bounds().min;
+    const max = this.bounds().max;
+    if (max === min) return 100;
+    const pct = ((this.maxPrice() - min) / (max - min)) * 100;
+    return Math.max(0, Math.min(100, pct));
+  });
 
   constructor() {
     this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe(params => {

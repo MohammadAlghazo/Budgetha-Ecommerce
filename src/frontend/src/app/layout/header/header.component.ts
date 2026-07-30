@@ -1,4 +1,4 @@
-import { Component, HostListener, computed, inject, signal } from '@angular/core';
+import { Component, HostListener, computed, inject, signal, OnInit } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
@@ -7,15 +7,22 @@ import { WishlistService } from '../../core/services/wishlist.service';
 import { PwaService } from '../../core/services/pwa.service';
 import { ToastService } from '../../core/services/toast.service';
 import { InstallButtonComponent } from '../../shared/components/install-button/install-button.component';
+import { AnnouncementService, Announcement } from '../../core/services/announcement.service';
 
 @Component({
   selector: 'app-header',
   imports: [RouterLink, RouterLinkActive, FormsModule, InstallButtonComponent],
   template: `
     <!-- Announcement bar -->
-    <div class="bg-gradient-to-r from-teal-800 via-teal-700 to-teal-900 text-white text-center text-xs sm:text-sm font-medium py-2 px-4">
-      Free shipping on orders over $75 · Use code <span class="font-bold tracking-wide">WELCOME10</span> for 10% off your first order
-    </div>
+    @if (announcement()) {
+      <div class="bg-gradient-to-r from-teal-800 via-teal-700 to-teal-900 text-white text-center text-xs sm:text-sm font-medium py-2 px-4 transition-all duration-300">
+        @if (announcement()?.linkUrl) {
+          <a [href]="announcement()?.linkUrl" class="hover:underline">{{ announcement()?.message }}</a>
+        } @else {
+          {{ announcement()?.message }}
+        }
+      </div>
+    }
 
     <header class="sticky top-0 z-40 bg-white/90 backdrop-blur-lg border-b border-slate-200/80 shadow-sm shadow-slate-100">
       <div class="max-w-7xl mx-auto px-4 sm:px-6">
@@ -222,14 +229,16 @@ import { InstallButtonComponent } from '../../shared/components/install-button/i
     @keyframes menuIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
   `,
 })
-export class HeaderComponent {
+export class HeaderComponent implements OnInit {
   readonly auth = inject(AuthService);
   readonly cart = inject(CartService);
   readonly pwa = inject(PwaService);
+  private readonly announcementService = inject(AnnouncementService);
   private readonly toast = inject(ToastService);
   private readonly wishlist = inject(WishlistService);
   private readonly router = inject(Router);
 
+  readonly announcement = signal<Announcement | null>(null);
   readonly mobileMenuOpen = signal(false);
   readonly userMenuOpen = signal(false);
   searchTerm = '';
@@ -256,6 +265,12 @@ export class HeaderComponent {
     if (!u) return '?';
     return `${u.firstName?.[0] ?? ''}${u.lastName?.[0] ?? ''}`.toUpperCase() || u.email[0].toUpperCase();
   });
+
+  ngOnInit() {
+    this.announcementService.getActive().subscribe(data => {
+      this.announcement.set(data);
+    });
+  }
 
   @HostListener('document:click')
   closeMenus(): void {

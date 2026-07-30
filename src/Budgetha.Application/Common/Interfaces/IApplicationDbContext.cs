@@ -19,6 +19,7 @@ public interface IApplicationDbContext
     DbSet<SellerVerification> SellerVerifications { get; }
     DbSet<SupportTicket> SupportTickets { get; }
     DbSet<TicketMessage> TicketMessages { get; }
+    DbSet<Announcement> Announcements { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }
