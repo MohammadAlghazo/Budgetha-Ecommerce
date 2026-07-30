@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators, FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
@@ -90,8 +90,6 @@ import { ToastService } from '../../core/services/toast.service';
             </div>
           }
         </div>
-      </div>
-
       </div>
 
       <!-- Seller Account -->

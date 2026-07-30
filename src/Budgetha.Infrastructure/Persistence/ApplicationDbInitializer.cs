@@ -6,7 +6,7 @@ namespace Budgetha.Infrastructure.Persistence;
 
 public static class ApplicationDbInitializer
 {
-    public static readonly string[] AllRoles = ["SuperAdmin", "Admin", "User"];
+    public static readonly string[] AllRoles = ["SuperAdmin", "Admin", "Seller", "User"];
 
     public static async Task SeedRolesAsync(IServiceProvider serviceProvider)
     {

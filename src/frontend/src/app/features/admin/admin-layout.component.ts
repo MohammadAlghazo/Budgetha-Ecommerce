@@ -7,16 +7,16 @@ import { AuthService } from '../../core/services/auth.service';
   selector: 'app-admin-layout',
   imports: [RouterOutlet, RouterLink, RouterLinkActive, NgTemplateOutlet],
   template: `
-    <div class="min-h-screen bg-slate-50 flex">
+    <div class="h-screen bg-slate-50 flex overflow-hidden">
       <!-- Sidebar -->
-      <aside class="w-64 bg-gradient-to-b from-teal-950 to-slate-900 text-teal-100 flex-shrink-0 flex flex-col hidden md:flex overflow-y-auto">
+      <aside class="w-64 bg-gradient-to-b from-teal-950 to-slate-900 text-teal-100 flex-shrink-0 flex flex-col hidden md:flex h-full">
         <ng-container *ngTemplateOutlet="sidebarContent"></ng-container>
       </aside>
 
       <!-- Mobile Sidebar Overlay -->
       @if (mobileMenuOpen()) {
         <div class="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm md:hidden" (click)="mobileMenuOpen.set(false)"></div>
-        <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-teal-950 to-slate-900 text-teal-100 shadow-2xl flex flex-col md:hidden animate-[slideInLeft_0.3s_ease-out] overflow-y-auto">
+        <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-teal-950 to-slate-900 text-teal-100 shadow-2xl flex flex-col md:hidden animate-[slideInLeft_0.3s_ease-out] h-full">
           <ng-container *ngTemplateOutlet="sidebarContent"></ng-container>
         </aside>
       }

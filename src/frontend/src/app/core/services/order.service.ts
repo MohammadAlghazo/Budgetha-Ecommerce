@@ -1,7 +1,7 @@
 import { Injectable, computed, effect, signal } from '@angular/core';
 import { Address, CartItem, Order, OrderStatus, PromoCode } from '../models/shop.models';
 
-const STORAGE_KEY = 'budgetha_orders';
+const STORAGE_KEY = 'budgetha_orders_v2';
 
 const SEED_ORDERS: Order[] = [];
 

@@ -1,12 +1,13 @@
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { AdminService, AdminUser } from '../../core/services/admin.service';
 import { AuthService } from '../../core/services/auth.service';
 
 @Component({
   selector: 'app-admin-users',
-  imports: [DatePipe, FormsModule],
+  imports: [DatePipe, FormsModule, RouterLink],
   template: `
     <div class="max-w-7xl mx-auto space-y-6">
       <div class="flex items-center justify-between">
@@ -36,7 +37,17 @@ import { AuthService } from '../../core/services/auth.service';
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-50 text-slate-700">
-              @for (user of users(); track user.id) {
+              @if (isLoading()) {
+                <tr>
+                  <td [attr.colspan]="isSuperAdmin() ? 4 : 3" class="px-6 py-12 text-center">
+                    <div class="flex flex-col items-center justify-center gap-3">
+                      <div class="w-8 h-8 border-4 border-teal-100 border-t-teal-600 rounded-full animate-spin"></div>
+                      <p class="text-sm text-slate-500 font-medium">Loading users...</p>
+                    </div>
+                  </td>
+                </tr>
+              } @else {
+                @for (user of users(); track user.id) {
                 <tr class="hover:bg-slate-50/60 transition-colors">
                   <td class="px-6 py-4">
                     <div class="flex items-center gap-3">
@@ -59,7 +70,6 @@ import { AuthService } from '../../core/services/auth.service';
                               [class.bg-slate-100]="role === 'User'" [class.text-slate-600]="role === 'User'">
                           {{ role }}
                         </span>
-                      }
                       }
                       @if (user.roles.length === 0) {
                         <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-slate-100 text-slate-600">User</span>
@@ -114,6 +124,7 @@ import { AuthService } from '../../core/services/auth.service';
                     </div>
                   </td>
                 </tr>
+              }
               }
             </tbody>
           </table>
@@ -233,6 +244,7 @@ export class AdminUsersComponent implements OnInit {
   readonly authService = inject(AuthService);
 
   readonly users = signal<AdminUser[]>([]);
+  readonly isLoading = signal(true);
   readonly selectedUser = signal<AdminUser | null>(null);
   readonly roleActionMsg = signal<string>('');
   readonly roleActionError = signal<boolean>(false);
@@ -242,7 +254,11 @@ export class AdminUsersComponent implements OnInit {
   );
 
   ngOnInit(): void {
-    this.adminService.getAllUsers().subscribe(users => this.users.set(users));
+    this.isLoading.set(true);
+    this.adminService.getAllUsers().subscribe(users => {
+      this.users.set(users);
+      this.isLoading.set(false);
+    });
   }
 
   openRoleModal(user: AdminUser): void {
@@ -254,7 +270,11 @@ export class AdminUsersComponent implements OnInit {
   closeModal(): void {
     this.selectedUser.set(null);
     // Reload users to reflect any changes
-    this.adminService.getAllUsers().subscribe(users => this.users.set(users));
+    this.isLoading.set(true);
+    this.adminService.getAllUsers().subscribe(users => {
+      this.users.set(users);
+      this.isLoading.set(false);
+    });
   }
 
   hasRole(role: string): boolean {

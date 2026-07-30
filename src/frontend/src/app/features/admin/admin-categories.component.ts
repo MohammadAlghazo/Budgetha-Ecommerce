@@ -1,4 +1,5 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ProductService } from '../../core/services/product.service';
 import { Category } from '../../core/models/shop.models';
@@ -8,7 +9,7 @@ import { DatePipe, NgIf } from '@angular/common';
 
 @Component({
   selector: 'app-admin-categories',
-  imports: [ReactiveFormsModule, DatePipe, NgIf],
+  imports: [ReactiveFormsModule, NgIf],
   template: `
     <div class="max-w-7xl mx-auto space-y-6">
       <div class="flex items-center justify-between">
@@ -167,8 +168,8 @@ export class AdminCategoriesComponent implements OnInit {
     
     this.isSubmitting.set(true);
     try {
-      const url = await this.cloudinaryService.uploadImage(file);
-      this.imageUrl.set(url);
+      const res = await firstValueFrom(this.cloudinaryService.uploadImage(file));
+      this.imageUrl.set(res.url);
       this.toastService.success('Image uploaded successfully');
     } catch (err) {
       console.error(err);

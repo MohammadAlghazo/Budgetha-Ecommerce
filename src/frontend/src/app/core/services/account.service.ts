@@ -1,8 +1,8 @@
 import { Injectable, effect, signal } from '@angular/core';
 import { Address, PaymentCard } from '../models/shop.models';
 
-const ADDRESS_KEY = 'budgetha_addresses';
-const CARDS_KEY = 'budgetha_cards';
+const ADDRESS_KEY = 'budgetha_addresses_v2';
+const CARDS_KEY = 'budgetha_cards_v2';
 
 const SEED_ADDRESSES: Address[] = [];
 
