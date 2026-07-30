@@ -400,6 +400,9 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<int>("ApprovalStatus")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("CategoryId")
                         .HasColumnType("uuid");
 
@@ -456,6 +459,8 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(500)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ApprovalStatus");
 
                     b.HasIndex("CategoryId");
 

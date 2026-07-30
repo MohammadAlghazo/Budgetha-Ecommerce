@@ -79,7 +79,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
 app.UseCors();
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection(); // Commented out to avoid local CORS/SSL issues
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
