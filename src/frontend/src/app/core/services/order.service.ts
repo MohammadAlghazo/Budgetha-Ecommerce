@@ -74,4 +74,12 @@ export class OrderService {
       })
     );
   }
+
+  createPayPalOrder(orderId: string): Observable<{ id: string }> {
+    return this.http.post<{ id: string }>(`${this.apiUrl}/${orderId}/create-paypal-order`, {});
+  }
+
+  capturePayPalOrder(orderId: string, paypalOrderId: string): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/${orderId}/capture-paypal-order`, { paypalOrderId });
+  }
 }

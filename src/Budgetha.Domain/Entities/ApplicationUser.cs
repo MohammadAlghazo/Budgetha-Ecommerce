@@ -10,6 +10,8 @@ public class ApplicationUser : IdentityUser
     public string LastName { get; set; } = string.Empty;
     public string? AvatarUrl { get; set; }
     public DateTimeOffset Created { get; set; } = DateTimeOffset.UtcNow;
+    public string? RefreshToken { get; set; }
+    public DateTime? RefreshTokenExpiryTime { get; set; }
 
     public ICollection<Product> Products { get; set; } = new List<Product>();
     public ICollection<Order> Orders { get; set; } = new List<Order>();

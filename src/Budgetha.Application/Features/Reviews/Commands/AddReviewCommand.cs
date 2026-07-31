@@ -44,6 +44,14 @@ public class AddReviewCommandHandler : IRequestHandler<AddReviewCommand, Guid>
         };
 
         _context.Reviews.Add(review);
+        
+        var currentReviewCount = await _context.Reviews.CountAsync(r => r.ProductId == product.Id, cancellationToken);
+        var currentTotalRating = await _context.Reviews.Where(r => r.ProductId == product.Id).SumAsync(r => r.Rating, cancellationToken);
+        
+        product.ReviewCount = currentReviewCount + 1;
+        product.AverageRating = (decimal)(currentTotalRating + request.Rating) / product.ReviewCount;
+        
+        _context.Products.Update(product);
         await _context.SaveChangesAsync(cancellationToken);
 
         return review.Id;

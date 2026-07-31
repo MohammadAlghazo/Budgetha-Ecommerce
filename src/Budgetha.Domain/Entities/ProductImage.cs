@@ -5,6 +5,7 @@ namespace Budgetha.Domain.Entities;
 public class ProductImage : BaseEntity
 {
     public string Url { get; set; } = string.Empty;
+    public string? PublicId { get; set; }
     public string? AltText { get; set; }
     public int DisplayOrder { get; set; }
     public Guid ProductId { get; set; }

@@ -109,7 +109,12 @@ public class ProductsController : ControllerBase
         return Ok(brands);
     }
 
-
+    [HttpGet("price-bounds")]
+    public async Task<ActionResult<PriceBoundsDto>> GetPriceBounds([FromQuery] Guid? categoryId, [FromQuery] string? searchTerm)
+    {
+        var result = await _mediator.Send(new GetPriceBoundsQuery(categoryId, searchTerm));
+        return Ok(result);
+    }
 
     [Authorize(Roles = "Admin,SuperAdmin")]
     [HttpPatch("{id:guid}/approve")]

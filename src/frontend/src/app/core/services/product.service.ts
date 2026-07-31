@@ -76,14 +76,16 @@ export class ProductService {
     );
   }
 
-  priceBounds(): Observable<{ min: number; max: number }> {
-    return this.getAll().pipe(
-      map(items => {
-        if (!items || items.length === 0) {
-          return { min: 0, max: 1000 };
-        }
-        const prices = items.map(p => p.price);
-        return { min: Math.floor(Math.min(...prices)), max: Math.ceil(Math.max(...prices)) };
+  priceBounds(categoryId?: string, searchTerm?: string): Observable<{ min: number; max: number }> {
+    let qs = new URLSearchParams();
+    if (categoryId) qs.set('categoryId', categoryId);
+    if (searchTerm) qs.set('searchTerm', searchTerm);
+    
+    return this.http.get<{minPrice: number, maxPrice: number}>(`${this.apiUrl}/products/price-bounds?${qs.toString()}`).pipe(
+      map(res => ({ min: Math.floor(res.minPrice), max: Math.ceil(res.maxPrice) })),
+      catchError(err => {
+        console.error('Failed to fetch price bounds', err);
+        return of({ min: 0, max: 1000 });
       })
     );
   }

@@ -79,6 +79,8 @@ public static class InfrastructureServiceRegistration
         services.Configure<CloudinarySettings>(configuration.GetSection(CloudinarySettings.SectionName));
         services.AddScoped<IImageService, ImageService>();
 
+        services.AddHttpClient<IPaymentService, PaymentService>();
+
         return services;
     }
 }

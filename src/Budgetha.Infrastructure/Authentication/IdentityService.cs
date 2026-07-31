@@ -48,7 +48,13 @@ public class IdentityService : IIdentityService
 
         var (token, expiration) = await _tokenService.GenerateTokenAsync(user);
         var roles = await _userManager.GetRolesAsync(user);
-        return AuthResult.Success(token, expiration, user.Id, user.Email!, user.FirstName, user.LastName, roles);
+        
+        var refreshToken = GenerateRefreshToken();
+        user.RefreshToken = refreshToken;
+        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+        await _userManager.UpdateAsync(user);
+
+        return AuthResult.Success(token, expiration, user.Id, user.Email!, user.FirstName, user.LastName, roles, refreshToken);
     }
 
     public async Task<AuthResult> LoginAsync(string email, string password)
@@ -65,7 +71,13 @@ public class IdentityService : IIdentityService
 
         var (token, expiration) = await _tokenService.GenerateTokenAsync(user);
         var roles = await _userManager.GetRolesAsync(user);
-        return AuthResult.Success(token, expiration, user.Id, user.Email!, user.FirstName, user.LastName, roles);
+
+        var refreshToken = GenerateRefreshToken();
+        user.RefreshToken = refreshToken;
+        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+        await _userManager.UpdateAsync(user);
+
+        return AuthResult.Success(token, expiration, user.Id, user.Email!, user.FirstName, user.LastName, roles, refreshToken);
     }
 
     public async Task<string> GenerateEmailConfirmationTokenAsync(string userId)
@@ -160,7 +172,13 @@ public class IdentityService : IIdentityService
 
         var (token, expiration) = await _tokenService.GenerateTokenAsync(user);
         var roles = await _userManager.GetRolesAsync(user);
-        return AuthResult.Success(token, expiration, user.Id, user.Email!, user.FirstName, user.LastName, roles);
+        
+        var refreshToken = GenerateRefreshToken();
+        user.RefreshToken = refreshToken;
+        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+        await _userManager.UpdateAsync(user);
+
+        return AuthResult.Success(token, expiration, user.Id, user.Email!, user.FirstName, user.LastName, roles, refreshToken);
     }
 
     public async Task<bool> UpdateProfileAsync(string userId, string firstName, string lastName)
@@ -185,5 +203,38 @@ public class IdentityService : IIdentityService
 
         var result = await _userManager.ChangePasswordAsync(user, currentPassword, newPassword);
         return result.Succeeded;
+    }
+
+    public async Task<AuthResult> RefreshTokenAsync(string token, string refreshToken)
+    {
+        var principal = _tokenService.GetPrincipalFromExpiredToken(token);
+        if (principal == null)
+            return AuthResult.Failure("Invalid token.");
+
+        var email = principal.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
+        if (email == null)
+            return AuthResult.Failure("Invalid token.");
+
+        var user = await _userManager.FindByEmailAsync(email);
+        if (user == null || user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
+            return AuthResult.Failure("Invalid refresh token.");
+
+        var (newToken, newExpiration) = await _tokenService.GenerateTokenAsync(user);
+        var newRefreshToken = GenerateRefreshToken();
+
+        user.RefreshToken = newRefreshToken;
+        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+        await _userManager.UpdateAsync(user);
+
+        var roles = await _userManager.GetRolesAsync(user);
+        return AuthResult.Success(newToken, newExpiration, user.Id, user.Email!, user.FirstName, user.LastName, roles, newRefreshToken);
+    }
+
+    private string GenerateRefreshToken()
+    {
+        var randomNumber = new byte[32];
+        using var rng = System.Security.Cryptography.RandomNumberGenerator.Create();
+        rng.GetBytes(randomNumber);
+        return Convert.ToBase64String(randomNumber);
     }
 }

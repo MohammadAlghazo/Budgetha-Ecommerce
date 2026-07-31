@@ -350,42 +350,54 @@ export class CheckoutComponent implements OnInit {
     this.payPalConfig = {
       currency: 'USD',
       clientId: 'sb', 
-      createOrderOnClient: (data) => <ICreateOrderRequest>{
-        intent: 'CAPTURE',
-        purchase_units: [
-          {
-            amount: {
-              currency_code: 'USD',
-              value: this.cart.total().toFixed(2),
-              breakdown: {
-                item_total: {
-                  currency_code: 'USD',
-                  value: this.cart.subtotal().toFixed(2)
-                },
-                tax_total: {
-                  currency_code: 'USD',
-                  value: this.cart.tax().toFixed(2)
-                },
-                shipping: {
-                  currency_code: 'USD',
-                  value: this.cart.shipping().toFixed(2)
-                },
-                discount: {
-                  currency_code: 'USD',
-                  value: this.cart.discount().toFixed(2)
-                }
-              }
-            },
-            items: this.cart.items().map(i => ({
-              name: i.name,
-              quantity: i.quantity.toString(),
-              unit_amount: {
-                currency_code: 'USD',
-                value: i.price.toFixed(2),
-              },
-            }))
+      createOrderOnServer: (data) => {
+        // Place the Budgetha order first
+        return new Promise<string>((resolve, reject) => {
+          this.submitted.set(true);
+          if (this.form.invalid) {
+            this.form.markAllAsTouched();
+            this.toast.error('Please complete your delivery address first.');
+            reject('Invalid form');
+            return;
           }
-        ]
+
+          const v = this.form.getRawValue();
+          this.orders.placeOrder({
+            items: this.cart.items(),
+            subtotal: this.cart.subtotal(),
+            shipping: this.cart.shipping(),
+            tax: this.cart.tax(),
+            discount: this.cart.discount(),
+            total: this.cart.total(),
+            address: {
+              id: 0,
+              label: 'Shipping',
+              fullName: v.fullName!,
+              line1: v.line1!,
+              line2: v.line2 || undefined,
+              city: v.city!,
+              state: v.state!,
+              zip: v.zip!,
+              country: v.country!,
+              phone: v.phone!,
+              isDefault: false,
+            },
+            paymentSummary: 'PayPal',
+            paymentMethod: 'CreditCard'
+          }).subscribe({
+            next: (orderId) => {
+              // Now create the PayPal order on backend
+              this.orders.createPayPalOrder(orderId).subscribe({
+                next: (res) => {
+                  (window as any)._currentBudgethaOrderId = orderId; // Store temporarily for capture
+                  resolve(res.id);
+                },
+                error: (err) => reject(err)
+              });
+            },
+            error: (err) => reject(err)
+          });
+        });
       },
       advanced: {
         commit: 'true'
@@ -395,15 +407,21 @@ export class CheckoutComponent implements OnInit {
         layout: 'vertical'
       },
       onApprove: (data, actions) => {
-        
         this.placing.set(true);
-        actions.order.get().then((details: any) => {
-          
-        });
-      },
-      onClientAuthorization: (data) => {
-        
-        this.completeOrder('PayPal Transaction ID: ' + data.id);
+        const orderId = (window as any)._currentBudgethaOrderId;
+        if (orderId) {
+          this.orders.capturePayPalOrder(orderId, data.orderID).subscribe({
+            next: () => {
+              this.cart.clear();
+              this.placing.set(false);
+              this.router.navigate(['/checkout/success', orderId.substring(0, 8).toUpperCase()]);
+            },
+            error: () => {
+              this.placing.set(false);
+              this.toast.error('Failed to capture PayPal payment.');
+            }
+          });
+        }
       },
       onCancel: (data, actions) => {
         this.placing.set(false);
@@ -413,17 +431,7 @@ export class CheckoutComponent implements OnInit {
         this.placing.set(false);
         this.toast.error('An error occurred during PayPal payment');
         console.log('PayPal Error', err);
-      },
-      onClick: (data, actions) => {
-        
-        this.submitted.set(true);
-        if (this.form.invalid) {
-          this.form.markAllAsTouched();
-          this.toast.error('Please complete your delivery address first.');
-          
-          
-        }
-      },
+      }
     };
   }
 

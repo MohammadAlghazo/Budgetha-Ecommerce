@@ -23,6 +23,10 @@ public interface IApplicationDbContext
     DbSet<SellerRequest> SellerRequests { get; }
     DbSet<ApplicationUser> Users { get; }
     DbSet<Notification> Notifications { get; }
+    DbSet<ProductColor> ProductColors { get; }
+    DbSet<ProductSize> ProductSizes { get; }
+    DbSet<ProductSpec> ProductSpecs { get; }
+    DbSet<ProductFeature> ProductFeatures { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }

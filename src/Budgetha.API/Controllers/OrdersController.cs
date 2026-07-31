@@ -42,4 +42,26 @@ public class OrdersController : ControllerBase
         var result = await _mediator.Send(query);
         return Ok(result);
     }
+
+    [HttpPost("{id:guid}/create-paypal-order")]
+    public async Task<ActionResult<string>> CreatePayPalOrder(Guid id)
+    {
+        var paypalOrderId = await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.CreatePayPalOrderCommand(id));
+        return Ok(new { id = paypalOrderId });
+    }
+
+    [HttpPost("{id:guid}/capture-paypal-order")]
+    public async Task<ActionResult> CapturePayPalOrder(Guid id, [FromBody] CapturePayPalOrderRequest request)
+    {
+        var success = await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.CapturePayPalOrderCommand(id, request.PayPalOrderId));
+        if (!success)
+            return BadRequest("Failed to capture PayPal order.");
+            
+        return Ok();
+    }
+}
+
+public class CapturePayPalOrderRequest
+{
+    public string PayPalOrderId { get; set; } = string.Empty;
 }

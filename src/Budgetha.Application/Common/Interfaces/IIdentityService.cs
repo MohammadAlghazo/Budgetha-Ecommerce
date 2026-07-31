@@ -17,4 +17,5 @@ public interface IIdentityService
     Task<AuthResult> GoogleLoginAsync(string email, string firstName, string lastName);
     Task<bool> UpdateProfileAsync(string userId, string firstName, string lastName);
     Task<bool> ChangePasswordAsync(string userId, string currentPassword, string newPassword);
+    Task<AuthResult> RefreshTokenAsync(string token, string refreshToken);
 }

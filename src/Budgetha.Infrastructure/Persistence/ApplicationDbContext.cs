@@ -38,6 +38,10 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<Announcement> Announcements => Set<Announcement>();
     public DbSet<SellerRequest> SellerRequests => Set<SellerRequest>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<ProductColor> ProductColors => Set<ProductColor>();
+    public DbSet<ProductSize> ProductSizes => Set<ProductSize>();
+    public DbSet<ProductSpec> ProductSpecs => Set<ProductSpec>();
+    public DbSet<ProductFeature> ProductFeatures => Set<ProductFeature>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

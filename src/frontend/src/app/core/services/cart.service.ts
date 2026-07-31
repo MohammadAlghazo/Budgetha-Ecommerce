@@ -106,19 +106,17 @@ export class CartService {
   }
 
   private pushLocalToBackend(localItems: CartItem[]) {
-    // Basic implementation: send first item then reload, etc.
-    // Realistically you'd chain them, but here we just add all.
-    localItems.forEach(item => {
-      this.http.post(`${this.apiUrl}/items`, {
-        productId: item.productId,
-        quantity: item.quantity,
-        type: item.type === 'Rental' ? 1 : 0,
-        rentalStartDate: item.rentalStartDate,
-        rentalEndDate: item.rentalEndDate
-      }).subscribe();
+    const items = localItems.map(item => ({
+      productId: item.productId,
+      quantity: item.quantity,
+      color: item.color,
+      size: item.size
+    }));
+
+    this.http.post(`${this.apiUrl}/sync`, { items }).subscribe({
+      next: () => this.syncWithBackend(),
+      error: (err) => console.error('Failed to bulk sync cart', err)
     });
-    // Wait a bit then sync again
-    setTimeout(() => this.syncWithBackend(), 1000);
   }
 
   add(product: Product, quantity = 1, color?: string, size?: string): void {

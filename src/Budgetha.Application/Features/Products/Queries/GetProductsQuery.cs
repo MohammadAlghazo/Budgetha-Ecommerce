@@ -38,7 +38,6 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
         var query = _context.Products
             .Include(p => p.Category)
             .Include(p => p.Images)
-            .Include(p => p.Reviews)
             .Where(p => p.IsActive)
             .AsNoTracking();
 
@@ -63,6 +62,11 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
             query = query.Where(p => request.Brands.Contains(p.Brand));
         }
 
+        if (request.MinRating > 0)
+        {
+            query = query.Where(p => p.AverageRating >= request.MinRating);
+        }
+
         query = query.Where(p => p.Price >= request.MinPrice && p.Price <= request.MaxPrice);
 
         
@@ -71,6 +75,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
             "price-asc" => query.OrderBy(p => p.Price),
             "price-desc" => query.OrderByDescending(p => p.Price),
             "newest" => query.OrderByDescending(p => p.Created),
+            "rating" => query.OrderByDescending(p => p.AverageRating).ThenByDescending(p => p.ReviewCount),
             _ => query.OrderBy(p => p.Id)
         };
 
@@ -90,8 +95,8 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
             Category = p.Category?.Slug ?? "",
             Price = p.Price,
             OriginalPrice = p.OriginalPrice, 
-            Rating = p.Reviews != null && p.Reviews.Any() ? Math.Round(p.Reviews.Average(r => (decimal)r.Rating), 1) : 0m, 
-            ReviewCount = p.Reviews != null ? p.Reviews.Count : 0, 
+            Rating = p.AverageRating > 0 ? Math.Round(p.AverageRating, 1) : 0m, 
+            ReviewCount = p.ReviewCount, 
             ShortDescription = p.Description.Length > 50 ? p.Description.Substring(0, 50) + "..." : p.Description,
             Description = p.Description,
             Stock = p.StockQuantity,

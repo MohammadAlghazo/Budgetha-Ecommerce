@@ -14,6 +14,9 @@ public class Product : BaseAuditableEntity
     public int StockQuantity { get; set; }
     public string Brand { get; set; } = "Generic";
     public string? ThumbnailUrl { get; set; }
+    public string? ThumbnailPublicId { get; set; }
+    public decimal AverageRating { get; set; }
+    public int ReviewCount { get; set; }
     public bool IsActive { get; set; } = true;
     public bool IsAvailableForRent { get; set; }
     public bool IsFeatured { get; set; }
@@ -30,4 +33,8 @@ public class Product : BaseAuditableEntity
     public ICollection<CartItem> CartItems { get; set; } = new List<CartItem>();
     public ICollection<OrderItem> OrderItems { get; set; } = new List<OrderItem>();
     public ICollection<Wishlist> Wishlists { get; set; } = new List<Wishlist>();
+    public ICollection<ProductColor> Colors { get; set; } = new List<ProductColor>();
+    public ICollection<ProductSize> Sizes { get; set; } = new List<ProductSize>();
+    public ICollection<ProductSpec> Specs { get; set; } = new List<ProductSpec>();
+    public ICollection<ProductFeature> Features { get; set; } = new List<ProductFeature>();
 }

@@ -52,4 +52,11 @@ public class CartController : ControllerBase
         await _mediator.Send(new ClearCartCommand());
         return NoContent();
     }
+
+    [HttpPost("sync")]
+    public async Task<ActionResult> SyncCart([FromBody] SyncCartCommand command)
+    {
+        await _mediator.Send(command);
+        return Ok();
+    }
 }

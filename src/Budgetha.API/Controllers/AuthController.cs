@@ -30,7 +30,7 @@ public class AuthController : ControllerBase
         if (!result.Succeeded)
             return BadRequest(new AuthResponse(false, null, null, null, null, null, null, null, result.Errors));
 
-        return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, result.Email, result.FirstName, result.LastName, result.Roles, null));
+        return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, result.Email, result.FirstName, result.LastName, result.Roles, null, result.RefreshToken));
     }
 
     [HttpPost("login")]
@@ -41,7 +41,18 @@ public class AuthController : ControllerBase
         if (!result.Succeeded)
             return Unauthorized(new AuthResponse(false, null, null, null, null, null, null, null, result.Errors));
 
-        return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, result.Email, result.FirstName, result.LastName, result.Roles, null));
+        return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, result.Email, result.FirstName, result.LastName, result.Roles, null, result.RefreshToken));
+    }
+
+    [HttpPost("refresh")]
+    public async Task<IActionResult> Refresh([FromBody] RefreshTokenRequest request)
+    {
+        var result = await _identityService.RefreshTokenAsync(request.Token, request.RefreshToken);
+
+        if (!result.Succeeded)
+            return Unauthorized(new AuthResponse(false, null, null, null, null, null, null, null, result.Errors));
+
+        return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, result.Email, result.FirstName, result.LastName, result.Roles, null, result.RefreshToken));
     }
 
     [HttpPost("forgot-password")]
@@ -51,7 +62,8 @@ public class AuthController : ControllerBase
         {
             var token = await _identityService.GeneratePasswordResetTokenAsync(request.Email);
             
-            var resetLink = $"http://localhost:4200/reset-password?email={Uri.EscapeDataString(request.Email)}&token={Uri.EscapeDataString(token)}";
+            var baseUrl = _configuration["FrontendBaseUrl"] ?? "http://localhost:4200";
+            var resetLink = $"{baseUrl}/reset-password?email={Uri.EscapeDataString(request.Email)}&token={Uri.EscapeDataString(token)}";
             var emailBody = $"<p>You requested a password reset.</p><p>Please click the link below to reset your password:</p><p><a href='{resetLink}'>Reset Password</a></p>";
             
             await _emailService.SendEmailAsync(request.Email, "Password Reset", emailBody);

@@ -174,6 +174,12 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.Property<bool>("PhoneNumberConfirmed")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("RefreshToken")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("RefreshTokenExpiryTime")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("text");
 
@@ -223,6 +229,9 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("CartId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
@@ -234,6 +243,9 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
                     b.Property<DateOnly?>("RentalStartDate")
                         .HasColumnType("date");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
 
                     b.Property<string>("Type")
                         .IsRequired()
@@ -489,6 +501,9 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.Property<int>("ApprovalStatus")
                         .HasColumnType("integer");
 
+                    b.Property<decimal>("AverageRating")
+                        .HasColumnType("numeric");
+
                     b.Property<string>("Brand")
                         .IsRequired()
                         .HasColumnType("text");
@@ -538,6 +553,9 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<int>("ReviewCount")
+                        .HasColumnType("integer");
+
                     b.Property<string>("SellerId")
                         .IsRequired()
                         .HasColumnType("text");
@@ -549,6 +567,9 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("StockQuantity")
                         .HasColumnType("integer");
+
+                    b.Property<string>("ThumbnailPublicId")
+                        .HasColumnType("text");
 
                     b.Property<string>("ThumbnailUrl")
                         .HasMaxLength(500)
@@ -570,6 +591,50 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.ToTable("Products");
                 });
 
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Hex")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductColors");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductFeatures");
+                });
+
             modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -586,6 +651,9 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("PublicId")
+                        .HasColumnType("text");
+
                     b.Property<string>("Url")
                         .IsRequired()
                         .HasMaxLength(500)
@@ -596,6 +664,50 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.HasIndex("ProductId");
 
                     b.ToTable("ProductImages");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSizes");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSpecs");
                 });
 
             modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
@@ -1088,10 +1200,54 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.Navigation("Seller");
                 });
 
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Colors")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Features")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
             modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
                 {
                     b.HasOne("Budgetha.Domain.Entities.Product", "Product")
                         .WithMany("Images")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Sizes")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Specs")
                         .HasForeignKey("ProductId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -1263,11 +1419,19 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                 {
                     b.Navigation("CartItems");
 
+                    b.Navigation("Colors");
+
+                    b.Navigation("Features");
+
                     b.Navigation("Images");
 
                     b.Navigation("OrderItems");
 
                     b.Navigation("Reviews");
+
+                    b.Navigation("Sizes");
+
+                    b.Navigation("Specs");
 
                     b.Navigation("Wishlists");
                 });

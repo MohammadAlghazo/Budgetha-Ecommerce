@@ -33,7 +33,8 @@ public record AuthResponse(
     string? FirstName,
     string? LastName,
     IList<string>? Roles,
-    IEnumerable<string>? Errors);
+    IEnumerable<string>? Errors,
+    string? RefreshToken = null);
 
 public record AssignRoleRequest(
     [Required] string UserId,
@@ -41,3 +42,7 @@ public record AssignRoleRequest(
 
 public record GoogleLoginRequest(
     [Required] string IdToken);
+
+public record RefreshTokenRequest(
+    [Required] string Token,
+    [Required] string RefreshToken);
