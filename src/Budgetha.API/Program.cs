@@ -4,6 +4,7 @@ using Budgetha.Application.Common.Interfaces;
 using Budgetha.Application.DependencyInjection;
 using Budgetha.Infrastructure.DependencyInjection;
 using Budgetha.Infrastructure.Persistence;
+using Budgetha.Api.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,6 +15,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 
 builder.Services.AddControllers();
+builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -54,7 +56,8 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
         policy.WithOrigins("http://localhost:4200")
               .AllowAnyHeader()
-              .AllowAnyMethod()));
+              .AllowAnyMethod()
+              .AllowCredentials()));
 
 var app = builder.Build();
 
@@ -83,5 +86,6 @@ app.UseMiddleware<GlobalExceptionMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<ReviewHub>("/hubs/reviews");
 
 app.Run();

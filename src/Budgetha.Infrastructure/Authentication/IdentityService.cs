@@ -162,4 +162,28 @@ public class IdentityService : IIdentityService
         var roles = await _userManager.GetRolesAsync(user);
         return AuthResult.Success(token, expiration, user.Id, user.Email!, user.FirstName, user.LastName, roles);
     }
+
+    public async Task<bool> UpdateProfileAsync(string userId, string firstName, string lastName)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user == null) return false;
+
+        user.FirstName = firstName;
+        user.LastName = lastName;
+        
+        var result = await _userManager.UpdateAsync(user);
+        if (result.Succeeded)
+            _cache.Remove(UsersCacheKey);
+
+        return result.Succeeded;
+    }
+
+    public async Task<bool> ChangePasswordAsync(string userId, string currentPassword, string newPassword)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user == null) return false;
+
+        var result = await _userManager.ChangePasswordAsync(user, currentPassword, newPassword);
+        return result.Succeeded;
+    }
 }

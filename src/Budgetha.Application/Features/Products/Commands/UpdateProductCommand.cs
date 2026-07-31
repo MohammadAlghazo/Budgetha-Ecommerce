@@ -27,10 +27,12 @@ public record UpdateProductCommand(
 public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand, bool>
 {
     private readonly IApplicationDbContext _context;
+    private readonly IIdentityService _identityService;
 
-    public UpdateProductCommandHandler(IApplicationDbContext context)
+    public UpdateProductCommandHandler(IApplicationDbContext context, IIdentityService identityService)
     {
         _context = context;
+        _identityService = identityService;
     }
 
     public async Task<bool> Handle(UpdateProductCommand request, CancellationToken cancellationToken)
@@ -38,8 +40,15 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
         var product = await _context.Products.Include(p => p.Images).FirstOrDefaultAsync(p => p.Id == request.Id, cancellationToken);
         if (product == null) return false;
 
-        // Verify ownership (only the seller who created it can update it, unless we allow admins to bypass, but here we enforce ownership)
-        if (product.SellerId != request.UserId) return false;
+        // Verify ownership or Admin rights
+        if (product.SellerId != request.UserId)
+        {
+            var roles = await _identityService.GetRolesAsync(request.UserId);
+            if (!roles.Contains("Admin") && !roles.Contains("SuperAdmin"))
+            {
+                return false;
+            }
+        }
 
         product.Name = request.Name;
         product.Description = request.Description;

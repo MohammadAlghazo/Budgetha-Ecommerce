@@ -51,11 +51,14 @@ public static class ApplicationDbInitializer
         context.Categories.AddRange(electronics, clothing);
         await context.SaveChangesAsync();
 
+        var superAdmin = context.Users.FirstOrDefault(u => u.Email == "superadmin@budgetha.com");
+        var sellerId = superAdmin?.Id ?? Guid.NewGuid().ToString(); // Fallback if not found
+
         var products = new List<Product>
         {
-            new Product { Name = "Wireless Noise-Cancelling Headphones", Slug = "wireless-headphones", Description = "Premium over-ear headphones.", Price = 299.99m, StockQuantity = 50, CategoryId = electronics.Id, SellerId = "superadmin", ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved },
-            new Product { Name = "Minimalist Mechanical Keyboard", Slug = "mechanical-keyboard", Description = "Sleek keyboard.", Price = 149.99m, StockQuantity = 20, CategoryId = electronics.Id, SellerId = "superadmin", ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved },
-            new Product { Name = "Cotton Blend T-Shirt", Slug = "cotton-tshirt", Description = "Comfortable everyday tee.", Price = 24.99m, StockQuantity = 100, CategoryId = clothing.Id, SellerId = "superadmin", ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved }
+            new Product { Name = "Wireless Noise-Cancelling Headphones", Slug = "wireless-headphones", Description = "Premium over-ear headphones.", Price = 299.99m, StockQuantity = 50, CategoryId = electronics.Id, SellerId = sellerId, ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved },
+            new Product { Name = "Minimalist Mechanical Keyboard", Slug = "mechanical-keyboard", Description = "Sleek keyboard.", Price = 149.99m, StockQuantity = 20, CategoryId = electronics.Id, SellerId = sellerId, ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved },
+            new Product { Name = "Cotton Blend T-Shirt", Slug = "cotton-tshirt", Description = "Comfortable everyday tee.", Price = 24.99m, StockQuantity = 100, CategoryId = clothing.Id, SellerId = sellerId, ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved }
         };
 
         context.Products.AddRange(products);

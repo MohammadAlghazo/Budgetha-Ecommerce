@@ -154,7 +154,7 @@ public class AdminService : IAdminService
         var isBanned = user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTimeOffset.UtcNow;
 
         var products = await _context.Products
-            .Where(p => p.CreatedBy == userId)
+            .Where(p => p.SellerId == userId)
             .OrderByDescending(p => p.Created)
             .Select(p => new ProductDto
             {

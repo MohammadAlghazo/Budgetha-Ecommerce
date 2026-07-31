@@ -227,7 +227,12 @@ export class AccountSettingsComponent implements OnInit {
       this.profileForm.markAllAsTouched();
       return;
     }
-    this.toast.success('Profile updated');
+    
+    const { firstName, lastName } = this.profileForm.value;
+    this.auth.updateProfile(firstName!, lastName!).subscribe({
+      next: () => this.toast.success('Profile updated'),
+      error: () => this.toast.error('Failed to update profile')
+    });
   }
 
   changePassword(): void {
@@ -236,9 +241,19 @@ export class AccountSettingsComponent implements OnInit {
       this.passwordForm.markAllAsTouched();
       return;
     }
-    this.passwordForm.reset();
-    this.passwordSubmitted.set(false);
-    this.toast.success('Password changed successfully');
+    
+    const { current, next } = this.passwordForm.value;
+    this.auth.changePassword(current!, next!).subscribe({
+      next: () => {
+        this.passwordForm.reset();
+        this.passwordSubmitted.set(false);
+        this.toast.success('Password changed successfully');
+      },
+      error: (err) => {
+        const msg = err.error?.message || 'Failed to change password';
+        this.toast.error(msg);
+      }
+    });
   }
 
   togglePref(key: string): void {

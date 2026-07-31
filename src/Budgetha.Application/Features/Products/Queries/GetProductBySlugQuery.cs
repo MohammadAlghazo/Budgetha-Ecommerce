@@ -19,29 +19,41 @@ public class GetProductBySlugQueryHandler : IRequestHandler<GetProductBySlugQuer
     {
         var p = await _context.Products
             .Include(x => x.Category)
+            .Include(x => x.Images)
+            .Include(x => x.Reviews)
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Slug == request.Slug, cancellationToken);
 
         if (p == null) return null;
+
+        var rating = p.Reviews.Any() ? Math.Round((decimal)p.Reviews.Average(r => r.Rating), 1) : 0m;
+        var isNew = (DateTime.UtcNow - p.Created).TotalDays < 30;
+
+        var imageUrls = new List<string>();
+        if (!string.IsNullOrEmpty(p.ThumbnailUrl))
+        {
+            imageUrls.Add(p.ThumbnailUrl);
+        }
+        imageUrls.AddRange(p.Images.Select(i => i.Url));
 
         return new ProductDto
         {
             Id = p.Id,
             Name = p.Name,
             Slug = p.Slug,
-            Brand = "Generic",
+            Brand = p.Brand,
             Category = p.Category?.Slug ?? "",
             Price = p.Price,
-            OriginalPrice = p.Price * 1.2m,
-            Rating = 4.5m,
-            ReviewCount = 120,
+            OriginalPrice = p.OriginalPrice,
+            Rating = rating,
+            ReviewCount = p.Reviews.Count,
             ShortDescription = p.Description.Length > 50 ? p.Description.Substring(0, 50) + "..." : p.Description,
             Description = p.Description,
             Stock = p.StockQuantity,
-            IsNew = true,
-            IsFeatured = true,
+            IsNew = isNew,
+            IsFeatured = p.IsFeatured,
             ApprovalStatus = p.ApprovalStatus.ToString(),
-            Images = p.ThumbnailUrl != null ? new List<string> { p.ThumbnailUrl } : new List<string>()
+            Images = imageUrls.Distinct().ToList()
         };
     }
 }

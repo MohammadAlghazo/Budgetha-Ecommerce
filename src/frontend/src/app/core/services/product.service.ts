@@ -10,13 +10,14 @@ import {
   RatingBucket,
   Review,
 } from '../models/shop.models';
+import { environment } from '../../../environments/environment';
 
 
 
 @Injectable({ providedIn: 'root' })
 export class ProductService {
   private http = inject(HttpClient);
-  private apiUrl = 'http://localhost:5272/api';
+  private apiUrl = environment.apiUrl;
 
   getCategories(): Observable<Category[]> {
     return this.http.get<Category[]>(`${this.apiUrl}/categories`).pipe(

@@ -4,9 +4,11 @@ import { Router } from '@angular/router';
 import { Observable, tap } from 'rxjs';
 import { AuthResponse, LoginRequest, RegisterRequest, ForgotPasswordRequest, ResetPasswordRequest, GoogleLoginRequest } from '../models/auth.models';
 
+import { environment } from '../../../environments/environment';
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private readonly apiUrl = 'http://localhost:5272/api/auth';
+  private readonly apiUrl = `${environment.apiUrl}/auth`;
   private readonly tokenKey = 'token';
   private readonly userKey = 'user';
 
@@ -48,6 +50,23 @@ export class AuthService {
     return this.http.post<AuthResponse>(`${this.apiUrl}/google-login`, { idToken } as GoogleLoginRequest).pipe(
       tap(response => this.handleAuth(response))
     );
+  }
+
+  updateProfile(firstName: string, lastName: string): Observable<any> {
+    return this.http.put(`${this.apiUrl}/profile`, { firstName, lastName }).pipe(
+      tap(() => {
+        const user = this.currentUser();
+        if (user) {
+          const updated = { ...user, firstName, lastName };
+          this.currentUser.set(updated);
+          localStorage.setItem(this.userKey, JSON.stringify(updated));
+        }
+      })
+    );
+  }
+
+  changePassword(currentPassword: string, newPassword: string): Observable<any> {
+    return this.http.post(`${this.apiUrl}/change-password`, { currentPassword, newPassword });
   }
 
   logout(): void {

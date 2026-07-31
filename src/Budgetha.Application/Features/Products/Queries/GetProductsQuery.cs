@@ -37,7 +37,9 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
     {
         var query = _context.Products
             .Include(p => p.Category)
+            .Include(p => p.Images)
             .Include(p => p.Reviews)
+            .Where(p => p.IsActive)
             .AsNoTracking();
 
         if (!string.IsNullOrEmpty(request.SellerId))
@@ -54,6 +56,11 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
         if (request.Categories?.Any() == true)
         {
             query = query.Where(p => request.Categories.Contains(p.Category.Slug));
+        }
+
+        if (request.Brands?.Any() == true)
+        {
+            query = query.Where(p => request.Brands.Contains(p.Brand));
         }
 
         query = query.Where(p => p.Price >= request.MinPrice && p.Price <= request.MaxPrice);
@@ -88,10 +95,13 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
             ShortDescription = p.Description.Length > 50 ? p.Description.Substring(0, 50) + "..." : p.Description,
             Description = p.Description,
             Stock = p.StockQuantity,
-            IsNew = (DateTime.UtcNow - p.Created).TotalDays <= 7,
+            IsNew = (DateTime.UtcNow - p.Created).TotalDays <= 30,
             IsFeatured = p.IsFeatured,
             ApprovalStatus = p.ApprovalStatus.ToString(),
-            Images = p.ThumbnailUrl != null ? new List<string> { p.ThumbnailUrl } : new List<string>()
+            Images = (p.ThumbnailUrl != null ? new List<string> { p.ThumbnailUrl } : new List<string>())
+                     .Concat(p.Images != null ? p.Images.Select(i => i.Url) : new List<string>())
+                     .Distinct()
+                     .ToList()
         }).ToList();
 
         return new CatalogResultDto

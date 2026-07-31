@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { environment } from '../../../environments/environment';
 
 export interface Announcement {
   id: string;
@@ -27,7 +28,7 @@ export interface UpdateAnnouncementDto extends CreateAnnouncementDto {
 @Injectable({ providedIn: 'root' })
 export class AnnouncementService {
   private http = inject(HttpClient);
-  private apiUrl = 'http://localhost:5272/api/announcements';
+  private apiUrl = `${environment.apiUrl}/announcements`;
 
   getAll(): Observable<Announcement[]> {
     return this.http.get<Announcement[]>(this.apiUrl);

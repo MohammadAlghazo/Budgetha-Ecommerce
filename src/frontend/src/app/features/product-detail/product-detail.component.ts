@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal, OnDestroy } from '@angular/core';
 import { CurrencyPipe, DatePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
@@ -13,6 +13,8 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
 import { FormsModule } from '@angular/forms';
 import { ReviewService } from '../../core/services/review.service';
 import { AuthService } from '../../core/services/auth.service';
+import * as signalR from '@microsoft/signalr';
+import { environment } from '../../../environments/environment';
 
 type Tab = 'description' | 'specs' | 'reviews';
 
@@ -38,7 +40,7 @@ type Tab = 'description' | 'specs' | 'reviews';
           <!-- Gallery -->
           <div>
             <div class="card overflow-hidden aspect-square flex items-center justify-center p-6 bg-slate-50">
-              <img [src]="activeImage()" [alt]="p.name" class="h-full w-full object-contain mix-blend-multiply transition-opacity duration-300" />
+              <img [src]="activeImage()" [alt]="p.name" class="h-full w-full object-scale-down mix-blend-multiply transition-opacity duration-300 p-4" />
             </div>
             <div class="mt-4 grid grid-cols-4 gap-3">
               @for (image of p.images; track image; let i = $index) {
@@ -48,7 +50,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                   [attr.aria-label]="'View image ' + (i + 1)"
                   class="aspect-square rounded-xl overflow-hidden ring-2 ring-offset-2 transition-all duration-300 bg-slate-50 p-2 flex items-center justify-center"
                   [class]="activeIndex() === i ? 'ring-violet-600' : 'ring-transparent hover:ring-slate-300'">
-                  <img [src]="image" [alt]="p.name + ' thumbnail ' + (i + 1)" class="h-full w-full object-contain mix-blend-multiply" />
+                  <img [src]="image" [alt]="p.name + ' thumbnail ' + (i + 1)" class="h-full w-full object-scale-down mix-blend-multiply" />
                 </button>
               }
             </div>
@@ -421,7 +423,7 @@ type Tab = 'description' | 'specs' | 'reviews';
     }
   `,
 })
-export class ProductDetailComponent {
+export class ProductDetailComponent implements OnDestroy {
   private readonly productService = inject(ProductService);
   private readonly cart = inject(CartService);
   private readonly wishlist = inject(WishlistService);
@@ -478,8 +480,15 @@ export class ProductDetailComponent {
   readonly newReviewComment = signal('');
   
   readonly isEditingReview = signal<string | number | null>(null);
+
+  readonly isAdmin = computed(() => {
+    const roles = this.authService.user()?.roles || [];
+    return roles.includes('Admin') || roles.includes('SuperAdmin');
+  });
   readonly editReviewRating = signal(5);
   readonly editReviewComment = signal('');
+
+  private hubConnection?: signalR.HubConnection;
 
   readonly ratingBuckets = computed(() => {
     const revs = this.reviews();
@@ -521,12 +530,38 @@ export class ProductDetailComponent {
             this.reviewService.getReviews(product.id.toString()).subscribe(revs => {
               this.reviews.set(revs);
             });
+            
+            // Setup SignalR
+            if (this.hubConnection) {
+              this.hubConnection.stop();
+            }
+            this.hubConnection = new signalR.HubConnectionBuilder()
+              .withUrl(`${environment.apiUrl.replace('/api', '')}/hubs/reviews`)
+              .withAutomaticReconnect()
+              .build();
+              
+            this.hubConnection.on('ReviewsUpdated', () => {
+              this.reviewService.getReviews(product.id.toString()).subscribe(revs => {
+                this.reviews.set(revs);
+              });
+            });
+            
+            this.hubConnection.start().then(() => {
+              this.hubConnection?.invoke('JoinProductGroup', product.id.toString());
+            }).catch(err => console.error('Error connecting to SignalR', err));
+
           } else {
              this.relatedProducts.set([]);
           }
         });
       }
     });
+  }
+
+  ngOnDestroy(): void {
+    if (this.hubConnection) {
+      this.hubConnection.stop();
+    }
   }
 
   increment(): void {
@@ -625,9 +660,5 @@ export class ProductDetailComponent {
       },
       error: () => this.toastService.error('Failed to delete review.')
     });
-  }
-  
-  isAdmin(): boolean {
-    return this.authService.user()?.roles?.includes('Admin') || this.authService.user()?.roles?.includes('SuperAdmin') || false;
   }
 }

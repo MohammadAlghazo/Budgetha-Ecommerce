@@ -20,7 +20,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
               [src]="product().images[0]"
               [alt]="product().name"
               loading="lazy"
-              class="h-full w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-500" />
+              class="h-full w-full object-scale-down mix-blend-multiply group-hover:scale-105 transition-transform duration-500 p-2" />
           </a>
 
           <!-- Badges -->
@@ -108,7 +108,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
               [src]="product().images[0]"
               [alt]="product().name"
               loading="lazy"
-              class="h-full w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-500" />
+              class="h-full w-full object-scale-down mix-blend-multiply group-hover:scale-105 transition-transform duration-500 p-2" />
           </a>
           <div class="absolute top-3 left-3 flex flex-col gap-1.5">
             @if (discountPercent() > 0) {

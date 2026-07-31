@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { environment } from '../../../environments/environment';
 
 export interface CloudinaryUploadResponse {
   url: string;
@@ -12,7 +13,7 @@ export class CloudinaryService {
   private readonly http = inject(HttpClient);
   
   
-  private readonly uploadEndpoint = 'http://localhost:5272/api/images/upload';
+  private readonly uploadEndpoint = `${environment.apiUrl}/images/upload`;
 
   
   uploadImage(file: File): Observable<CloudinaryUploadResponse> {

@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { Review } from '../models/shop.models';
+import { environment } from '../../../environments/environment';
 
 export interface AddReviewDto {
   productId: string;
@@ -18,7 +19,7 @@ export interface UpdateReviewDto {
 @Injectable({ providedIn: 'root' })
 export class ReviewService {
   private http = inject(HttpClient);
-  private apiUrl = 'http://localhost:5272/api/reviews';
+  private apiUrl = `${environment.apiUrl}/reviews`;
 
   getReviews(productId: string): Observable<Review[]> {
     return this.http.get<Review[]>(`${this.apiUrl}/${productId}`);

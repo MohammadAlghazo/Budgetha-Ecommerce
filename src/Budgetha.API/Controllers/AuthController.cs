@@ -12,11 +12,13 @@ public class AuthController : ControllerBase
 {
     private readonly IIdentityService _identityService;
     private readonly IConfiguration _configuration;
+    private readonly IEmailService _emailService;
 
-    public AuthController(IIdentityService identityService, IConfiguration configuration)
+    public AuthController(IIdentityService identityService, IConfiguration configuration, IEmailService emailService)
     {
         _identityService = identityService;
         _configuration = configuration;
+        _emailService = emailService;
     }
 
     [HttpPost("register")]
@@ -49,11 +51,15 @@ public class AuthController : ControllerBase
         {
             var token = await _identityService.GeneratePasswordResetTokenAsync(request.Email);
             
-            return Ok(new { Message = "Password reset token generated.", Token = token });
+            var resetLink = $"http://localhost:4200/reset-password?email={Uri.EscapeDataString(request.Email)}&token={Uri.EscapeDataString(token)}";
+            var emailBody = $"<p>You requested a password reset.</p><p>Please click the link below to reset your password:</p><p><a href='{resetLink}'>Reset Password</a></p>";
+            
+            await _emailService.SendEmailAsync(request.Email, "Password Reset", emailBody);
+            
+            return Ok(new { Message = "If an account with that email exists, a reset link has been sent." });
         }
         catch (InvalidOperationException)
         {
-            
             return Ok(new { Message = "If an account with that email exists, a reset link has been sent." });
         }
     }
@@ -128,4 +134,33 @@ public class AuthController : ControllerBase
             return Unauthorized(new AuthResponse(false, null, null, null, null, null, null, null, new[] { "Invalid Google token." }));
         }
     }
+
+    [Authorize]
+    [HttpPut("profile")]
+    public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest request)
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return Unauthorized();
+
+        var result = await _identityService.UpdateProfileAsync(userId, request.FirstName, request.LastName);
+        if (!result) return BadRequest(new { Message = "Failed to update profile." });
+
+        return Ok(new { Message = "Profile updated successfully." });
+    }
+
+    [Authorize]
+    [HttpPost("change-password")]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return Unauthorized();
+
+        var result = await _identityService.ChangePasswordAsync(userId, request.CurrentPassword, request.NewPassword);
+        if (!result) return BadRequest(new { Message = "Failed to change password. Please check your current password." });
+
+        return Ok(new { Message = "Password changed successfully." });
+    }
 }
+
+public record UpdateProfileRequest(string FirstName, string LastName);
+public record ChangePasswordRequest(string CurrentPassword, string NewPassword);

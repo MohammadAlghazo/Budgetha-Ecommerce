@@ -82,7 +82,6 @@ export class CartService {
       ];
     });
     this.toast.success(`${product.name} added to cart`);
-    this.openDrawer();
   }
 
   updateQuantity(item: CartItem, quantity: number): void {

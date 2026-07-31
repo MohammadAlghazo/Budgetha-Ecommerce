@@ -15,4 +15,6 @@ public interface IIdentityService
     Task<IList<string>> GetRolesAsync(string userId);
     Task<bool> IsInRoleAsync(string userId, string role);
     Task<AuthResult> GoogleLoginAsync(string email, string firstName, string lastName);
+    Task<bool> UpdateProfileAsync(string userId, string firstName, string lastName);
+    Task<bool> ChangePasswordAsync(string userId, string currentPassword, string newPassword);
 }
