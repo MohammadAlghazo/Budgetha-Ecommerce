@@ -1,4 +1,4 @@
-﻿import { Component, OnInit, effect, inject, signal } from '@angular/core';
+import { Component, OnInit, effect, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -361,7 +361,7 @@ export class CheckoutComponent implements OnInit {
   private initConfig(): void {
     this.payPalConfig = {
       currency: 'USD',
-      clientId: 'sb', 
+      clientId: 'Adhr3wKyo-vITBWdrUb94-pNgeWVsSeVc9lsjlTP9nISPfq057uwt5ZACGZxot9nNbZzcpb7jxYNc2AQ', 
       createOrderOnServer: (data) => {
         // Place the Budgetha order first
         return new Promise<string>((resolve, reject) => {
