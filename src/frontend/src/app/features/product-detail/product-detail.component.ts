@@ -37,8 +37,8 @@ type Tab = 'description' | 'specs' | 'reviews';
         <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14">
           <!-- Gallery -->
           <div>
-            <div class="card overflow-hidden aspect-square">
-              <img [src]="activeImage()" [alt]="p.name" class="h-full w-full object-cover transition-opacity duration-300" />
+            <div class="card overflow-hidden aspect-square flex items-center justify-center p-6 bg-slate-50">
+              <img [src]="activeImage()" [alt]="p.name" class="h-full w-full object-contain mix-blend-multiply transition-opacity duration-300" />
             </div>
             <div class="mt-4 grid grid-cols-4 gap-3">
               @for (image of p.images; track image; let i = $index) {
@@ -46,9 +46,9 @@ type Tab = 'description' | 'specs' | 'reviews';
                   type="button"
                   (click)="activeIndex.set(i)"
                   [attr.aria-label]="'View image ' + (i + 1)"
-                  class="aspect-square rounded-xl overflow-hidden ring-2 ring-offset-2 transition-all duration-300"
+                  class="aspect-square rounded-xl overflow-hidden ring-2 ring-offset-2 transition-all duration-300 bg-slate-50 p-2 flex items-center justify-center"
                   [class]="activeIndex() === i ? 'ring-violet-600' : 'ring-transparent hover:ring-slate-300'">
-                  <img [src]="image" [alt]="p.name + ' thumbnail ' + (i + 1)" class="h-full w-full object-cover" />
+                  <img [src]="image" [alt]="p.name + ' thumbnail ' + (i + 1)" class="h-full w-full object-contain mix-blend-multiply" />
                 </button>
               }
             </div>

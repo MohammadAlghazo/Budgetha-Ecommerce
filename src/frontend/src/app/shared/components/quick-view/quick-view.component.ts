@@ -21,8 +21,8 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
         <div class="pointer-events-auto w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl animate-[scaleIn_0.25s_ease-out]">
           <div class="grid grid-cols-1 md:grid-cols-2">
             <!-- Image -->
-            <div class="relative aspect-square bg-slate-100 md:rounded-l-2xl overflow-hidden">
-              <img [src]="activeImage()" [alt]="p.name" class="h-full w-full object-cover" />
+            <div class="relative aspect-square bg-slate-100 md:rounded-l-2xl overflow-hidden flex items-center justify-center p-4">
+              <img [src]="activeImage()" [alt]="p.name" class="h-full w-full object-contain mix-blend-multiply" />
               @if (p.images.length > 1) {
                 <div class="absolute bottom-3 inset-x-0 flex justify-center gap-1.5">
                   @for (image of p.images; track image; let i = $index) {

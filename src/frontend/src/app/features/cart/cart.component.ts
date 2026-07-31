@@ -38,7 +38,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                 <!-- Product -->
                 <div class="col-span-12 sm:col-span-6 flex items-center gap-4">
                   <a [routerLink]="['/products', item.slug]" class="shrink-0">
-                    <img [src]="item.image" [alt]="item.name" class="h-20 w-20 sm:h-24 sm:w-24 rounded-xl object-cover bg-slate-100" />
+                    <img [src]="item.image" [alt]="item.name" class="h-20 w-20 sm:h-24 sm:w-24 rounded-xl object-contain mix-blend-multiply bg-slate-100 p-2" />
                   </a>
                   <div class="min-w-0">
                     <span class="text-xs font-medium uppercase tracking-wider text-slate-400">{{ item.brand }}</span>

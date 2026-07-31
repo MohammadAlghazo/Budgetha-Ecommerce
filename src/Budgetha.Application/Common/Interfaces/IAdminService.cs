@@ -12,6 +12,14 @@ public class AdminStatsDto
     public int TotalOrders { get; set; }
 }
 
+public class SellerStatsDto
+{
+    public int TotalProducts { get; set; }
+    public int TotalSales { get; set; }
+    public decimal TotalRevenue { get; set; }
+    public int TotalOrders { get; set; }
+}
+
 public class AdminUserDto
 {
     public string Id { get; set; } = null!;
@@ -40,6 +48,7 @@ public class AdminUserProfileDto : AdminUserDto
 public interface IAdminService
 {
     Task<AdminStatsDto> GetStatsAsync();
+    Task<SellerStatsDto> GetSellerStatsAsync(string sellerId);
     Task<List<AdminUserDto>> GetRecentUsersAsync(int count);
     Task<PagedResult<AdminUserDto>> GetAllUsersAsync(int page = 1, int pageSize = 50);
     Task<List<AdminUserDto>> GetUsersByIdsAsync(IEnumerable<string> userIds);

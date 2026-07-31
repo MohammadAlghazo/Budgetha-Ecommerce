@@ -15,12 +15,12 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
       <!-- ── Grid card ── -->
       <article class="group card overflow-hidden hover:shadow-xl hover:shadow-violet-100/60 hover:-translate-y-1 transition-all duration-300 flex flex-col h-full">
         <div class="relative aspect-square overflow-hidden bg-slate-100">
-          <a [routerLink]="['/products', product().slug]" class="block h-full">
+          <a [routerLink]="['/products', product().slug]" class="block h-full p-4">
             <img
               [src]="product().images[0]"
               [alt]="product().name"
               loading="lazy"
-              class="h-full w-full object-cover group-hover:scale-105 transition-transform duration-500" />
+              class="h-full w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-500" />
           </a>
 
           <!-- Badges -->
@@ -103,12 +103,12 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
       <!-- ── List card ── -->
       <article class="group card overflow-hidden hover:shadow-xl hover:shadow-violet-100/60 transition-all duration-300 flex flex-col sm:flex-row">
         <div class="relative sm:w-56 lg:w-64 shrink-0 aspect-square sm:aspect-auto overflow-hidden bg-slate-100">
-          <a [routerLink]="['/products', product().slug]" class="block h-full">
+          <a [routerLink]="['/products', product().slug]" class="block h-full p-4">
             <img
               [src]="product().images[0]"
               [alt]="product().name"
               loading="lazy"
-              class="h-full w-full object-cover group-hover:scale-105 transition-transform duration-500" />
+              class="h-full w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-500" />
           </a>
           <div class="absolute top-3 left-3 flex flex-col gap-1.5">
             @if (discountPercent() > 0) {

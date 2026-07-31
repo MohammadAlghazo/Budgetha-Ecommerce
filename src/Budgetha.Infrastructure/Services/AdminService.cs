@@ -113,6 +113,28 @@ public class AdminService : IAdminService
         };
     }
 
+    public async Task<SellerStatsDto> GetSellerStatsAsync(string sellerId)
+    {
+        var totalProducts = await _context.Products.CountAsync(p => p.SellerId == sellerId);
+        
+        var orderItems = await _context.OrderItems
+            .Include(oi => oi.Product)
+            .Where(oi => oi.Product.SellerId == sellerId)
+            .ToListAsync();
+
+        var totalSales = orderItems.Sum(oi => oi.Quantity);
+        var totalRevenue = orderItems.Sum(oi => oi.Quantity * oi.UnitPrice);
+        var totalOrders = orderItems.Select(oi => oi.OrderId).Distinct().Count();
+
+        return new SellerStatsDto
+        {
+            TotalProducts = totalProducts,
+            TotalSales = totalSales,
+            TotalRevenue = totalRevenue,
+            TotalOrders = totalOrders
+        };
+    }
+
     public async Task<bool> DeleteProductAsync(Guid productId)
     {
         var product = await _context.Products.FindAsync(productId);

@@ -28,6 +28,16 @@ public class AdminController : ControllerBase
         return Ok(stats);
     }
 
+    [HttpGet("seller-stats")]
+    public async Task<IActionResult> GetSellerStats()
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+        var stats = await _adminService.GetSellerStatsAsync(userId);
+        return Ok(stats);
+    }
+
     [HttpGet("users")]
     [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> GetAllUsers([FromQuery] int page = 1, [FromQuery] int pageSize = 50)

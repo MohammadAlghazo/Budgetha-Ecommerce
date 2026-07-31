@@ -1,12 +1,12 @@
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { DatePipe, DecimalPipe, CurrencyPipe } from '@angular/common';
 import { RouterLink, Router } from '@angular/router';
-import { AdminService, AdminStats, AdminUser } from '../../core/services/admin.service';
+import { AdminService, AdminStats, AdminUser, SellerStats } from '../../core/services/admin.service';
 import { AuthService } from '../../core/services/auth.service';
 
 @Component({
   selector: 'app-admin-dashboard',
-  imports: [DatePipe, DecimalPipe, RouterLink],
+  imports: [DatePipe, DecimalPipe, CurrencyPipe, RouterLink],
   template: `
     <div class="max-w-7xl mx-auto space-y-8">
 
@@ -49,8 +49,9 @@ import { AuthService } from '../../core/services/auth.service';
       </div>
 
       <!-- Stats Grid -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-        <!-- Total Users -->
+      @if (isAdminOrSuperAdmin()) {
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+          <!-- Total Users -->
         <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
           <div class="flex items-center justify-between mb-4">
             <div class="h-11 w-11 rounded-xl bg-gradient-to-br from-teal-500 to-teal-700 flex items-center justify-center text-white shadow-lg shadow-teal-200">
@@ -95,12 +96,61 @@ import { AuthService } from '../../core/services/auth.service';
             <div class="h-full bg-gradient-to-r from-rose-400 to-rose-200 rounded-full" style="width: 40%"></div>
           </div>
         </div>
-      </div>
+        </div>
+      } @else {
+        <!-- Seller Stats Grid -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+          <!-- Total Products -->
+          <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+            <div class="flex items-center justify-between mb-4">
+              <div class="h-11 w-11 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+              </div>
+            </div>
+            <h3 class="text-3xl font-bold text-slate-900 tabular-nums">{{ sellerStats()?.totalProducts | number }}</h3>
+            <p class="text-sm font-medium text-slate-500 mt-1">Total Products</p>
+          </div>
+
+          <!-- Total Sales (Items Sold) -->
+          <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+            <div class="flex items-center justify-between mb-4">
+              <div class="h-11 w-11 rounded-xl bg-gradient-to-br from-teal-500 to-teal-700 flex items-center justify-center text-white shadow-lg shadow-teal-200">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+              </div>
+            </div>
+            <h3 class="text-3xl font-bold text-slate-900 tabular-nums">{{ sellerStats()?.totalSales | number }}</h3>
+            <p class="text-sm font-medium text-slate-500 mt-1">Items Sold</p>
+          </div>
+
+          <!-- Total Revenue -->
+          <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+            <div class="flex items-center justify-between mb-4">
+              <div class="h-11 w-11 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white shadow-lg shadow-amber-200">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              </div>
+            </div>
+            <h3 class="text-3xl font-bold text-slate-900 tabular-nums">{{ sellerStats()?.totalRevenue | currency }}</h3>
+            <p class="text-sm font-medium text-slate-500 mt-1">Total Revenue</p>
+          </div>
+
+          <!-- Total Orders -->
+          <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+            <div class="flex items-center justify-between mb-4">
+              <div class="h-11 w-11 rounded-xl bg-gradient-to-br from-rose-400 to-rose-600 flex items-center justify-center text-white shadow-lg shadow-rose-200">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path></svg>
+              </div>
+            </div>
+            <h3 class="text-3xl font-bold text-slate-900 tabular-nums">{{ sellerStats()?.totalOrders | number }}</h3>
+            <p class="text-sm font-medium text-slate-500 mt-1">Unique Orders</p>
+          </div>
+        </div>
+      }
 
       <!-- Charts Row -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      @if (isAdminOrSuperAdmin()) {
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        <!-- Bar Chart — Registration Activity -->
+          <!-- Bar Chart — Registration Activity -->
         <div class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
           <div class="flex items-center justify-between mb-6">
             <div>
@@ -253,7 +303,8 @@ import { AuthService } from '../../core/services/auth.service';
             </div>
           </div>
         </div>
-      </div>
+        </div>
+      }
 
       <!-- Recent Users Table + Quick Actions -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -405,6 +456,7 @@ export class AdminDashboardComponent implements OnInit {
   private readonly router = inject(Router);
 
   readonly stats = signal<AdminStats | null>(null);
+  readonly sellerStats = signal<SellerStats | null>(null);
   readonly recentUsers = signal<AdminUser[]>([]);
 
   readonly isSuperAdmin = computed(() =>
@@ -459,18 +511,20 @@ export class AdminDashboardComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    if (!this.isAdminOrSuperAdmin()) {
-      this.router.navigate(['/admin/products'], { replaceUrl: true });
-      return;
+    if (this.isAdminOrSuperAdmin()) {
+      this.adminService.getStats().subscribe({
+        next: stats => this.stats.set(stats),
+        error: () => this.stats.set(null)
+      });
+      this.adminService.getRecentUsers(5).subscribe({
+        next: users => this.recentUsers.set(users || []),
+        error: () => this.recentUsers.set([])
+      });
+    } else {
+      this.adminService.getSellerStats().subscribe({
+        next: stats => this.sellerStats.set(stats),
+        error: () => this.sellerStats.set(null)
+      });
     }
-
-    this.adminService.getStats().subscribe({
-      next: stats => this.stats.set(stats),
-      error: () => this.stats.set(null)
-    });
-    this.adminService.getRecentUsers(5).subscribe({
-      next: users => this.recentUsers.set(users || []),
-      error: () => this.recentUsers.set([])
-    });
   }
 }

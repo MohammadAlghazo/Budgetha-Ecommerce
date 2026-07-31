@@ -237,7 +237,7 @@ type PaymentMethod = 'paypal' | 'cod';
               @for (item of cart.items(); track item.productId + (item.color ?? '') + (item.size ?? '')) {
                 <li class="flex items-center gap-3.5">
                   <div class="relative shrink-0">
-                    <img [src]="item.image" [alt]="item.name" class="h-16 w-16 rounded-xl object-cover bg-slate-100" />
+                    <img [src]="item.image" [alt]="item.name" class="h-16 w-16 rounded-xl object-contain mix-blend-multiply bg-slate-100 p-1" />
                     <span class="absolute -top-1.5 -right-1.5 h-5 min-w-5 px-1 rounded-full bg-slate-800 text-white text-[11px] font-bold flex items-center justify-center">
                       {{ item.quantity }}
                     </span>

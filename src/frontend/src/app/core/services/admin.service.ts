@@ -11,6 +11,13 @@ export interface AdminStats {
   totalOrders: number;
 }
 
+export interface SellerStats {
+  totalProducts: number;
+  totalSales: number;
+  totalRevenue: number;
+  totalOrders: number;
+}
+
 export interface AdminUser {
   id: string;
   email: string;
@@ -50,6 +57,10 @@ export class AdminService {
 
   getStats(): Observable<AdminStats> {
     return this.http.get<AdminStats>(`${this.apiUrl}/stats`);
+  }
+
+  getSellerStats(): Observable<SellerStats> {
+    return this.http.get<SellerStats>(`${this.apiUrl}/seller-stats`);
   }
 
   getRecentUsers(count: number = 5): Observable<AdminUser[]> {
