@@ -229,10 +229,10 @@ const PAGE_SIZE = 9;
           @if (result().items.length === 0) {
             <div class="card">
               <app-empty-state
-                icon="search"
-                title="No products match your filters"
-                message="Try widening the price range, removing a brand filter, or searching for something else."
-                ctaLabel="Clear all filters"
+                [icon]="wishlistOnly() ? 'wishlist' : 'search'"
+                [title]="wishlistOnly() ? 'Your wishlist is empty' : 'No products match your filters'"
+                [message]="wishlistOnly() ? 'Save your favorite items here to review them later and purchase when you are ready.' : 'Try widening the price range, removing a brand filter, or searching for something else.'"
+                [ctaLabel]="wishlistOnly() ? 'Explore products' : 'Clear all filters'"
                 ctaLink="/shop" />
             </div>
           } @else {
@@ -404,8 +404,8 @@ export class CatalogComponent {
         maxPrice: this.maxPrice(),
         minRating: this.minRating(),
         sort: this.sort(),
-        page: this.page(),
-        pageSize: PAGE_SIZE,
+        page: this.wishlistOnly() || this.dealsOnly() ? 1 : this.page(),
+        pageSize: this.wishlistOnly() || this.dealsOnly() ? 100 : PAGE_SIZE,
       };
       this.productService.query(q).subscribe(res => {
         let items = res?.items || [];
@@ -416,7 +416,19 @@ export class CatalogComponent {
           const ids = this.wishlist.ids();
           items = items.filter(p => ids.includes(p.id));
         }
-        this.result.set({ items, total: res.total, totalPages: res.totalPages });
+        
+        let total = res.total;
+        let totalPages = res.totalPages;
+        
+        if (this.wishlistOnly() || this.dealsOnly()) {
+          total = items.length;
+          totalPages = Math.ceil(total / PAGE_SIZE);
+          
+          const start = (this.page() - 1) * PAGE_SIZE;
+          items = items.slice(start, start + PAGE_SIZE);
+        }
+        
+        this.result.set({ items, total, totalPages });
       });
     });
   }

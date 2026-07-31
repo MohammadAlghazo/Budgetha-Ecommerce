@@ -6,10 +6,12 @@ import { AuthService } from '../../../core/services/auth.service';
 import { ToastService } from '../../../core/services/toast.service';
 import { environment } from '../../../../environments/environment';
 
+import { AuthSliderComponent } from '../../../shared/components/auth-slider/auth-slider.component';
+
 @Component({
   selector: 'app-register',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, AuthSliderComponent],
   templateUrl: './register.component.html',
   styleUrl: './register.component.scss'
 })
@@ -32,30 +34,6 @@ export class RegisterComponent {
   loading = signal(false);
   showPassword = signal(false);
   showConfirmPassword = signal(false);
-  currentCardIndex = signal(0);
-  readonly totalCards = 4;
-
-  prevCard(): void {
-    this.currentCardIndex.update(i => (i - 1 + this.totalCards) % this.totalCards);
-  }
-
-  nextCard(): void {
-    this.currentCardIndex.update(i => (i + 1) % this.totalCards);
-  }
-
-  getCardStyle(index: number) {
-    const diff = (index - this.currentCardIndex() + this.totalCards) % this.totalCards;
-    
-    if (diff === 0) {
-      return { transform: 'translateX(0) scale(1)', zIndex: 30, opacity: 1, visibility: 'visible' };
-    } else if (diff === 1) {
-      return { transform: 'translateX(60%) scale(0.85)', zIndex: 20, opacity: 0.5, visibility: 'visible' };
-    } else if (diff === this.totalCards - 1) {
-      return { transform: 'translateX(-60%) scale(0.85)', zIndex: 20, opacity: 0.5, visibility: 'visible' };
-    } else {
-      return { transform: 'translateX(0) scale(0.7)', zIndex: 10, opacity: 0, visibility: 'hidden' };
-    }
-  }
   
   private get returnUrl(): string {
     const target = this.route.snapshot.queryParamMap.get('returnUrl');
