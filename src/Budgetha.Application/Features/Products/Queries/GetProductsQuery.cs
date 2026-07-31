@@ -38,6 +38,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
         var query = _context.Products
             .Include(p => p.Category)
             .Include(p => p.Images)
+            .Include(p => p.Variants)
             .Where(p => p.IsActive && p.ApprovalStatus == ApprovalStatus.Approved)
             .AsNoTracking();
 
@@ -93,20 +94,40 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
             Slug = p.Slug,
             Brand = string.IsNullOrWhiteSpace(p.Brand) ? "Generic" : p.Brand,
             Category = p.Category?.Slug ?? "",
+            CategoryId = p.CategoryId,
             Price = p.Price,
             OriginalPrice = p.OriginalPrice, 
+            IsAvailableForRent = p.IsAvailableForRent,
+            RentalPricePerDay = p.RentalPricePerDay,
             Rating = p.AverageRating > 0 ? Math.Round(p.AverageRating, 1) : 0m, 
             ReviewCount = p.ReviewCount, 
             ShortDescription = p.Description.Length > 50 ? p.Description.Substring(0, 50) + "..." : p.Description,
             Description = p.Description,
-            Stock = p.StockQuantity,
+            Stock = p.Variants.Any(v => v.IsActive)
+                ? p.Variants.Where(v => v.IsActive).Sum(v => v.StockQuantity)
+                : p.StockQuantity,
             IsNew = (DateTime.UtcNow - p.Created).TotalDays <= 30,
             IsFeatured = p.IsFeatured,
             ApprovalStatus = p.ApprovalStatus.ToString(),
+            Variants = p.Variants.Where(v => v.IsActive).Select(v => new ProductVariantDto
+            {
+                Id = v.Id,
+                SKU = v.SKU,
+                Color = v.Color,
+                Size = v.Size,
+                StockQuantity = v.StockQuantity,
+                Price = v.Price,
+                RentalPricePerDay = v.RentalPricePerDay,
+                IsActive = v.IsActive
+            }).ToList(),
             Images = (p.ThumbnailUrl != null ? new List<string> { p.ThumbnailUrl } : new List<string>())
                      .Concat(p.Images != null ? p.Images.Select(i => i.Url) : new List<string>())
                      .Distinct()
-                     .ToList()
+                     .ToList(),
+            ImageDetails = p.Images!
+                .OrderBy(image => image.DisplayOrder)
+                .Select(image => new ProductImageDto { Url = image.Url, PublicId = image.PublicId })
+                .ToList()
         }).ToList();
 
         return new CatalogResultDto

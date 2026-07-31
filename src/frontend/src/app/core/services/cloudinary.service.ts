@@ -22,4 +22,8 @@ export class CloudinaryService {
     
     return this.http.post<CloudinaryUploadResponse>(this.uploadEndpoint, formData);
   }
+
+  deleteImage(publicId: string): Observable<void> {
+    return this.http.delete<void>(`${environment.apiUrl}/images?publicId=${encodeURIComponent(publicId)}`);
+  }
 }

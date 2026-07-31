@@ -31,6 +31,8 @@ public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, boo
             .Include(o => o.Payment)
             .Include(o => o.Items)
             .ThenInclude(i => i.Product)
+            .Include(o => o.Items)
+            .ThenInclude(i => i.Variant)
             .FirstOrDefaultAsync(o => o.Id == request.OrderId, cancellationToken);
 
         if (order == null) throw new NotFoundException(nameof(Order), request.OrderId);
@@ -45,7 +47,8 @@ public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, boo
             throw new ForbiddenAccessException();
 
         if (order.Status == OrderStatus.Cancelled || order.Status == OrderStatus.Delivered ||
-            order.Status == OrderStatus.Shipped || order.Status == OrderStatus.Refunded)
+            order.Status == OrderStatus.Shipped || order.Status == OrderStatus.Refunded ||
+            order.Status == OrderStatus.Failed)
             return false;
 
         if (order.Payment?.Status == PaymentStatus.Completed)
@@ -56,9 +59,12 @@ public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, boo
         // Purchase stock was reserved at order creation; rental stock was never decremented.
         foreach (var item in order.Items)
         {
-            if (item.Type == OrderItemType.Purchase && item.Product != null)
+            if (item.Type == OrderItemType.Purchase)
             {
-                item.Product.StockQuantity += item.Quantity;
+                if (item.Variant != null)
+                    item.Variant.StockQuantity += item.Quantity;
+                else if (item.Product != null)
+                    item.Product.StockQuantity += item.Quantity;
             }
         }
 

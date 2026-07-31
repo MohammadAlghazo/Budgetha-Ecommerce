@@ -27,7 +27,7 @@ export class NotificationService {
   private unreadCountSubject = new BehaviorSubject<number>(0);
   public unreadCount$ = this.unreadCountSubject.asObservable();
 
-  private readonly apiUrl = `${environment.apiUrl}/api/notifications`;
+  private readonly apiUrl = `${environment.apiUrl}/notifications`;
 
   constructor(private http: HttpClient, private authService: AuthService) {
     effect(() => {
@@ -58,7 +58,7 @@ export class NotificationService {
     if (!token) return;
 
     this.hubConnection = new signalR.HubConnectionBuilder()
-      .withUrl(`${environment.apiUrl}/hubs/notifications`, {
+      .withUrl(`${environment.hubUrl}/notifications`, {
         accessTokenFactory: () => token
       })
       .withAutomaticReconnect()

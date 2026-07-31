@@ -22,6 +22,11 @@ public class GetProductBySlugQueryHandler : IRequestHandler<GetProductBySlugQuer
             .Include(x => x.Category)
             .Include(x => x.Images)
             .Include(x => x.Reviews)
+            .Include(x => x.Variants)
+            .Include(x => x.Colors)
+            .Include(x => x.Sizes)
+            .Include(x => x.Features)
+            .Include(x => x.Specs)
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Slug == request.Slug &&
                                       x.IsActive &&
@@ -47,17 +52,48 @@ public class GetProductBySlugQueryHandler : IRequestHandler<GetProductBySlugQuer
             Slug = p.Slug,
             Brand = p.Brand,
             Category = p.Category?.Slug ?? "",
+            CategoryId = p.CategoryId,
             Price = p.Price,
             OriginalPrice = p.OriginalPrice,
+            IsAvailableForRent = p.IsAvailableForRent,
+            RentalPricePerDay = p.RentalPricePerDay,
             Rating = rating,
             ReviewCount = p.Reviews.Count,
             ShortDescription = p.Description.Length > 50 ? p.Description.Substring(0, 50) + "..." : p.Description,
             Description = p.Description,
-            Stock = p.StockQuantity,
+            Stock = p.Variants.Any(v => v.IsActive)
+                ? p.Variants.Where(v => v.IsActive).Sum(v => v.StockQuantity)
+                : p.StockQuantity,
             IsNew = isNew,
             IsFeatured = p.IsFeatured,
             ApprovalStatus = p.ApprovalStatus.ToString(),
-            Images = imageUrls.Distinct().ToList()
+            Images = imageUrls.Distinct().ToList(),
+            ImageDetails = p.Images
+                .OrderBy(image => image.DisplayOrder)
+                .Select(image => new ProductImageDto { Url = image.Url, PublicId = image.PublicId })
+                .ToList(),
+            Colors = p.Variants.Where(v => v.IsActive && v.Color != null)
+                .Select(v => v.Color!).Distinct()
+                .Select(color => new ProductColorDto
+                {
+                    Name = color,
+                    Hex = p.Colors.FirstOrDefault(c => c.Name == color)?.Hex ?? "#64748b"
+                }).ToList(),
+            Sizes = p.Variants.Where(v => v.IsActive && v.Size != null)
+                .Select(v => v.Size!).Distinct().ToList(),
+            Features = p.Features.Select(f => f.Description).ToList(),
+            Specs = p.Specs.Select(s => new ProductSpecDto { Label = s.Label, Value = s.Value }).ToList(),
+            Variants = p.Variants.Where(v => v.IsActive).Select(v => new ProductVariantDto
+            {
+                Id = v.Id,
+                SKU = v.SKU,
+                Color = v.Color,
+                Size = v.Size,
+                StockQuantity = v.StockQuantity,
+                Price = v.Price,
+                RentalPricePerDay = v.RentalPricePerDay,
+                IsActive = v.IsActive
+            }).ToList()
         };
     }
 }

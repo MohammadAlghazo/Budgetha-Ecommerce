@@ -84,7 +84,8 @@ public class CapturePayPalOrderCommandHandler : IRequestHandler<CapturePayPalOrd
         foreach (var orderItem in order.Items)
         {
             var cartItem = cartItems.FirstOrDefault(item =>
-                item.ProductId == orderItem.ProductId && item.Quantity == orderItem.Quantity &&
+                item.ProductId == orderItem.ProductId && item.VariantId == orderItem.VariantId &&
+                item.Quantity == orderItem.Quantity &&
                 item.Type == orderItem.Type && item.RentalStartDate == orderItem.RentalStartDate &&
                 item.RentalEndDate == orderItem.RentalEndDate && item.Color == orderItem.Color && item.Size == orderItem.Size);
             if (cartItem != null)

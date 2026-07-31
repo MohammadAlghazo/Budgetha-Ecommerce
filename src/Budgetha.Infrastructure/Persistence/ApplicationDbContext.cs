@@ -22,6 +22,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     }
 
     public DbSet<Product> Products => Set<Product>();
+    public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
@@ -57,6 +58,12 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         foreach (var entry in ChangeTracker.Entries<Product>()
+                     .Where(entry => entry.State is EntityState.Added or EntityState.Modified))
+        {
+            entry.Entity.RowVersion = Guid.NewGuid().ToByteArray();
+        }
+
+        foreach (var entry in ChangeTracker.Entries<ProductVariant>()
                      .Where(entry => entry.State is EntityState.Added or EntityState.Modified))
         {
             entry.Entity.RowVersion = Guid.NewGuid().ToByteArray();

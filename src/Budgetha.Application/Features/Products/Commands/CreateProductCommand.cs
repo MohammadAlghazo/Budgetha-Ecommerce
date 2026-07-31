@@ -6,13 +6,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Budgetha.Application.Features.Products.Commands;
 
+public record ProductImageInput(string Url, string? PublicId);
+
 public record CreateProductCommand(
     string Name,
     string Description,
     decimal Price,
     int StockQuantity,
     Guid CategoryId,
-    List<string> ImageUrls,
+    List<ProductImageInput> Images,
     bool IsAvailableForRent,
     decimal? RentalPricePerDay,
     string SellerId,
@@ -21,7 +23,8 @@ public record CreateProductCommand(
     List<string>? Colors = null,
     List<string>? Sizes = null,
     Dictionary<string, string>? Specs = null,
-    List<string>? Features = null
+    List<string>? Features = null,
+    List<ProductVariantInput>? Variants = null
 ) : IRequest<Guid>;
 
 public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand, Guid>
@@ -37,7 +40,12 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
 
     public async Task<Guid> Handle(CreateProductCommand request, CancellationToken cancellationToken)
     {
-        ProductRules.Validate(request.Price, request.StockQuantity, request.OriginalPrice, request.IsAvailableForRent, request.RentalPricePerDay);
+        ProductRules.Validate(request.Price, request.StockQuantity, request.OriginalPrice, request.IsAvailableForRent, request.RentalPricePerDay, request.Variants);
+
+        var requestedSkus = (request.Variants ?? []).Select(variant => variant.SKU.Trim()).ToList();
+        if (requestedSkus.Count > 0 && await _context.ProductVariants
+                .AnyAsync(variant => requestedSkus.Contains(variant.SKU), cancellationToken))
+            throw new InvalidOperationException("A variant SKU is already in use.");
 
         var categoryExists = await _context.Categories.AnyAsync(c => c.Id == request.CategoryId, cancellationToken);
         if (!categoryExists)
@@ -67,7 +75,8 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             Price = request.Price,
             StockQuantity = request.StockQuantity,
             CategoryId = request.CategoryId,
-            ThumbnailUrl = request.ImageUrls.FirstOrDefault(),
+            ThumbnailUrl = request.Images.FirstOrDefault()?.Url,
+            ThumbnailPublicId = request.Images.FirstOrDefault()?.PublicId,
             IsAvailableForRent = request.IsAvailableForRent,
             RentalPricePerDay = request.RentalPricePerDay,
             Brand = string.IsNullOrWhiteSpace(request.Brand) ? "Generic" : request.Brand,
@@ -78,14 +87,29 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             ApprovalStatus = isAdmin ? ApprovalStatus.Approved : ApprovalStatus.Pending
         };
 
-        if (request.ImageUrls != null && request.ImageUrls.Any())
+        foreach (var variant in request.Variants ?? [])
+        {
+            product.Variants.Add(new ProductVariant
+            {
+                SKU = variant.SKU.Trim(),
+                Color = Normalize(variant.Color),
+                Size = Normalize(variant.Size),
+                StockQuantity = variant.StockQuantity,
+                Price = variant.Price,
+                RentalPricePerDay = variant.RentalPricePerDay,
+                IsActive = variant.IsActive
+            });
+        }
+
+        if (request.Images != null && request.Images.Any())
         {
             int order = 0;
-            foreach (var url in request.ImageUrls)
+            foreach (var image in request.Images)
             {
                 product.Images.Add(new ProductImage
                 {
-                    Url = url,
+                    Url = image.Url,
+                    PublicId = image.PublicId,
                     DisplayOrder = order++
                 });
             }
@@ -120,4 +144,6 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
 
         return product.Id;
     }
+
+    private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

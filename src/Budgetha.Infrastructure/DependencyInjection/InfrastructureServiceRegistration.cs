@@ -29,6 +29,8 @@ public static class InfrastructureServiceRegistration
                 npgsql.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName)));
 
         services.AddScoped<IApplicationDbContext>(provider => provider.GetRequiredService<ApplicationDbContext>());
+        services.Configure<CheckoutPricingOptions>(configuration.GetSection(CheckoutPricingOptions.SectionName));
+        services.AddScoped<ICheckoutPricingService, CheckoutPricingService>();
 
         services.AddIdentity<ApplicationUser, IdentityRole>(options =>
             {
@@ -67,12 +69,24 @@ public static class InfrastructureServiceRegistration
                     IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings.Secret)),
                     ClockSkew = TimeSpan.Zero
                 };
+                options.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = context =>
+                    {
+                        var accessToken = context.Request.Query["access_token"];
+                        if (!string.IsNullOrEmpty(accessToken) && context.HttpContext.Request.Path.StartsWithSegments("/hubs"))
+                            context.Token = accessToken;
+
+                        return Task.CompletedTask;
+                    }
+                };
             });
 
         services.AddScoped<TokenService>();
         services.AddScoped<IIdentityService, IdentityService>();
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<IDateTimeService, DateTimeService>();
+        services.AddScoped<IInventoryLockService, PostgresInventoryLockService>();
         services.AddScoped<IEmailService, SmtpEmailService>();
         services.AddScoped<INotificationService, NotificationService>();
 

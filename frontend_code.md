@@ -276,25 +276,6 @@ Thumbs.db
         "maxSize": 250,
         "maxAge": "14d"
       }
-    },
-    {
-      "name": "api-account",
-      "urls": [
-        "/api/cart/**",
-        "/api/orders/**",
-        "/api/account/**",
-        "/api/wishlist/**",
-        "http://localhost:5272/api/cart/**",
-        "http://localhost:5272/api/orders/**",
-        "http://localhost:5272/api/account/**",
-        "http://localhost:5272/api/wishlist/**"
-      ],
-      "cacheConfig": {
-        "strategy": "freshness",
-        "maxSize": 60,
-        "maxAge": "1h",
-        "timeout": "5s"
-      }
     }
   ]
 }
@@ -12213,11 +12194,12 @@ describe('App', () => {
     expect(app).toBeTruthy();
   });
 
-  it('should render title', () => {
+  it('should render the application shell', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('h1')?.textContent).toContain('Hello, budgetha-web');
+    expect(compiled.querySelector('router-outlet')).toBeTruthy();
+    expect(compiled.querySelector('app-toast')).toBeTruthy();
   });
 });
 
@@ -12955,6 +12937,7 @@ export interface CartItem {
   type?: 'Purchase' | 'Rental';
   rentalStartDate?: string;
   rentalEndDate?: string;
+  rentalPricePerDay?: number;
 }
 
 export interface PromoCode {
@@ -12962,6 +12945,7 @@ export interface PromoCode {
   type: 'percent' | 'shipping';
   value: number;
   description: string;
+  maxDiscountAmount?: number;
 }
 
 export interface Address {
@@ -12988,7 +12972,7 @@ export interface PaymentCard {
   isDefault: boolean;
 }
 
-export type OrderStatus = 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled';
+export type OrderStatus = 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled' | 'Refunded' | 'Failed';
 
 export interface OrderItem {
   productId: string;
@@ -12998,10 +12982,13 @@ export interface OrderItem {
   quantity: number;
   color?: string;
   size?: string;
+  type?: 'Purchase' | 'Rental';
+  rentalStartDate?: string;
+  rentalEndDate?: string;
 }
 
 export interface Order {
-  id: number;
+  id: string;
   number: string;
   date: string;
   status: OrderStatus;
@@ -13045,6 +13032,7 @@ import { HttpClient } from '@angular/common/http';
 import { Address, PaymentCard } from '../models/shop.models';
 import { AuthService } from './auth.service';
 import { environment } from '../../../environments/environment';
+import { Observable, tap } from 'rxjs';
 
 const ADDRESS_KEY = 'budgetha_addresses_v2';
 const CARDS_KEY = 'budgetha_cards_v2';
@@ -13060,9 +13048,13 @@ export class AccountService {
 
   private readonly _addresses = signal<Address[]>(this.load(ADDRESS_KEY, SEED_ADDRESSES));
   private readonly _cards = signal<PaymentCard[]>(this.load(CARDS_KEY, SEED_CARDS));
+  private readonly _addressesLoading = signal(false);
+  private readonly _addressesError = signal(false);
 
   readonly addresses = this._addresses.asReadonly();
   readonly cards = this._cards.asReadonly();
+  readonly addressesLoading = this._addressesLoading.asReadonly();
+  readonly addressesError = this._addressesError.asReadonly();
 
   constructor() {
     effect(() => {
@@ -13077,7 +13069,9 @@ export class AccountService {
     }, { allowSignalWrites: true });
   }
 
-  private syncAddresses() {
+  syncAddresses(): void {
+    this._addressesLoading.set(true);
+    this._addressesError.set(false);
     this.http.get<any[]>(this.apiUrl).subscribe({
       next: (addrs) => {
         if (addrs) {
@@ -13096,8 +13090,26 @@ export class AccountService {
           }));
           this._addresses.set(mapped);
         }
+        this._addressesLoading.set(false);
+      },
+      error: () => {
+        this._addressesLoading.set(false);
+        this._addressesError.set(true);
       }
     });
+  }
+
+  createCheckoutAddress(address: Omit<Address, 'id' | 'label' | 'phone'>): Observable<string> {
+    return this.http.post<string>(this.apiUrl, {
+      fullName: address.fullName,
+      line1: address.line1,
+      line2: address.line2,
+      city: address.city,
+      state: address.state,
+      postalCode: address.zip,
+      country: address.country,
+      isDefault: address.isDefault
+    }).pipe(tap(() => this.syncAddresses()));
   }
 
   defaultAddress(): Address | undefined {
@@ -13106,16 +13118,30 @@ export class AccountService {
 
   saveAddress(address: Omit<Address, 'id'> & { id?: number | string }): void {
     if (this.auth.isAuthenticated()) {
-      this.http.post(this.apiUrl, {
-        fullName: address.fullName,
-        line1: address.line1,
-        line2: address.line2,
-        city: address.city,
-        state: address.state,
-        postalCode: address.zip,
-        country: address.country,
-        isDefault: address.isDefault
-      }).subscribe(() => this.syncAddresses());
+      if (address.id && typeof address.id === 'string') {
+        this.http.put(`${this.apiUrl}/${address.id}`, {
+          id: address.id,
+          fullName: address.fullName,
+          line1: address.line1,
+          line2: address.line2,
+          city: address.city,
+          state: address.state,
+          postalCode: address.zip,
+          country: address.country,
+          isDefault: address.isDefault
+        }).subscribe(() => this.syncAddresses());
+      } else {
+        this.http.post(this.apiUrl, {
+          fullName: address.fullName,
+          line1: address.line1,
+          line2: address.line2,
+          city: address.city,
+          state: address.state,
+          postalCode: address.zip,
+          country: address.country,
+          isDefault: address.isDefault
+        }).subscribe(() => this.syncAddresses());
+      }
     } else {
       this._addresses.update(list => {
         let next = list.slice();
@@ -13132,18 +13158,38 @@ export class AccountService {
   }
 
   deleteAddress(id: number | string): void {
-    // Left as local only for simplicity unless fully mapped
-    this._addresses.update(list => {
-      const next = list.filter(a => a.id !== id);
-      if (next.length && !next.some(a => a.isDefault)) {
-        next[0] = { ...next[0], isDefault: true };
-      }
-      return next;
-    });
+    if (this.auth.isAuthenticated() && typeof id === 'string') {
+      this.http.delete(`${this.apiUrl}/${id}`).subscribe(() => this.syncAddresses());
+    } else {
+      this._addresses.update(list => {
+        const next = list.filter(a => a.id !== id);
+        if (next.length && !next.some(a => a.isDefault)) {
+          next[0] = { ...next[0], isDefault: true };
+        }
+        return next;
+      });
+    }
   }
 
   setDefaultAddress(id: number | string): void {
-    this._addresses.update(list => list.map(a => ({ ...a, isDefault: a.id === id })));
+    if (this.auth.isAuthenticated() && typeof id === 'string') {
+      const address = this._addresses().find(a => a.id === id);
+      if (address) {
+        this.http.put(`${this.apiUrl}/${id}`, {
+          id: address.id,
+          fullName: address.fullName,
+          line1: address.line1,
+          line2: address.line2,
+          city: address.city,
+          state: address.state,
+          postalCode: address.zip,
+          country: address.country,
+          isDefault: true
+        }).subscribe(() => this.syncAddresses());
+      }
+    } else {
+      this._addresses.update(list => list.map(a => ({ ...a, isDefault: a.id === id })));
+    }
   }
 
   defaultCard(): PaymentCard | undefined {
@@ -13543,12 +13589,7 @@ const PROMO_KEY = 'budgetha_promo';
 export const PROMO_CODES: PromoCode[] = [
   { code: 'WELCOME10', type: 'percent', value: 10, description: '10% off your order' },
   { code: 'SAVE20', type: 'percent', value: 20, description: '20% off your order' },
-  { code: 'FREESHIP', type: 'shipping', value: 0, description: 'Free shipping' },
 ];
-
-export const FREE_SHIPPING_THRESHOLD = 75;
-export const FLAT_SHIPPING = 6.99;
-export const TAX_RATE = 0.08;
 
 @Injectable({ providedIn: 'root' })
 export class CartService {
@@ -13570,18 +13611,13 @@ export class CartService {
   readonly discount = computed(() => {
     const promo = this._promo();
     if (!promo || promo.type !== 'percent') return 0;
-    return (this.subtotal() * promo.value) / 100;
+    const percentageDiscount = (this.subtotal() * promo.value) / 100;
+    return promo.maxDiscountAmount == null
+      ? percentageDiscount
+      : Math.min(percentageDiscount, promo.maxDiscountAmount);
   });
-  readonly shipping = computed(() => {
-    if (this._items().length === 0) return 0;
-    if (this._promo()?.type === 'shipping') return 0;
-    return this.subtotal() - this.discount() >= FREE_SHIPPING_THRESHOLD ? 0 : FLAT_SHIPPING;
-  });
-  readonly tax = computed(() => (this.subtotal() - this.discount()) * TAX_RATE);
-  readonly total = computed(() => this.subtotal() - this.discount() + this.shipping() + this.tax());
-  readonly amountToFreeShipping = computed(() =>
-    Math.max(0, FREE_SHIPPING_THRESHOLD - (this.subtotal() - this.discount()))
-  );
+  readonly total = computed(() => Math.max(0, this.subtotal() - this.discount()));
+  readonly hasRental = computed(() => this._items().some(item => item.type === 'Rental'));
 
   constructor() {
     effect(() => {
@@ -13604,6 +13640,17 @@ export class CartService {
   }
 
   private syncWithBackend() {
+    const localItems = this.load();
+    if (localItems.length > 0) {
+      // Temporarily clear local items so we don't push them again
+      localStorage.removeItem(STORAGE_KEY);
+      this.pushLocalToBackend(localItems);
+    } else {
+      this.fetchFromBackend();
+    }
+  }
+
+  private fetchFromBackend() {
     this.http.get<any>(this.apiUrl).subscribe({
       next: (cart) => {
         if (cart && cart.items) {
@@ -13619,18 +13666,13 @@ export class CartService {
             stock: i.stock,
             type: i.type === 0 ? 'Purchase' : 'Rental',
             rentalStartDate: i.rentalStartDate,
-            rentalEndDate: i.rentalEndDate
+            rentalEndDate: i.rentalEndDate,
+            color: i.color,
+            size: i.size
           }));
-          
-          // Merge logic: If local storage had items and backend is empty, maybe push to backend?
-          // For simplicity, let's just use backend state if it has items, otherwise push local to backend.
-          const localItems = this.load();
-          if (mappedItems.length === 0 && localItems.length > 0) {
-             // Push local items to backend one by one
-             this.pushLocalToBackend(localItems);
-          } else {
-             this._items.set(mappedItems);
-          }
+          this._items.set(mappedItems);
+        } else {
+          this._items.set([]);
         }
       },
       error: (err) => console.error('Failed to sync cart', err)
@@ -13642,23 +13684,36 @@ export class CartService {
       productId: item.productId,
       quantity: item.quantity,
       color: item.color,
-      size: item.size
+      size: item.size,
+      type: item.type === 'Rental' ? 1 : 0,
+      rentalStartDate: item.rentalStartDate ?? null,
+      rentalEndDate: item.rentalEndDate ?? null
     }));
 
     this.http.post(`${this.apiUrl}/sync`, { items }).subscribe({
-      next: () => this.syncWithBackend(),
+      next: () => this.fetchFromBackend(),
       error: (err) => console.error('Failed to bulk sync cart', err)
     });
   }
 
-  add(product: Product, quantity = 1, color?: string, size?: string): void {
+  add(
+    product: Product,
+    quantity = 1,
+    color?: string,
+    size?: string,
+    type: 'Purchase' | 'Rental' = 'Purchase',
+    rentalStartDate?: string,
+    rentalEndDate?: string
+  ): void {
     if (this.auth.isAuthenticated()) {
       this.http.post(`${this.apiUrl}/items`, {
         productId: product.id,
         quantity: quantity,
-        type: product.isAvailableForRent ? 1 : 0,
-        rentalStartDate: null,
-        rentalEndDate: null
+        type: type === 'Rental' ? 1 : 0,
+        rentalStartDate: rentalStartDate ?? null,
+        rentalEndDate: rentalEndDate ?? null,
+        color,
+        size
       }).subscribe({
         next: () => {
           this.syncWithBackend();
@@ -13670,7 +13725,8 @@ export class CartService {
       // Local logic
       this._items.update(items => {
         const existing = items.find(
-          i => i.productId === product.id && i.color === color && i.size === size
+          i => i.productId === product.id && i.color === color && i.size === size &&
+            i.type === type && i.rentalStartDate === rentalStartDate && i.rentalEndDate === rentalEndDate
         );
         if (existing) {
           return items.map(i =>
@@ -13690,7 +13746,10 @@ export class CartService {
             stock: product.stock,
             color,
             size,
-            type: product.isAvailableForRent ? 'Rental' : 'Purchase'
+            type,
+            rentalStartDate,
+            rentalEndDate,
+            rentalPricePerDay: product.rentalPricePerDay
           },
         ];
       });
@@ -13765,7 +13824,10 @@ export class CartService {
             code: promo.code,
             type: 'percent',
             value: promo.discountPercentage,
-            description: `${promo.discountPercentage}% off your order`
+            description: promo.maxDiscountAmount == null
+              ? `${promo.discountPercentage}% off your order`
+              : `${promo.discountPercentage}% off, up to $${Number(promo.maxDiscountAmount).toFixed(2)}`,
+            maxDiscountAmount: promo.maxDiscountAmount ?? undefined
           });
           this.toast.success(`Promo applied â€” ${promo.discountPercentage}% off`);
           subscriber.next(true);
@@ -13957,16 +14019,13 @@ export class NotificationService {
 ``typescript
 import { Injectable, computed, signal, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, tap } from 'rxjs';
-import { Address, CartItem, Order, OrderStatus } from '../models/shop.models';
+import { Observable, map, tap } from 'rxjs';
+import { Address, CartItem, Order } from '../models/shop.models';
 import { environment } from '../../../environments/environment';
-import { AuthService } from './auth.service';
 
 export interface PlaceOrderInput {
   items: CartItem[];
   subtotal: number;
-  shipping: number;
-  tax: number;
   discount: number;
   total: number;
   address: Address;
@@ -13977,24 +14036,56 @@ export interface PlaceOrderInput {
   promoCode?: string;
 }
 
+interface CustomerOrderResponse {
+  id: string;
+  orderNumber: string;
+  date: string;
+  status: Order['status'];
+  totalAmount: number;
+  items: Array<{
+    productId: string;
+    productName: string;
+    productImage: string;
+    quantity: number;
+    unitPrice: number;
+    type: Order['items'][number]['type'];
+    rentalStartDate?: string;
+    rentalEndDate?: string;
+    color?: string;
+    size?: string;
+  }>;
+  shippingAddress?: { fullName: string; line1: string; line2?: string; city: string; state: string; postalCode: string; country: string };
+  paymentProvider?: string;
+  paymentStatus?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class OrderService {
   private readonly apiUrl = `${environment.apiUrl}/orders`;
   private readonly http = inject(HttpClient);
-  private readonly auth = inject(AuthService);
 
   private readonly _orders = signal<Order[]>([]);
 
   readonly orders = computed(() =>
-    this._orders().slice().sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+    this._orders().slice().sort((a, b) => b.date.localeCompare(a.date))
   );
-
-  constructor() {
-    // Optionally fetch history on load if authenticated
-  }
 
   getByNumber(orderNumber: string): Order | undefined {
     return this._orders().find(o => o.number === orderNumber);
+  }
+
+  refresh(): Observable<Order[]> {
+    return this.http.get<CustomerOrderResponse[]>(`${this.apiUrl}/mine`).pipe(
+      map(orders => orders.map(order => this.toOrder(order))),
+      tap(orders => this._orders.set(orders))
+    );
+  }
+
+  getByNumberRemote(orderNumber: string): Observable<Order> {
+    return this.http.get<CustomerOrderResponse>(`${this.apiUrl}/mine/by-number/${encodeURIComponent(orderNumber)}`).pipe(
+      map(order => this.toOrder(order)),
+      tap(order => this._orders.update(orders => [...orders.filter(existing => existing.id !== order.id), order]))
+    );
   }
 
   placeOrder(input: PlaceOrderInput): Observable<string> {
@@ -14005,13 +14096,11 @@ export class OrderService {
       promoCode: input.promoCode || null
     }).pipe(
       tap(orderId => {
-        // Construct a mock local order or refresh history
-        const id = Math.max(0, ...this._orders().map(o => o.id)) + 1;
         const order: Order = {
-          id,
-          number: orderId.toString().substring(0, 8).toUpperCase(), // Using guid start as order number for now
+          id: orderId,
+          number: `BGT-${new Date().getFullYear()}-${orderId.toString().substring(0, 4).toUpperCase()}`,
           date: new Date().toISOString().slice(0, 10),
-          status: 'Processing' as OrderStatus,
+          status: 'Pending',
           items: input.items.map(i => ({
             productId: i.productId,
             name: i.name,
@@ -14020,10 +14109,13 @@ export class OrderService {
             quantity: i.quantity,
             color: i.color,
             size: i.size,
+            type: i.type,
+            rentalStartDate: i.rentalStartDate,
+            rentalEndDate: i.rentalEndDate,
           })),
           subtotal: input.subtotal,
-          shipping: input.shipping,
-          tax: input.tax,
+          shipping: 0,
+          tax: 0,
           discount: input.discount,
           total: input.total,
           shippingAddress: `${input.address.line1}${input.address.line2 ? ', ' + input.address.line2 : ''}, ${input.address.city}, ${input.address.state} ${input.address.zip}`,
@@ -14040,6 +14132,35 @@ export class OrderService {
 
   capturePayPalOrder(orderId: string, paypalOrderId: string): Observable<void> {
     return this.http.post<void>(`${this.apiUrl}/${orderId}/capture-paypal-order`, { paypalOrderId });
+  }
+
+  private toOrder(response: CustomerOrderResponse): Order {
+    const address = response.shippingAddress;
+    return {
+      id: response.id,
+      number: response.orderNumber,
+      date: response.date,
+      status: response.status,
+      items: response.items.map(item => ({
+        productId: item.productId,
+        name: item.productName,
+        image: item.productImage,
+        price: item.unitPrice,
+        quantity: item.quantity,
+        type: item.type,
+        rentalStartDate: item.rentalStartDate,
+        rentalEndDate: item.rentalEndDate,
+        color: item.color,
+        size: item.size,
+      })),
+      subtotal: response.totalAmount,
+      shipping: 0,
+      tax: 0,
+      discount: 0,
+      total: response.totalAmount,
+      shippingAddress: address ? [address.line1, address.line2, `${address.city}, ${address.state} ${address.postalCode}`, address.country].filter(Boolean).join(', ') : 'Not provided',
+      paymentSummary: response.paymentProvider ?? 'Not provided',
+    };
   }
 }
 
@@ -14160,10 +14281,7 @@ export class ProductService {
     }
 
     return this.http.get<CatalogResult>(`${this.apiUrl}/products?${qs}`).pipe(
-      catchError(err => {
-        console.error('Failed to query products', err);
-        return of({ items: [], total: 0, totalPages: 1 } as CatalogResult);
-      })
+      map(result => result ?? { items: [], total: 0, totalPages: 1 })
     );
   }
 
@@ -14661,7 +14779,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
           <app-empty-state
             icon="address"
             title="No saved addresses"
-            message="Save an address to breeze through checkout â€” your default will be pre-filled automatically." />
+            message="Save an address to breeze through checkout — your default will be pre-filled automatically." />
         } @else {
           <div class="grid sm:grid-cols-2 gap-4 p-6">
             @for (address of account.addresses(); track address.id) {
@@ -14687,7 +14805,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                   @if (!address.isDefault) {
                     <button type="button" (click)="account.setDefaultAddress(address.id)" class="text-slate-500 hover:text-slate-700 transition-colors duration-300">Set default</button>
                   }
-                  <button type="button" (click)="remove(address)" class="text-rose-500 hover:text-rose-400 transition-colors duration-300 ml-auto">Delete</button>
+                  <button type="button" (click)="remove(address)" class="text-rose-500 hover:text-rose-400 transition-colors duration-300 ms-auto">Delete</button>
                 </div>
               </div>
             }
@@ -14702,7 +14820,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
           <div class="grid sm:grid-cols-2 gap-4">
             <div>
               <label for="addr-label" class="block text-sm font-medium text-slate-700 mb-1.5">Label</label>
-              <input id="addr-label" type="text" formControlName="label" placeholder="Home, Officeâ€¦" class="input-field" [class.input-error]="invalid('label')" />
+              <input id="addr-label" type="text" formControlName="label" placeholder="Home, Office…" class="input-field" [class.input-error]="invalid('label')" />
               @if (invalid('label')) { <p class="mt-1.5 text-xs text-red-500">Label is required.</p> }
             </div>
             <div>
@@ -14835,7 +14953,7 @@ export class AccountAddressesComponent {
 
   remove(address: Address): void {
     this.account.deleteAddress(address.id);
-    this.toast.info(`Address â€œ${address.label}â€ deleted`);
+    this.toast.info(`Address “${address.label}” deleted`);
   }
 
   cancel(): void {
@@ -14982,13 +15100,13 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
         <div class="hidden md:block overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
-              <tr class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider bg-slate-50/70">
+              <tr class="text-start text-xs font-semibold text-slate-400 uppercase tracking-wider bg-slate-50/70">
                 <th class="px-6 py-3.5">Order</th>
                 <th class="px-6 py-3.5">Date</th>
                 <th class="px-6 py-3.5">Items</th>
                 <th class="px-6 py-3.5">Total</th>
                 <th class="px-6 py-3.5">Status</th>
-                <th class="px-6 py-3.5 text-right">Details</th>
+                <th class="px-6 py-3.5 text-end">Details</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
@@ -15015,7 +15133,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                       {{ order.status }}
                     </span>
                   </td>
-                  <td class="px-6 py-4 text-right">
+                  <td class="px-6 py-4 text-end">
                     <button
                       type="button"
                       (click)="toggleExpand(order.id)"
@@ -15076,7 +15194,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                 <div class="flex-1 min-w-0">
                   <p class="text-sm font-semibold text-slate-900 truncate">{{ item.name }}</p>
                   <p class="text-xs text-slate-400">
-                    Qty {{ item.quantity }}{{ item.color ? ' Â· ' + item.color : '' }}{{ item.size ? ' Â· ' + item.size : '' }}
+                    Qty {{ item.quantity }}{{ item.color ? ' · ' + item.color : '' }}{{ item.size ? ' · ' + item.size : '' }}
                   </p>
                 </div>
                 <span class="text-sm font-bold text-slate-900">{{ item.price * item.quantity | currency }}</span>
@@ -15096,9 +15214,13 @@ export class AccountOrdersComponent {
   private readonly orderService = inject(OrderService);
 
   readonly orders = this.orderService.orders;
-  readonly expandedId = signal<number | null>(null);
+  readonly expandedId = signal<string | null>(null);
 
-  toggleExpand(id: number): void {
+  constructor() {
+    this.orderService.refresh().subscribe();
+  }
+
+  toggleExpand(id: string): void {
     this.expandedId.update(current => (current === id ? null : id));
   }
 
@@ -15112,6 +15234,12 @@ export class AccountOrdersComponent {
         return 'bg-amber-50 text-amber-700 ring-1 ring-amber-100';
       case 'Cancelled':
         return 'bg-rose-50 text-rose-600 ring-1 ring-rose-100';
+      case 'Pending':
+        return 'bg-slate-100 text-slate-600 ring-1 ring-slate-200';
+      case 'Refunded':
+        return 'bg-violet-50 text-violet-700 ring-1 ring-violet-100';
+      case 'Failed':
+        return 'bg-rose-50 text-rose-600 ring-1 ring-rose-100';
     }
   }
 
@@ -15124,6 +15252,12 @@ export class AccountOrdersComponent {
       case 'Processing':
         return 'bg-amber-500 animate-pulse';
       case 'Cancelled':
+        return 'bg-rose-500';
+      case 'Pending':
+        return 'bg-slate-500';
+      case 'Refunded':
+        return 'bg-violet-500';
+      case 'Failed':
         return 'bg-rose-500';
     }
   }
@@ -15221,7 +15355,7 @@ import { ToastService } from '../../core/services/toast.service';
                 class="relative h-6 w-11 rounded-full transition-colors duration-300 shrink-0"
                 [class]="pref.enabled ? 'bg-violet-600' : 'bg-slate-200'">
                 <span class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all duration-300"
-                      [class]="pref.enabled ? 'left-[1.375rem]' : 'left-0.5'"></span>
+                      [class]="pref.enabled ? 'start-[1.375rem]' : 'start-0.5'"></span>
               </button>
             </div>
           }
@@ -15266,7 +15400,7 @@ import { ToastService } from '../../core/services/toast.service';
                   <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1.5">Commercial Register / Identity Document</label>
                     <input type="file" (change)="onSellerDocumentSelected($event)" accept="image/jpeg,image/png,application/pdf"
-                           class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-all">
+                           class="block w-full text-sm text-slate-500 file:me-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-all">
                     @if (sellerDocumentUrl()) {
                       <p class="text-xs text-emerald-600 mt-2 font-medium">Document uploaded successfully!</p>
                     } @else if (uploadingDocument()) {
@@ -15449,7 +15583,7 @@ export class AccountSettingsComponent implements OnInit {
   }
 
   requestDelete(): void {
-    this.toast.info('Account deletion requires email confirmation â€” check your inbox.');
+    this.toast.info('Account deletion requires email confirmation — check your inbox.');
   }
 }
 
@@ -15709,18 +15843,18 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
               <div class="space-y-2">
                 <label for="price" class="block text-sm font-semibold text-slate-700">Price ($) <span class="text-rose-500">*</span></label>
                 <div class="relative">
-                  <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">$</span>
+                  <span class="absolute start-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">$</span>
                   <input type="number" id="price" formControlName="price" min="0" step="0.01" placeholder="0.00"
-                         class="w-full pl-8 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
+                         class="w-full ps-8 pe-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
                 </div>
               </div>
 
               <div class="space-y-2">
                 <label for="originalPrice" class="block text-sm font-semibold text-slate-700">Original Price ($) <span class="text-xs text-slate-500 font-normal">(Optional - for discounts)</span></label>
                 <div class="relative">
-                  <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">$</span>
+                  <span class="absolute start-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">$</span>
                   <input type="number" id="originalPrice" formControlName="originalPrice" min="0" step="0.01" placeholder="0.00"
-                         class="w-full pl-8 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
+                         class="w-full ps-8 pe-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
                 </div>
               </div>
 
@@ -15757,9 +15891,9 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
               <div class="w-full md:w-1/2 space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
                 <label for="rentalPricePerDay" class="block text-sm font-semibold text-slate-700">Rental Price Per Day ($) <span class="text-rose-500">*</span></label>
                 <div class="relative">
-                  <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">$</span>
+                  <span class="absolute start-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">$</span>
                   <input type="number" id="rentalPricePerDay" formControlName="rentalPricePerDay" min="0" step="0.01" placeholder="0.00"
-                         class="w-full pl-8 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
+                         class="w-full ps-8 pe-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
                 </div>
               </div>
             }
@@ -15839,12 +15973,12 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
                     <img [src]="img" alt="Product Image" class="w-full h-full object-contain rounded-xl">
                     <!-- Delete Button -->
                     <button type="button" (click)="removeImage(i)" 
-                            class="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/90 text-rose-500 shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-50 hover:text-rose-600 focus:outline-none">
+                            class="absolute top-2 end-2 w-8 h-8 rounded-full bg-white/90 text-rose-500 shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-50 hover:text-rose-600 focus:outline-none">
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                     </button>
                     <!-- Main Thumbnail Badge -->
                     @if (i === 0) {
-                      <div class="absolute bottom-2 left-2 px-2 py-1 bg-indigo-600/90 text-white text-[10px] font-bold uppercase rounded-md shadow-sm backdrop-blur-sm">
+                      <div class="absolute bottom-2 start-2 px-2 py-1 bg-indigo-600/90 text-white text-[10px] font-bold uppercase rounded-md shadow-sm backdrop-blur-sm">
                         Main Image
                       </div>
                     }
@@ -16240,14 +16374,14 @@ import { ToastService } from '../../core/services/toast.service';
       <!-- List -->
       <div class="card overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="w-full text-left text-sm text-slate-600">
+          <table class="w-full text-start text-sm text-slate-600">
             <thead class="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-200">
               <tr>
                 <th class="px-6 py-4 font-semibold">Message</th>
                 <th class="px-6 py-4 font-semibold">Status</th>
                 <th class="px-6 py-4 font-semibold">Start</th>
                 <th class="px-6 py-4 font-semibold">End</th>
-                <th class="px-6 py-4 font-semibold text-right">Actions</th>
+                <th class="px-6 py-4 font-semibold text-end">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
@@ -16275,8 +16409,8 @@ import { ToastService } from '../../core/services/toast.service';
                   </td>
                   <td class="px-6 py-4">{{ item.startDate ? (item.startDate | date:'short') : '-' }}</td>
                   <td class="px-6 py-4">{{ item.endDate ? (item.endDate | date:'short') : '-' }}</td>
-                  <td class="px-6 py-4 text-right">
-                    <button type="button" class="text-violet-600 hover:text-violet-900 font-medium mr-4" (click)="edit(item)">Edit</button>
+                  <td class="px-6 py-4 text-end">
+                    <button type="button" class="text-violet-600 hover:text-violet-900 font-medium me-4" (click)="edit(item)">Edit</button>
                     <button type="button" class="text-red-600 hover:text-red-900 font-medium" (click)="delete(item.id)">Delete</button>
                   </td>
                 </tr>
@@ -16571,7 +16705,7 @@ import { DatePipe, NgIf } from '@angular/common';
       <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         @for (category of categories(); track category.id) {
           <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col items-center text-center hover:shadow-md transition-shadow relative group">
-            <button (click)="editCategory(category)" class="absolute top-2 right-2 p-2 bg-slate-50 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" aria-label="Edit category">
+            <button (click)="editCategory(category)" class="absolute top-2 end-2 p-2 bg-slate-50 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" aria-label="Edit category">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
             </button>
             @if (category.image) {
@@ -16700,6 +16834,7 @@ export class AdminCategoriesComponent implements OnInit {
         error: (err) => {
           console.error(err);
           this.toastService.error('Failed to update category');
+          this.isSubmitting.set(false);
         },
         complete: () => this.isSubmitting.set(false)
       });
@@ -16718,6 +16853,7 @@ export class AdminCategoriesComponent implements OnInit {
         error: (err) => {
           console.error(err);
           this.toastService.error('Failed to create category');
+          this.isSubmitting.set(false);
         },
         complete: () => this.isSubmitting.set(false)
       });
@@ -16744,8 +16880,8 @@ import { AuthService } from '../../core/services/auth.service';
 
       <!-- Welcome Banner -->
       <div class="rounded-2xl bg-gradient-to-r from-teal-700 to-teal-900 p-6 text-white flex items-center justify-between shadow-lg overflow-hidden relative">
-        <div class="absolute right-0 top-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/4"></div>
-        <div class="absolute right-24 bottom-0 w-40 h-40 bg-white/5 rounded-full translate-y-1/2"></div>
+        <div class="absolute end-0 top-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/4"></div>
+        <div class="absolute end-24 bottom-0 w-40 h-40 bg-white/5 rounded-full translate-y-1/2"></div>
         <div class="relative z-10">
           <p class="text-teal-200 text-sm font-medium mb-1">Welcome back,</p>
           <h1 class="text-2xl font-bold">{{ authService.user()?.firstName }} {{ authService.user()?.lastName }}</h1>
@@ -16753,17 +16889,17 @@ import { AuthService } from '../../core/services/auth.service';
             @if (isSuperAdmin()) {
               <span class="inline-flex items-center gap-1.5">
                 <span class="w-2 h-2 rounded-full bg-purple-400 inline-block"></span>
-                Super Administrator â€” Full system access
+                Super Administrator — Full system access
               </span>
             } @else if (isAdminOrSuperAdmin()) {
               <span class="inline-flex items-center gap-1.5">
                 <span class="w-2 h-2 rounded-full bg-teal-300 inline-block"></span>
-                Administrator â€” Product & content management
+                Administrator — Product & content management
               </span>
             } @else {
               <span class="inline-flex items-center gap-1.5">
                 <span class="w-2 h-2 rounded-full bg-amber-400 inline-block"></span>
-                Store Seller â€” Manage your products
+                Store Seller — Manage your products
               </span>
             }
           </p>
@@ -16882,7 +17018,7 @@ import { AuthService } from '../../core/services/auth.service';
       @if (isAdminOrSuperAdmin()) {
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-          <!-- Bar Chart â€” Registration Activity -->
+          <!-- Bar Chart — Registration Activity -->
         <div class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
           <div class="flex items-center justify-between mb-6">
             <div>
@@ -16974,7 +17110,7 @@ import { AuthService } from '../../core/services/auth.service';
           </div>
         </div>
 
-        <!-- Donut Chart â€” System Status -->
+        <!-- Donut Chart — System Status -->
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 flex flex-col">
           <div class="mb-4">
             <h3 class="text-base font-bold text-slate-900">System Health</h3>
@@ -17046,10 +17182,10 @@ import { AuthService } from '../../core/services/auth.service';
           <div class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
           <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
             <h3 class="text-base font-bold text-slate-900">Recent Users</h3>
-            <a routerLink="/admin/users" class="text-sm font-medium text-teal-600 hover:text-teal-700 transition-colors">View all â†’</a>
+            <a routerLink="/admin/users" class="text-sm font-medium text-teal-600 hover:text-teal-700 transition-colors">View all →</a>
           </div>
           <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm whitespace-nowrap">
+            <table class="w-full text-start text-sm whitespace-nowrap">
               <thead class="bg-slate-50/70 text-slate-500 border-b border-slate-100">
                 <tr>
                   <th class="px-6 py-3.5 font-semibold text-xs uppercase tracking-wider">User</th>
@@ -17115,7 +17251,7 @@ import { AuthService } from '../../core/services/auth.service';
                     <p class="text-sm font-semibold">Manage Users</p>
                     <p class="text-xs text-slate-400">View & assign roles</p>
                   </div>
-                  <svg class="w-4 h-4 ml-auto text-slate-300 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                  <svg class="w-4 h-4 ms-auto text-slate-300 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
                 </a>
               }
 
@@ -17130,7 +17266,7 @@ import { AuthService } from '../../core/services/auth.service';
                     All products are active
                   </p>
                 </div>
-                <svg class="w-4 h-4 ml-auto text-slate-300 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                <svg class="w-4 h-4 ms-auto text-slate-300 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
               </a>
 
               <a routerLink="/"
@@ -17142,7 +17278,7 @@ import { AuthService } from '../../core/services/auth.service';
                   <p class="text-sm font-semibold">Visit Store</p>
                   <p class="text-xs text-slate-400">Go to customer view</p>
                 </div>
-                <svg class="w-4 h-4 ml-auto text-slate-300 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                <svg class="w-4 h-4 ms-auto text-slate-300 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
               </a>
             </div>
           </div>
@@ -17256,7 +17392,7 @@ import { AuthService } from '../../core/services/auth.service';
       <!-- Mobile Sidebar Overlay -->
       @if (mobileMenuOpen()) {
         <div class="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm md:hidden" (click)="mobileMenuOpen.set(false)"></div>
-        <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-teal-950 to-slate-900 text-teal-100 shadow-2xl flex flex-col md:hidden animate-[slideInLeft_0.3s_ease-out] h-full">
+        <aside class="fixed inset-y-0 start-0 z-50 w-64 bg-gradient-to-b from-teal-950 to-slate-900 text-teal-100 shadow-2xl flex flex-col md:hidden animate-[slideInLeft_0.3s_ease-out] h-full">
           <ng-container *ngTemplateOutlet="sidebarContent"></ng-container>
         </aside>
       }
@@ -17332,7 +17468,7 @@ import { AuthService } from '../../core/services/auth.service';
             </div>
             <span class="text-sm font-medium">Users</span>
             @if (isSuperAdmin()) {
-              <span class="ml-auto text-xs bg-purple-500/30 text-purple-300 px-1.5 py-0.5 rounded-md font-medium">SA</span>
+              <span class="ms-auto text-xs bg-purple-500/30 text-purple-300 px-1.5 py-0.5 rounded-md font-medium">SA</span>
             }
             </a>
 
@@ -17551,7 +17687,7 @@ export interface TransactionItemDto {
           </div>
         } @else {
           <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm whitespace-nowrap">
+            <table class="w-full text-start text-sm whitespace-nowrap">
               <thead class="bg-slate-50/70 text-slate-500 border-b border-slate-100">
                 <tr>
                   <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Date</th>
@@ -17560,7 +17696,7 @@ export interface TransactionItemDto {
                   <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Amount</th>
                   <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Customer</th>
                   <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Status</th>
-                  <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-right">Details</th>
+                  <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-end">Details</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-50 text-slate-700">
@@ -17585,7 +17721,7 @@ export interface TransactionItemDto {
                         {{ log.status }}
                       </span>
                     </td>
-                    <td class="px-6 py-4 text-right">
+                    <td class="px-6 py-4 text-end">
                       <button (click)="toggleExpand(log.orderId)" class="text-teal-600 hover:text-teal-700 font-semibold text-xs transition-colors">
                         {{ expandedId() === log.orderId ? 'Hide' : 'View' }}
                       </button>
@@ -17603,9 +17739,9 @@ export interface TransactionItemDto {
                               <img [src]="item.productImage || 'assets/placeholder.png'" class="w-12 h-12 rounded-lg object-cover bg-slate-50" [alt]="item.productName">
                               <div class="flex-1 min-w-0">
                                 <p class="text-sm font-bold text-slate-900 truncate">{{ item.productName }}</p>
-                                <p class="text-xs text-slate-500">Qty: {{ item.quantity }} Ã— {{ item.price | currency }}</p>
+                                <p class="text-xs text-slate-500">Qty: {{ item.quantity }} × {{ item.price | currency }}</p>
                               </div>
-                              <div class="text-right">
+                              <div class="text-end">
                                 <p class="text-sm font-bold text-slate-900">{{ (item.quantity * item.price) | currency }}</p>
                               </div>
                             </div>
@@ -17682,7 +17818,7 @@ export class AdminLogsComponent implements OnInit {
 ## src\app\features\admin\admin-orders.component.ts
 
 ``typescript
-import { Component, inject, signal, OnInit, computed } from '@angular/core';
+import { Component, inject, signal, OnInit, computed, effect } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { DatePipe, CurrencyPipe, UpperCasePipe } from '@angular/common';
 import { environment } from '../../../environments/environment';
@@ -17733,21 +17869,22 @@ import { ToastService } from '../../core/services/toast.service';
           <p class="text-slate-500 mt-1 max-w-sm mx-auto">There are no orders matching the selected status.</p>
         </div>
       } @else {
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <!-- Desktop Table -->
+        <div class="hidden md:block bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm">
+            <table class="w-full text-start text-sm">
               <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
                 <tr>
                   <th class="px-6 py-4 whitespace-nowrap">Order ID</th>
                   <th class="px-6 py-4">Customer</th>
                   <th class="px-6 py-4">Date</th>
                   <th class="px-6 py-4">Status</th>
-                  <th class="px-6 py-4 text-right">Total</th>
+                  <th class="px-6 py-4 text-end">Total</th>
                   <th class="px-6 py-4 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 text-slate-700">
-                @for (order of filteredOrders(); track order.id) {
+                @for (order of pagedOrders(); track order.id) {
                   <tr class="hover:bg-slate-50 transition-colors">
                     <td class="px-6 py-4 whitespace-nowrap">
                       <span class="font-mono font-medium text-indigo-600">#{{ order.id.substring(0, 8) | uppercase }}</span>
@@ -17762,29 +17899,35 @@ import { ToastService } from '../../core/services/toast.service';
                       <span class="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider rounded-full"
                             [class.bg-amber-100]="order.status === 0"
                             [class.text-amber-700]="order.status === 0"
-                            [class.bg-blue-100]="order.status === 1 || order.status === 2"
-                            [class.text-blue-700]="order.status === 1 || order.status === 2"
-                            [class.bg-indigo-100]="order.status === 3"
-                            [class.text-indigo-700]="order.status === 3"
-                            [class.bg-emerald-100]="order.status === 4"
-                            [class.text-emerald-700]="order.status === 4"
-                            [class.bg-rose-100]="order.status === 5"
-                            [class.text-rose-700]="order.status === 5">
+                            [class.bg-blue-100]="order.status === 1"
+                            [class.text-blue-700]="order.status === 1"
+                            [class.bg-indigo-100]="order.status === 2"
+                            [class.text-indigo-700]="order.status === 2"
+                            [class.bg-emerald-100]="order.status === 3"
+                            [class.text-emerald-700]="order.status === 3"
+                            [class.bg-rose-100]="order.status === 4 || order.status === 6"
+                            [class.text-rose-700]="order.status === 4 || order.status === 6">
                         {{ getStatusText(order.status) }}
                       </span>
                     </td>
-                    <td class="px-6 py-4 text-right font-bold text-slate-900">
+                    <td class="px-6 py-4 text-end font-bold text-slate-900">
                       {{ order.totalAmount | currency }}
                     </td>
                     <td class="px-6 py-4 text-center">
+                      <div class="flex items-center justify-center gap-2">
                       <select (change)="updateStatus(order.id, $event)" [value]="order.status" class="text-sm bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-500">
                         <option [value]="0">Pending</option>
                         <option [value]="1">Processing</option>
-                        <option [value]="2">Confirmed</option>
-                        <option [value]="3">Shipped</option>
-                        <option [value]="4">Delivered</option>
-                        <option [value]="5">Cancelled</option>
-                      </select>
+                         <option [value]="2">Shipped</option>
+                         <option [value]="3">Delivered</option>
+                         <option [value]="4">Cancelled</option>
+                         <option [value]="5">Refunded</option>
+                       <option [value]="6">Failed</option>
+                       </select>
+                       @if (order.status !== 3 && order.status !== 4) {
+                         <button type="button" (click)="cancelOrder(order.id)" class="text-xs font-semibold text-rose-600 hover:text-rose-500">Cancel</button>
+                       }
+                       </div>
                     </td>
                   </tr>
                 }
@@ -17792,6 +17935,76 @@ import { ToastService } from '../../core/services/toast.service';
             </table>
           </div>
         </div>
+
+        <!-- Mobile Cards -->
+        <div class="md:hidden space-y-4">
+          @for (order of pagedOrders(); track order.id) {
+            <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+              <div class="flex items-center justify-between mb-2">
+                <span class="font-mono font-medium text-indigo-600">#{{ order.id.substring(0, 8) | uppercase }}</span>
+                <span class="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider rounded-full"
+                      [class.bg-amber-100]="order.status === 0"
+                      [class.text-amber-700]="order.status === 0"
+                       [class.bg-blue-100]="order.status === 1"
+                       [class.text-blue-700]="order.status === 1"
+                       [class.bg-indigo-100]="order.status === 2"
+                       [class.text-indigo-700]="order.status === 2"
+                       [class.bg-emerald-100]="order.status === 3"
+                       [class.text-emerald-700]="order.status === 3"
+                       [class.bg-rose-100]="order.status === 4 || order.status === 6"
+                       [class.text-rose-700]="order.status === 4 || order.status === 6">
+                  {{ getStatusText(order.status) }}
+                </span>
+              </div>
+              <div class="mb-3">
+                <p class="font-semibold text-slate-900">{{ order.userName }}</p>
+                <p class="text-xs text-slate-500">{{ order.createdAt | date:'MMM d, y, h:mm a' }}</p>
+              </div>
+              <div class="flex items-center justify-between pt-3 border-t border-slate-100">
+                <span class="font-bold text-slate-900">{{ order.totalAmount | currency }}</span>
+                 <div class="flex items-center gap-2">
+                 <select (change)="updateStatus(order.id, $event)" [value]="order.status" class="text-sm bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-500">
+                  <option [value]="0">Pending</option>
+                  <option [value]="1">Processing</option>
+                   <option [value]="2">Shipped</option>
+                   <option [value]="3">Delivered</option>
+                   <option [value]="4">Cancelled</option>
+                   <option [value]="5">Refunded</option>
+                   <option [value]="6">Failed</option>
+                 </select>
+                 @if (order.status !== 3 && order.status !== 4) {
+                   <button type="button" (click)="cancelOrder(order.id)" class="text-xs font-semibold text-rose-600">Cancel</button>
+                 }
+                 </div>
+              </div>
+            </div>
+          }
+        </div>
+
+        <!-- Pagination -->
+        @if (totalPages() > 1) {
+          <div class="flex items-center justify-between mt-4 bg-white px-4 py-3 sm:px-6 rounded-2xl shadow-sm border border-slate-200">
+            <div class="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+              <div>
+                <p class="text-sm text-gray-700">
+                  Showing page <span class="font-medium">{{ currentPage() }}</span> of <span class="font-medium">{{ totalPages() }}</span>
+                </p>
+              </div>
+              <div>
+                <nav class="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+                  <button (click)="currentPage.set(currentPage() - 1)" [disabled]="currentPage() === 1" class="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50">
+                    <span class="sr-only">Previous</span>
+                    <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clip-rule="evenodd" /></svg>
+                  </button>
+                  <button (click)="currentPage.set(currentPage() + 1)" [disabled]="currentPage() === totalPages()" class="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50">
+                    <span class="sr-only">Next</span>
+                    <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" /></svg>
+                  </button>
+                </nav>
+              </div>
+            </div>
+          </div>
+        }
       }
     </div>
   `
@@ -17803,17 +18016,34 @@ export class AdminOrdersComponent implements OnInit {
   orders = signal<any[]>([]);
   isLoading = signal(true);
   
-  statuses = ['All', 'Pending', 'Processing', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled'];
+  statuses = ['All', 'Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Refunded', 'Failed'];
   filterStatus = signal('All');
+  currentPage = signal(1);
+  pageSize = signal(10);
 
   filteredOrders = computed(() => {
     const statusStr = this.filterStatus();
     if (statusStr === 'All') return this.orders();
     const statusMap: Record<string, number> = {
-      'Pending': 0, 'Processing': 1, 'Confirmed': 2, 'Shipped': 3, 'Delivered': 4, 'Cancelled': 5
+      'Pending': 0, 'Processing': 1, 'Shipped': 2, 'Delivered': 3, 'Cancelled': 4, 'Refunded': 5, 'Failed': 6
     };
     return this.orders().filter(o => o.status === statusMap[statusStr]);
   });
+
+  totalPages = computed(() => Math.max(1, Math.ceil(this.filteredOrders().length / this.pageSize())));
+
+  pagedOrders = computed(() => {
+    const startIndex = (this.currentPage() - 1) * this.pageSize();
+    return this.filteredOrders().slice(startIndex, startIndex + this.pageSize());
+  });
+
+  // Reset page when filter changes
+  constructor() {
+    effect(() => {
+      this.filterStatus(); // depend on filterStatus
+      this.currentPage.set(1); // reset to page 1
+    }, { allowSignalWrites: true });
+  }
 
   ngOnInit() {
     this.loadOrders();
@@ -17837,7 +18067,7 @@ export class AdminOrdersComponent implements OnInit {
   }
 
   getStatusText(status: number): string {
-    const map = ['Pending', 'Processing', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled'];
+    const map = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Refunded', 'Failed'];
     return map[status] || 'Unknown';
   }
 
@@ -17854,6 +18084,16 @@ export class AdminOrdersComponent implements OnInit {
         this.toast.error('Failed to update order status.');
         this.loadOrders(); // reload to revert select
       }
+    });
+  }
+
+  cancelOrder(orderId: string): void {
+    this.http.post(`${environment.apiUrl}/orders/${orderId}/cancel`, {}).subscribe({
+      next: () => {
+        this.toast.success('Order cancelled.');
+        this.loadOrders();
+      },
+      error: () => this.toast.error('Order could not be cancelled.')
     });
   }
 }
@@ -17890,22 +18130,22 @@ import { AuthService } from '../../core/services/auth.service';
         </div>
       </div>
 
-      <!-- Products Table -->
-      <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      <!-- Products Desktop Table -->
+      <div class="hidden md:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="w-full text-left text-sm whitespace-nowrap">
+          <table class="w-full text-start text-sm whitespace-nowrap">
             <thead class="bg-slate-50/70 text-slate-500 border-b border-slate-100">
               <tr>
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Product</th>
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Price</th>
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Stock</th>
-                <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-right">Actions</th>
+                <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-end">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-50 text-slate-700">
               @if (isLoading()) {
                 <tr>
-                  <td colspan="5" class="px-6 py-12 text-center">
+                  <td colspan="4" class="px-6 py-12 text-center">
                     <div class="flex flex-col items-center justify-center gap-3">
                       <div class="w-8 h-8 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
                       <p class="text-sm text-slate-500 font-medium">Loading products...</p>
@@ -17937,11 +18177,11 @@ import { AuthService } from '../../core/services/auth.service';
                           [class.text-slate-700]="product.stock >= 10">
                       {{ product.stock }}
                       @if (product.stock < 10) {
-                        <span class="text-xs text-rose-400 ml-1">(Low)</span>
+                        <span class="text-xs text-rose-400 ms-1">(Low)</span>
                       }
                     </span>
                   </td>
-                  <td class="px-6 py-4 text-right">
+                  <td class="px-6 py-4 text-end">
                     <div class="flex items-center justify-end gap-2">
                       <!-- Edit -->
                       @if (canManageProducts()) {
@@ -17964,7 +18204,7 @@ import { AuthService } from '../../core/services/auth.service';
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="5" class="px-6 py-12 text-center text-slate-400">
+                  <td colspan="4" class="px-6 py-12 text-center text-slate-400">
                     <div class="flex flex-col items-center gap-2">
                       <svg class="w-10 h-10 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
                       <p class="text-sm">No products found</p>
@@ -17977,6 +18217,81 @@ import { AuthService } from '../../core/services/auth.service';
           </table>
         </div>
       </div>
+
+      <!-- Mobile cards -->
+      <div class="md:hidden space-y-4">
+        @if (isLoading()) {
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 text-center">
+            <div class="flex flex-col items-center justify-center gap-3">
+              <div class="w-8 h-8 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+              <p class="text-sm text-slate-500 font-medium">Loading products...</p>
+            </div>
+          </div>
+        } @else {
+          @for (product of filteredProducts(); track product.id) {
+            <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100" [class.opacity-50]="processingId() === product.id">
+              <div class="flex items-center gap-3 mb-3">
+                <div class="h-12 w-12 rounded-xl bg-slate-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+                  @if (product.images && product.images.length > 0) {
+                    <img [src]="product.images[0]" [alt]="product.name" class="w-full h-full object-cover">
+                  } @else {
+                    <svg class="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                  }
+                </div>
+                <div>
+                  <p class="font-semibold text-slate-900 truncate" [title]="product.name">{{ product.name }}</p>
+                  <p class="text-xs text-slate-400">{{ product.category }}</p>
+                </div>
+              </div>
+              <div class="flex justify-between items-center text-sm mb-4">
+                <span class="font-bold">{{ product.price | currency }}</span>
+                <span [class.text-rose-600]="product.stock < 10" [class.font-semibold]="product.stock < 10" [class.text-slate-700]="product.stock >= 10">
+                  Stock: {{ product.stock }}
+                </span>
+              </div>
+              <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                @if (canManageProducts()) {
+                  <a [routerLink]="['/admin/edit-product', product.slug]" class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors">
+                    Edit
+                  </a>
+                  <button (click)="confirmDelete(product)" [disabled]="processingId() === product.id" class="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors">
+                    Delete
+                  </button>
+                }
+              </div>
+            </div>
+          } @empty {
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 text-center text-slate-400">
+              <p class="text-sm">No products found</p>
+            </div>
+          }
+        }
+      </div>
+
+      <!-- Pagination -->
+      @if (productsResult() && productsResult()!.totalPages > 1) {
+        <div class="flex items-center justify-between border-t border-slate-200 bg-white px-4 py-3 sm:px-6 rounded-2xl shadow-sm">
+          <div class="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+            <div>
+              <p class="text-sm text-gray-700">
+                Showing page <span class="font-medium">{{ currentPage() }}</span> of <span class="font-medium">{{ productsResult()?.totalPages }}</span>
+              </p>
+            </div>
+            <div>
+              <nav class="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+                <button (click)="changePage(currentPage() - 1)" [disabled]="currentPage() === 1" class="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50">
+                  <span class="sr-only">Previous</span>
+                  <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clip-rule="evenodd" /></svg>
+                </button>
+                <button (click)="changePage(currentPage() + 1)" [disabled]="currentPage() === productsResult()?.totalPages" class="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50">
+                  <span class="sr-only">Next</span>
+                  <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" /></svg>
+                </button>
+              </nav>
+            </div>
+          </div>
+        </div>
+      }
     </div>
 
     <!-- Delete Confirmation Modal -->
@@ -18018,6 +18333,7 @@ export class AdminProductsComponent implements OnInit {
   readonly processingId = signal<string | null>(null);
   readonly productToDelete = signal<any>(null);
   readonly isLoading = signal(true);
+  readonly currentPage = signal(1);
 
   readonly isSuperAdmin = computed(() =>
     this.authService.user()?.roles?.includes('SuperAdmin') ?? false
@@ -18033,14 +18349,15 @@ export class AdminProductsComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.loadProducts();
+    this.loadProducts(this.currentPage());
   }
 
-  loadProducts(): void {
+  loadProducts(page: number = 1): void {
     this.isLoading.set(true);
-    this.adminService.getAllProducts().subscribe({
+    this.adminService.getAllProducts(page).subscribe({
       next: (result) => {
         this.productsResult.set(result);
+        this.currentPage.set(page);
         this.isLoading.set(false);
       },
       error: (err) => {
@@ -18048,6 +18365,12 @@ export class AdminProductsComponent implements OnInit {
         this.isLoading.set(false);
       }
     });
+  }
+
+  changePage(page: number): void {
+    if (page > 0 && page <= (this.productsResult()?.totalPages || 1)) {
+      this.loadProducts(page);
+    }
   }
 
   confirmDelete(product: any): void {
@@ -18112,14 +18435,14 @@ interface SellerRequest {
 
       <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="w-full text-left text-sm whitespace-nowrap">
+          <table class="w-full text-start text-sm whitespace-nowrap">
             <thead class="bg-slate-50/50 text-slate-500 uppercase tracking-wider text-xs font-semibold">
               <tr>
                 <th class="px-6 py-4">User</th>
                 <th class="px-6 py-4">Reason</th>
                 <th class="px-6 py-4">Date</th>
                 <th class="px-6 py-4">Status</th>
-                <th class="px-6 py-4 text-right">Actions</th>
+                <th class="px-6 py-4 text-end">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 text-slate-700">
@@ -18156,7 +18479,7 @@ interface SellerRequest {
                       {{ req.status }}
                     </span>
                   </td>
-                  <td class="px-6 py-4 text-right">
+                  <td class="px-6 py-4 text-end">
                     @if (req.status === 'Pending') {
                       <div class="flex items-center justify-end gap-2">
                         <button (click)="approve(req.id)" [disabled]="isProcessing()" class="px-3 py-1.5 text-xs font-bold bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg transition-colors disabled:opacity-50">Approve</button>
@@ -18303,7 +18626,7 @@ import { ToastService } from '../../core/services/toast.service';
               <div class="w-24 h-24 mx-auto rounded-2xl bg-gradient-to-br from-teal-400 to-teal-700 text-white flex items-center justify-center font-bold text-3xl shadow-lg shadow-teal-200 mb-6 relative">
                 {{ profile()!.firstName[0] }}{{ profile()!.lastName[0] }}
                 @if (profile()!.isBanned) {
-                  <div class="absolute -bottom-2 -right-2 w-8 h-8 bg-rose-500 rounded-full border-4 border-white flex items-center justify-center text-white" title="User is Banned">
+                  <div class="absolute -bottom-2 -end-2 w-8 h-8 bg-rose-500 rounded-full border-4 border-white flex items-center justify-center text-white" title="User is Banned">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
                   </div>
                 }
@@ -18326,7 +18649,7 @@ import { ToastService } from '../../core/services/toast.service';
                 }
               </div>
 
-              <div class="mt-8 pt-6 border-t border-slate-100 text-left space-y-4">
+              <div class="mt-8 pt-6 border-t border-slate-100 text-start space-y-4">
                 <div>
                   <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Member Since</p>
                   <p class="text-sm font-medium text-slate-700 mt-1">{{ profile()!.createdAt | date:'longDate' }}</p>
@@ -18564,14 +18887,14 @@ import { ToastService } from '../../core/services/toast.service';
       <!-- Users Table -->
       <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="w-full text-left text-sm whitespace-nowrap">
+          <table class="w-full text-start text-sm whitespace-nowrap">
             <thead class="bg-slate-50/70 text-slate-500 border-b border-slate-100">
               <tr>
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">User</th>
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Roles</th>
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Joined At</th>
                 @if (isSuperAdmin()) {
-                  <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-right">Actions</th>
+                  <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-end">Actions</th>
                 }
               </tr>
             </thead>
@@ -18614,13 +18937,13 @@ import { ToastService } from '../../core/services/toast.service';
                         <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-slate-100 text-slate-600">User</span>
                       }
                       @if (user.isBanned) {
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-rose-100 text-rose-700 ml-1">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-rose-100 text-rose-700 ms-1">
                           Banned
                         </span>
                       }
                     </div>
                   </td>
-                  <td class="px-6 py-4 text-slate-400 text-xs">{{ user.createdAt | date:'MMM d, y Â· h:mm a' }}</td>
+                  <td class="px-6 py-4 text-slate-400 text-xs">{{ user.createdAt | date:'MMM d, y · h:mm a' }}</td>
                   @if (isSuperAdmin()) {
                     <td class="px-6 py-4">
                       <div class="flex items-center justify-end gap-2">
@@ -18736,7 +19059,7 @@ import { ToastService } from '../../core/services/toast.service';
                         class="relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-2">
                   <span [class.translate-x-6]="hasRole('Admin')"
                         [class.translate-x-0]="!hasRole('Admin')"
-                        class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
+                        class="absolute top-0.5 start-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
                 </button>
               </div>
 
@@ -18757,7 +19080,7 @@ import { ToastService } from '../../core/services/toast.service';
                         class="relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2">
                   <span [class.translate-x-6]="hasRole('Seller')"
                         [class.translate-x-0]="!hasRole('Seller')"
-                        class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
+                        class="absolute top-0.5 start-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
                 </button>
               </div>
 
@@ -18994,7 +19317,7 @@ import { ToastService } from '../../../core/services/toast.service';
       <div class="w-full max-w-[420px]">
         <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 sm:p-10">
           <!-- Logo -->
-          <div class="flex items-center justify-center sm:justify-start gap-2 mb-8 sm:-ml-2">
+          <div class="flex items-center justify-center sm:justify-start gap-2 mb-8 sm:-ms-2">
             <img src="/images/logo.png" alt="Budgetha" class="h-16 w-auto object-contain" />
             <span class="text-3xl font-black text-slate-900 tracking-tighter" style="font-family: 'Outfit', sans-serif; padding-top: 4px;">Budgetha</span>
           </div>
@@ -19026,7 +19349,7 @@ import { ToastService } from '../../../core/services/toast.service';
 
               <button type="submit" [disabled]="loading()" class="btn-primary w-full">
                 @if (loading()) {
-                  <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
+                  <svg class="animate-spin -ms-1 me-2 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                   </svg>
@@ -19105,7 +19428,7 @@ export class ForgotPasswordComponent {
 
 ``html
 <div class="min-h-screen flex">
-  <!-- â”€â”€ Left Brand Panel â”€â”€ -->
+  <!-- ── Left Brand Panel ── -->
   <div class="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-slate-900">
     <!-- Background Image -->
     <img src="https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070&auto=format&fit=crop" alt="Shopping" class="absolute inset-0 w-full h-full object-cover opacity-40 mix-blend-overlay" />
@@ -19115,7 +19438,7 @@ export class ForgotPasswordComponent {
 
     <div class="relative z-10 flex flex-col justify-between p-12 lg:p-16 w-full text-white">
       <!-- Logo -->
-      <div class="flex items-center gap-4 -ml-2">
+      <div class="flex items-center gap-4 -ms-2">
         <div class="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-2xl shadow-teal-900/40 overflow-hidden shrink-0">
           <img src="/images/logo.png" alt="Budgetha" class="h-14 w-auto object-contain" />
         </div>
@@ -19148,12 +19471,12 @@ export class ForgotPasswordComponent {
     </div>
   </div>
 
-  <!-- â”€â”€ Right Form Panel â”€â”€ -->
+  <!-- ── Right Form Panel ── -->
   <div class="flex-1 flex items-center justify-center p-6 sm:p-12 bg-slate-50 relative overflow-hidden bg-[radial-gradient(#cbd5e1_1.5px,transparent_1.5px)] [background-size:24px_24px] animate-pan-bg">
     
     <!-- Optional: Super soft glowing orb in background of right panel to make it even more magical -->
-    <div class="absolute top-1/4 right-1/4 w-96 h-96 bg-teal-400/10 rounded-full blur-3xl pointer-events-none"></div>
-    <div class="absolute bottom-1/4 left-1/4 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute top-1/4 end-1/4 w-96 h-96 bg-teal-400/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute bottom-1/4 start-1/4 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl pointer-events-none"></div>
 
     <div class="w-full max-w-[420px] bg-white/80 backdrop-blur-xl p-8 sm:p-10 rounded-[2rem] shadow-2xl border border-white relative z-10">
       <!-- Mobile logo (visible < lg) -->
@@ -19202,13 +19525,13 @@ export class ForgotPasswordComponent {
               [type]="showPassword() ? 'text' : 'password'"
               formControlName="password"
               autocomplete="current-password"
-              class="input-field pr-11"
+              class="input-field pe-11"
               [class.input-error]="form.get('password')?.touched && form.get('password')?.invalid"
               placeholder="Enter your password" />
             <button
               type="button"
               (click)="togglePassword()"
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
+              class="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 @if (showPassword()) {
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
@@ -19230,11 +19553,11 @@ export class ForgotPasswordComponent {
         <!-- Submit -->
         <button type="submit" [disabled]="loading()" class="btn-primary w-full bg-teal-700 hover:bg-teal-800 focus:ring-teal-500/50">
           @if (loading()) {
-            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
+            <svg class="animate-spin -ms-1 me-2 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
             </svg>
-            Signing inâ€¦
+            Signing in…
           } @else {
             Sign in
           }
@@ -19414,7 +19737,7 @@ export class LoginComponent {
 
 ``html
 <div class="min-h-screen flex">
-  <!-- â”€â”€ Left Brand Panel â”€â”€ -->
+  <!-- ── Left Brand Panel ── -->
   <div class="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-slate-900">
     <!-- Background Image -->
     <img src="https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070&auto=format&fit=crop" alt="Shopping" class="absolute inset-0 w-full h-full object-cover opacity-40 mix-blend-overlay" />
@@ -19424,7 +19747,7 @@ export class LoginComponent {
 
     <div class="relative z-10 flex flex-col justify-between p-12 lg:p-16 w-full text-white">
       <!-- Logo -->
-      <div class="flex items-center gap-4 -ml-2">
+      <div class="flex items-center gap-4 -ms-2">
         <div class="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-2xl shadow-teal-900/40 overflow-hidden shrink-0">
           <img src="/images/logo.png" alt="Budgetha" class="h-14 w-auto object-contain" />
         </div>
@@ -19457,12 +19780,12 @@ export class LoginComponent {
     </div>
   </div>
 
-  <!-- â”€â”€ Right Form Panel â”€â”€ -->
+  <!-- ── Right Form Panel ── -->
   <div class="flex-1 flex items-center justify-center p-6 sm:p-12 bg-slate-50 relative overflow-hidden bg-[radial-gradient(#cbd5e1_1.5px,transparent_1.5px)] [background-size:24px_24px] animate-pan-bg">
     
     <!-- Optional: Super soft glowing orb in background of right panel to make it even more magical -->
-    <div class="absolute top-1/4 right-1/4 w-96 h-96 bg-teal-400/10 rounded-full blur-3xl pointer-events-none"></div>
-    <div class="absolute bottom-1/4 left-1/4 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute top-1/4 end-1/4 w-96 h-96 bg-teal-400/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute bottom-1/4 start-1/4 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl pointer-events-none"></div>
 
     <!-- Form Container -->
     <div class="w-full max-w-[440px] bg-white/80 backdrop-blur-xl p-8 sm:p-10 rounded-[2rem] shadow-2xl border border-white relative z-10">
@@ -19545,13 +19868,13 @@ export class LoginComponent {
               [type]="showPassword() ? 'text' : 'password'"
               formControlName="password"
               autocomplete="new-password"
-              class="input-field pr-11 bg-white/50 focus:bg-white"
+              class="input-field pe-11 bg-white/50 focus:bg-white"
               [class.input-error]="form.get('password')?.touched && form.get('password')?.invalid"
               placeholder="Create a strong password" />
             <button
               type="button"
               (click)="togglePassword()"
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
+              class="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 @if (showPassword()) {
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
@@ -19594,13 +19917,13 @@ export class LoginComponent {
               [type]="showConfirmPassword() ? 'text' : 'password'"
               formControlName="confirmPassword"
               autocomplete="new-password"
-              class="input-field pr-11 bg-white/50 focus:bg-white"
+              class="input-field pe-11 bg-white/50 focus:bg-white"
               [class.input-error]="form.get('confirmPassword')?.touched && form.get('confirmPassword')?.invalid"
               placeholder="Repeat your password" />
             <button
               type="button"
               (click)="toggleConfirmPassword()"
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
+              class="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 @if (showConfirmPassword()) {
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
@@ -19630,11 +19953,11 @@ export class LoginComponent {
         <!-- Submit -->
         <button type="submit" [disabled]="loading()" class="btn-primary w-full bg-teal-700 hover:bg-teal-800 focus:ring-teal-500/50">
           @if (loading()) {
-            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
+            <svg class="animate-spin -ms-1 me-2 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
             </svg>
-            Creating accountâ€¦
+            Creating account…
           } @else {
              Create account
           }
@@ -19874,7 +20197,7 @@ import { ToastService } from '../../../core/services/toast.service';
       <div class="w-full max-w-[420px]">
         <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 sm:p-10">
           <!-- Logo -->
-          <div class="flex items-center justify-center sm:justify-start gap-2 mb-8 sm:-ml-2">
+          <div class="flex items-center justify-center sm:justify-start gap-2 mb-8 sm:-ms-2">
             <img src="/images/logo.png" alt="Budgetha" class="h-16 w-auto object-contain" />
             <span class="text-3xl font-black text-slate-900 tracking-tighter" style="font-family: 'Outfit', sans-serif; padding-top: 4px;">Budgetha</span>
           </div>
@@ -19928,13 +20251,13 @@ import { ToastService } from '../../../core/services/toast.service';
                   [type]="showPassword() ? 'text' : 'password'"
                   formControlName="newPassword"
                   autocomplete="new-password"
-                  class="input-field pr-11"
+                  class="input-field pe-11"
                   [class.input-error]="form.get('newPassword')?.touched && form.get('newPassword')?.invalid"
                   placeholder="Enter new password" />
                 <button
                   type="button"
                   (click)="togglePassword()"
-                  class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
+                  class="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     @if (showPassword()) {
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
@@ -19974,7 +20297,7 @@ import { ToastService } from '../../../core/services/toast.service';
 
             <button type="submit" [disabled]="loading()" class="btn-primary w-full">
               @if (loading()) {
-                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
+                <svg class="animate-spin -ms-1 me-2 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                 </svg>
@@ -20081,12 +20404,12 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
         </div>
       } @else {
         <div class="mt-8 grid lg:grid-cols-3 gap-8 items-start">
-          <!-- â•â• Item list â•â• -->
+          <!-- ══ Item list ══ -->
           <div class="lg:col-span-2 card divide-y divide-slate-100">
             <div class="hidden sm:grid grid-cols-12 gap-4 px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">
               <span class="col-span-6">Product</span>
               <span class="col-span-3 text-center">Quantity</span>
-              <span class="col-span-2 text-right">Subtotal</span>
+              <span class="col-span-2 text-end">Subtotal</span>
               <span class="col-span-1"></span>
             </div>
 
@@ -20104,8 +20427,12 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                     </a>
                     @if (item.color || item.size) {
                       <p class="mt-1 text-xs text-slate-400">
-                        {{ item.color }}{{ item.color && item.size ? ' Â· Size ' : item.size ? 'Size ' : '' }}{{ item.size }}
+                        {{ item.color }}{{ item.color && item.size ? ' · Size ' : item.size ? 'Size ' : '' }}{{ item.size }}
                       </p>
+                    }
+                    <p class="mt-1 text-xs font-medium text-violet-600">{{ item.type ?? 'Purchase' }}</p>
+                    @if (item.type === 'Rental') {
+                      <p class="mt-0.5 text-xs text-slate-400">{{ item.rentalStartDate }} to {{ item.rentalEndDate }}</p>
                     }
                     <p class="mt-1 text-sm font-bold text-slate-700 sm:hidden">{{ item.price | currency }}</p>
                     <p class="hidden sm:block mt-1 text-sm text-slate-500">{{ item.price | currency }} each</p>
@@ -20126,7 +20453,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                 </div>
 
                 <!-- Subtotal -->
-                <div class="col-span-4 sm:col-span-2 text-right">
+                <div class="col-span-4 sm:col-span-2 text-end">
                   <span class="text-sm font-bold text-slate-900">{{ item.price * item.quantity | currency }}</span>
                 </div>
 
@@ -20158,7 +20485,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
             </div>
           </div>
 
-          <!-- â•â• Order summary â•â• -->
+          <!-- ══ Order summary ══ -->
           <aside class="card p-6 lg:sticky lg:top-24">
             <h2 class="text-lg font-bold text-slate-900">Order Summary</h2>
 
@@ -20189,7 +20516,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                   <button type="submit" class="btn-secondary px-4 py-2.5 whitespace-nowrap">Apply</button>
                 </form>
                 @if (promoError()) {
-                  <p class="mt-1.5 text-xs text-red-500">That code isn't valid. Try WELCOME10 or SAVE20.</p>
+                  <p class="mt-1.5 text-xs text-red-500">That promo code is invalid or expired.</p>
                 }
               }
             </div>
@@ -20206,25 +20533,16 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                   <dd class="font-semibold text-emerald-600">-{{ cart.discount() | currency }}</dd>
                 </div>
               }
-              <div class="flex justify-between">
-                <dt class="text-slate-500">Shipping</dt>
-                <dd class="font-semibold" [class]="cart.shipping() === 0 ? 'text-emerald-600' : 'text-slate-900'">
-                  {{ cart.shipping() === 0 ? 'Free' : (cart.shipping() | currency) }}
-                </dd>
-              </div>
-              <div class="flex justify-between">
-                <dt class="text-slate-500">Estimated tax</dt>
-                <dd class="font-semibold text-slate-900">{{ cart.tax() | currency }}</dd>
-              </div>
               <div class="flex justify-between border-t border-slate-100 pt-4 text-base">
-                <dt class="font-bold text-slate-900">Total</dt>
+                <dt class="font-bold text-slate-900">{{ cart.hasRental() ? 'Estimated total' : 'Total' }}</dt>
                 <dd class="font-extrabold text-slate-900">{{ cart.total() | currency }}</dd>
               </div>
             </dl>
+            <p class="mt-3 text-xs text-slate-400">Final pricing is calculated by the server when you place the order.</p>
 
             <a routerLink="/checkout" class="btn-primary w-full mt-6 py-4 text-base">
               Proceed to Checkout
-              <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <svg class="w-4 h-4 ms-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
               </svg>
             </a>
@@ -20320,7 +20638,7 @@ const PAGE_SIZE = 9;
               [value]="sort()"
               (change)="setSort($event)"
               aria-label="Sort products"
-              class="appearance-none rounded-xl border border-slate-200 bg-white pl-4 pr-10 py-2.5 text-sm font-medium text-slate-700
+              class="appearance-none rounded-xl border border-slate-200 bg-white ps-4 pe-10 py-2.5 text-sm font-medium text-slate-700
                      focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 cursor-pointer
                      transition-all duration-300">
               <option value="featured">Featured</option>
@@ -20329,7 +20647,7 @@ const PAGE_SIZE = 9;
               <option value="price-desc">Price: High to Low</option>
               <option value="rating">Top Rated</option>
             </select>
-            <svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <svg class="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
             </svg>
           </div>
@@ -20363,15 +20681,15 @@ const PAGE_SIZE = 9;
       </div>
 
       <div class="mt-8 flex gap-8">
-        <!-- â•â• Sidebar filters (desktop) â•â• -->
+        <!-- ══ Sidebar filters (desktop) ══ -->
         <aside class="hidden lg:block w-64 shrink-0 space-y-6">
           <ng-container *ngTemplateOutlet="filterPanel"></ng-container>
         </aside>
 
-        <!-- â•â• Mobile filter drawer â•â• -->
+        <!-- ══ Mobile filter drawer ══ -->
         @if (filtersOpen()) {
           <div class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm lg:hidden" (click)="filtersOpen.set(false)" aria-hidden="true"></div>
-          <aside class="fixed inset-y-0 left-0 z-50 w-80 max-w-[85vw] bg-white shadow-2xl overflow-y-auto p-5 lg:hidden animate-[slideInLeft_0.3s_ease-out]"
+          <aside class="fixed inset-y-0 start-0 z-50 w-80 max-w-[85vw] bg-white shadow-2xl overflow-y-auto p-5 lg:hidden animate-[slideInLeft_0.3s_ease-out]"
                  role="dialog" aria-modal="true" aria-label="Filters">
             <div class="flex items-center justify-between mb-5">
               <h2 class="text-lg font-bold text-slate-900">Filters</h2>
@@ -20387,7 +20705,7 @@ const PAGE_SIZE = 9;
           </aside>
         }
 
-        <!-- â•â• Filter panel template (shared desktop/mobile) â•â• -->
+        <!-- ══ Filter panel template (shared desktop/mobile) ══ -->
         <ng-template #filterPanel>
           <!-- Active filters / clear -->
           @if (activeFilterCount() > 0) {
@@ -20449,7 +20767,7 @@ const PAGE_SIZE = 9;
                 <span class="block text-[10px] uppercase tracking-wider text-slate-400">Min</span>
                 <span class="text-sm font-bold text-slate-900">{{ minPrice() | currency: 'USD' : 'symbol' : '1.0-0' }}</span>
               </div>
-              <span class="text-slate-300">â€”</span>
+              <span class="text-slate-300">—</span>
               <div class="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-center">
                 <span class="block text-[10px] uppercase tracking-wider text-slate-400">Max</span>
                 <span class="text-sm font-bold text-slate-900">{{ maxPrice() | currency: 'USD' : 'symbol' : '1.0-0' }}</span>
@@ -20492,9 +20810,16 @@ const PAGE_SIZE = 9;
           </div>
         </ng-template>
 
-        <!-- â•â• Results â•â• -->
+        <!-- ══ Results ══ -->
         <div class="flex-1 min-w-0">
-          @if (result().items.length === 0) {
+          @if (isLoading()) {
+            <div class="card p-12 text-center text-slate-500">Loading products...</div>
+          } @else if (loadError()) {
+            <div class="card p-12 text-center">
+              <p class="text-sm text-rose-600">Products could not be loaded.</p>
+              <button type="button" (click)="retry()" class="btn-secondary mt-4">Try again</button>
+            </div>
+          } @else if (result().items.length === 0) {
             <div class="card">
               <app-empty-state
                 [icon]="wishlistOnly() ? 'wishlist' : 'search'"
@@ -20603,6 +20928,8 @@ export class CatalogComponent {
   
   
   readonly result = signal<CatalogResult>({ items: [], total: 0, totalPages: 1 });
+  readonly isLoading = signal(true);
+  readonly loadError = signal(false);
 
   readonly pages = computed(() => Array.from({ length: this.result().totalPages }, (_, i) => i + 1));
 
@@ -20617,8 +20944,8 @@ export class CatalogComponent {
 
   readonly pageTitle = computed(() => {
     if (this.wishlistOnly()) return 'My Wishlist';
-    if (this.dealsOnly()) return 'Todayâ€™s Deals';
-    if (this.search()) return `Results for â€œ${this.search()}â€`;
+    if (this.dealsOnly()) return 'Today’s Deals';
+    if (this.search()) return `Results for “${this.search()}”`;
     if (this.selectedCategories().length === 1) {
       return this.categories().find(c => c.slug === this.selectedCategories()[0])?.name ?? 'Shop';
     }
@@ -20675,6 +21002,7 @@ export class CatalogComponent {
         page: this.wishlistOnly() || this.dealsOnly() ? 1 : this.page(),
         pageSize: this.wishlistOnly() || this.dealsOnly() ? 100 : PAGE_SIZE,
       };
+      this.isLoading.set(true);
       this.productService.query(q).subscribe(res => {
         let items = res?.items || [];
         if (this.dealsOnly()) {
@@ -20697,8 +21025,19 @@ export class CatalogComponent {
         }
         
         this.result.set({ items, total, totalPages });
+        this.isLoading.set(false);
+        this.loadError.set(false);
+      }, () => {
+        this.isLoading.set(false);
+        this.loadError.set(true);
       });
     });
+  }
+
+  retry(): void {
+    this.loadError.set(false);
+    this.isLoading.set(true);
+    this.page.update(page => page);
   }
 
   toggleCategory(slug: string): void {
@@ -20755,7 +21094,7 @@ export class CatalogComponent {
 ## src\app\features\checkout\checkout.component.ts
 
 ``typescript
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, effect, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -20767,6 +21106,7 @@ import { ToastService } from '../../core/services/toast.service';
 import { Address } from '../../core/models/shop.models';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
 import { NgxPayPalModule, IPayPalConfig, ICreateOrderRequest } from 'ngx-paypal';
+import { Observable, switchMap } from 'rxjs';
 
 type PaymentMethod = 'paypal' | 'cod';
 
@@ -20845,16 +21185,21 @@ type PaymentMethod = 'paypal' | 'cod';
                   <span class="h-7 w-7 rounded-lg bg-violet-100 text-violet-700 flex items-center justify-center text-sm font-bold">2</span>
                   Delivery Address
                 </h2>
-                @if (savedAddresses.length) {
+                @if (savedAddresses().length) {
                   <div class="flex gap-2">
-                    @for (address of savedAddresses; track address.id) {
+                    @for (address of savedAddresses(); track address.id) {
                       <button type="button" (click)="useAddress(address)"
-                              class="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600
-                                     hover:border-violet-300 hover:text-violet-700 transition-all duration-300">
+                              class="rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all duration-300"
+                              [class]="selectedAddressId() === address.id ? 'border-violet-500 bg-violet-50 text-violet-700' : 'border-slate-200 text-slate-600 hover:border-violet-300 hover:text-violet-700'">
                         Use â€œ{{ address.label }}â€
                       </button>
                     }
                   </div>
+                }
+                @if (account.addressesLoading()) {
+                  <span class="text-xs text-slate-400">Loading saved addresses...</span>
+                } @else if (account.addressesError()) {
+                  <button type="button" (click)="account.syncAddresses()" class="text-xs font-semibold text-rose-600 hover:text-rose-500">Saved addresses unavailable. Retry</button>
                 }
               </div>
 
@@ -20931,7 +21276,7 @@ type PaymentMethod = 'paypal' | 'cod';
               <div class="mt-5 grid sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Payment method">
                 <!-- PayPal option -->
                 <button type="button" role="radio" [attr.aria-checked]="paymentMethod() === 'paypal'" (click)="paymentMethod.set('paypal')"
-                        class="rounded-2xl border-2 p-4 text-left transition-all duration-300"
+                        class="rounded-2xl border-2 p-4 text-start transition-all duration-300"
                         [class]="paymentMethod() === 'paypal' ? 'border-violet-600 bg-violet-50/60 shadow-md shadow-violet-100' : 'border-slate-200 hover:border-slate-300'">
                   <svg class="w-7 h-7 mb-2" viewBox="0 0 24 24" fill="none">
                     <path d="M7.076 21.337H4.13a.64.64 0 01-.633-.74L6.222 3.384a.77.77 0 01.76-.65h6.673c2.217 0 3.916.472 4.933 1.404.95.87 1.322 2.083 1.106 3.72-.023.15-.048.302-.078.458-.71 3.65-3.14 4.913-6.24 4.913h-1.58a.77.77 0 00-.76.65l-.81 5.148-.15 1.31z" [attr.fill]="paymentMethod() === 'paypal' ? '#003087' : '#94a3b8'"/>
@@ -20943,7 +21288,7 @@ type PaymentMethod = 'paypal' | 'cod';
 
                 <!-- COD option -->
                 <button type="button" role="radio" [attr.aria-checked]="paymentMethod() === 'cod'" (click)="paymentMethod.set('cod')"
-                        class="rounded-2xl border-2 p-4 text-left transition-all duration-300"
+                        class="rounded-2xl border-2 p-4 text-start transition-all duration-300"
                         [class]="paymentMethod() === 'cod' ? 'border-violet-600 bg-violet-50/60 shadow-md shadow-violet-100' : 'border-slate-200 hover:border-slate-300'">
                   <svg class="w-7 h-7 mb-2" [class]="paymentMethod() === 'cod' ? 'text-violet-600' : 'text-slate-400'" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
@@ -20990,18 +21335,21 @@ type PaymentMethod = 'paypal' | 'cod';
           <aside class="lg:col-span-2 card p-6 lg:sticky lg:top-24">
             <h2 class="text-lg font-bold text-slate-900">Order Summary</h2>
 
-            <ul class="mt-5 space-y-4 max-h-72 overflow-y-auto pr-1">
+            <ul class="mt-5 space-y-4 max-h-72 overflow-y-auto pe-1">
               @for (item of cart.items(); track item.productId + (item.color ?? '') + (item.size ?? '')) {
                 <li class="flex items-center gap-3.5">
                   <div class="relative shrink-0">
                     <img [src]="item.image" [alt]="item.name" class="h-16 w-16 rounded-xl object-contain mix-blend-multiply bg-slate-100 p-1" />
-                    <span class="absolute -top-1.5 -right-1.5 h-5 min-w-5 px-1 rounded-full bg-slate-800 text-white text-[11px] font-bold flex items-center justify-center">
+                    <span class="absolute -top-1.5 -end-1.5 h-5 min-w-5 px-1 rounded-full bg-slate-800 text-white text-[11px] font-bold flex items-center justify-center">
                       {{ item.quantity }}
                     </span>
                   </div>
                   <div class="flex-1 min-w-0">
                     <p class="text-sm font-semibold text-slate-900 truncate">{{ item.name }}</p>
-                    <p class="text-xs text-slate-400">{{ item.color }}{{ item.color && item.size ? ' Â· ' : '' }}{{ item.size }}</p>
+                    <p class="text-xs text-slate-400">{{ item.type ?? 'Purchase' }}{{ item.color ? ' Â· ' + item.color : '' }}{{ item.size ? ' Â· ' + item.size : '' }}</p>
+                    @if (item.type === 'Rental') {
+                      <p class="text-xs text-slate-400">{{ item.rentalStartDate }} to {{ item.rentalEndDate }}</p>
+                    }
                   </div>
                   <span class="text-sm font-bold text-slate-900 shrink-0">{{ item.price * item.quantity | currency }}</span>
                 </li>
@@ -21019,21 +21367,14 @@ type PaymentMethod = 'paypal' | 'cod';
                   <dd class="font-semibold text-emerald-600">-{{ cart.discount() | currency }}</dd>
                 </div>
               }
-              <div class="flex justify-between">
-                <dt class="text-slate-500">Shipping</dt>
-                <dd class="font-semibold" [class]="cart.shipping() === 0 ? 'text-emerald-600' : 'text-slate-900'">
-                  {{ cart.shipping() === 0 ? 'Free' : (cart.shipping() | currency) }}
-                </dd>
-              </div>
-              <div class="flex justify-between">
-                <dt class="text-slate-500">Tax</dt>
-                <dd class="font-semibold text-slate-900">{{ cart.tax() | currency }}</dd>
-              </div>
               <div class="flex justify-between border-t border-slate-100 pt-4 text-lg">
-                <dt class="font-bold text-slate-900">Total</dt>
+                <dt class="font-bold text-slate-900">{{ cart.hasRental() ? 'Estimated total' : 'Total' }}</dt>
                 <dd class="font-extrabold text-slate-900">{{ cart.total() | currency }}</dd>
               </div>
             </dl>
+            @if (cart.hasRental()) {
+              <p class="mt-3 text-xs leading-relaxed text-amber-700">Rental pricing is finalized by the server when the order is placed.</p>
+            }
 
             @if (submitted() && form.invalid) {
               <div class="mt-5 rounded-xl bg-red-50 ring-1 ring-red-100 px-4 py-3 flex items-start gap-2.5">
@@ -21047,7 +21388,7 @@ type PaymentMethod = 'paypal' | 'cod';
             @if (paymentMethod() === 'cod') {
               <button type="submit" [disabled]="placing() || form.invalid" class="btn-primary w-full mt-6 py-4 sm:py-5 text-base sm:text-lg shadow-lg shadow-violet-600/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none">
                 @if (placing()) {
-                  <svg class="animate-spin -ml-1 mr-2.5 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                  <svg class="animate-spin -ms-1 me-2.5 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                   </svg>
@@ -21073,7 +21414,7 @@ type PaymentMethod = 'paypal' | 'cod';
 export class CheckoutComponent implements OnInit {
   readonly cart = inject(CartService);
   private readonly orders = inject(OrderService);
-  private readonly account = inject(AccountService);
+  readonly account = inject(AccountService);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
@@ -21084,8 +21425,9 @@ export class CheckoutComponent implements OnInit {
   readonly paymentMethod = signal<PaymentMethod>('paypal');
   readonly placing = signal(false);
   readonly submitted = signal(false);
+  readonly selectedAddressId = signal<number | string | null>(null);
 
-  readonly savedAddresses = this.account.addresses();
+  readonly savedAddresses = this.account.addresses;
 
   readonly form = this.fb.group({
     email: [this.auth.user()?.email ?? '', [Validators.required, Validators.email]],
@@ -21099,6 +21441,15 @@ export class CheckoutComponent implements OnInit {
     country: ['United States', Validators.required],
   });
 
+  constructor() {
+    effect(() => {
+      const defaultAddress = this.account.defaultAddress();
+      if (defaultAddress && !this.selectedAddressId() && !this.form.dirty) {
+        this.useAddress(defaultAddress, false);
+      }
+    });
+  }
+
   ngOnInit(): void {
     this.initConfig();
   }
@@ -21106,7 +21457,7 @@ export class CheckoutComponent implements OnInit {
   private initConfig(): void {
     this.payPalConfig = {
       currency: 'USD',
-      clientId: 'sb', 
+      clientId: 'Adhr3wKyo-vITBWdrUb94-pNgeWVsSeVc9lsjlTP9nISPfq057uwt5ZACGZxot9nNbZzcpb7jxYNc2AQ', 
       createOrderOnServer: (data) => {
         // Place the Budgetha order first
         return new Promise<string>((resolve, reject) => {
@@ -21119,11 +21470,9 @@ export class CheckoutComponent implements OnInit {
           }
 
           const v = this.form.getRawValue();
-          this.orders.placeOrder({
+          this.placeOrderRequest({
             items: this.cart.items(),
             subtotal: this.cart.subtotal(),
-            shipping: this.cart.shipping(),
-            tax: this.cart.tax(),
             discount: this.cart.discount(),
             total: this.cart.total(),
             address: {
@@ -21198,7 +21547,7 @@ export class CheckoutComponent implements OnInit {
     return !!c && c.invalid && (c.touched || this.submitted());
   }
 
-  useAddress(address: Address): void {
+  useAddress(address: Address, notify = true): void {
     this.form.patchValue({
       fullName: address.fullName,
       line1: address.line1,
@@ -21207,9 +21556,11 @@ export class CheckoutComponent implements OnInit {
       state: address.state,
       zip: address.zip,
       country: address.country,
-      phone: address.phone,
+      // The current address DTO has no phone field; keep the checkout contact phone.
+      phone: address.phone || this.form.controls.phone.value || '',
     });
-    this.toast.info(`Address â€œ${address.label}â€ applied`);
+    this.selectedAddressId.set(address.id);
+    if (notify) this.toast.info(`Address â€œ${address.label}â€ selected`);
   }
 
   placeOrder(): void {
@@ -21234,11 +21585,9 @@ export class CheckoutComponent implements OnInit {
 
   private completeOrder(paymentSummary: string): void {
     const v = this.form.getRawValue();
-    this.orders.placeOrder({
+    this.placeOrderRequest({
       items: this.cart.items(),
       subtotal: this.cart.subtotal(),
-      shipping: this.cart.shipping(),
-      tax: this.cart.tax(),
       discount: this.cart.discount(),
       total: this.cart.total(),
       address: {
@@ -21271,6 +21620,34 @@ export class CheckoutComponent implements OnInit {
     });
   }
 
+  private placeOrderRequest(input: Parameters<OrderService['placeOrder']>[0]): Observable<string> {
+    const selected = this.account.addresses().find(address =>
+      address.id === this.selectedAddressId() && this.matchesForm(address)
+    );
+    if (selected && typeof selected.id === 'string') {
+      return this.orders.placeOrder({ ...input, shippingAddressId: selected.id });
+    }
+
+    const v = this.form.getRawValue();
+    return this.account.createCheckoutAddress({
+      fullName: v.fullName!,
+      line1: v.line1!,
+      line2: v.line2 || undefined,
+      city: v.city!,
+      state: v.state!,
+      zip: v.zip!,
+      country: v.country!,
+      isDefault: this.account.addresses().length === 0
+    }).pipe(switchMap(shippingAddressId => this.orders.placeOrder({ ...input, shippingAddressId })));
+  }
+
+  private matchesForm(address: Address): boolean {
+    const v = this.form.getRawValue();
+    return address.fullName === v.fullName && address.line1 === v.line1 &&
+      (address.line2 ?? '') === (v.line2 ?? '') && address.city === v.city &&
+      address.state === v.state && address.zip === v.zip && address.country === v.country;
+  }
+
   private defaultName(): string {
     const u = this.auth.user();
     return u ? `${u.firstName} ${u.lastName}`.trim() : '';
@@ -21282,11 +21659,11 @@ export class CheckoutComponent implements OnInit {
 ## src\app\features\checkout\order-success.component.ts
 
 ``typescript
-import { Component, computed, inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { CurrencyPipe, DatePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { map } from 'rxjs';
+import { map, of, switchMap } from 'rxjs';
 import { OrderService } from '../../core/services/order.service';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
 
@@ -21388,7 +21765,13 @@ export class OrderSuccessComponent {
     { initialValue: '' }
   );
 
-  readonly order = computed(() => this.orders.getByNumber(this.orderNumber()));
+  readonly order = toSignal(
+    this.route.paramMap.pipe(
+      map(params => params.get('number') ?? ''),
+      switchMap(number => number ? this.orders.getByNumberRemote(number) : of(undefined))
+    ),
+    { initialValue: undefined }
+  );
 }
 
 ``
@@ -21406,17 +21789,17 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
   selector: 'app-home',
   imports: [RouterLink, ProductCardComponent],
   template: `
-    <!-- â•â• Hero â•â• -->
+    <!-- ══ Hero ══ -->
     <section class="relative overflow-hidden bg-gradient-to-br from-teal-950 via-teal-900 to-teal-800">
       <!-- Decorative blurs -->
-      <div class="absolute top-0 left-1/4 w-96 h-96 bg-teal-500/20 rounded-full blur-3xl"></div>
-      <div class="absolute bottom-0 right-1/4 w-80 h-80 bg-teal-400/20 rounded-full blur-3xl"></div>
-      <div class="absolute top-1/3 right-10 w-64 h-64 bg-teal-300/10 rounded-full blur-2xl"></div>
+      <div class="absolute top-0 start-1/4 w-96 h-96 bg-teal-500/20 rounded-full blur-3xl"></div>
+      <div class="absolute bottom-0 end-1/4 w-80 h-80 bg-teal-400/20 rounded-full blur-3xl"></div>
+      <div class="absolute top-1/3 end-10 w-64 h-64 bg-teal-300/10 rounded-full blur-2xl"></div>
 
       <div class="relative max-w-7xl mx-auto px-4 sm:px-6 py-16 lg:py-24 grid lg:grid-cols-2 gap-12 items-center">
-        <div class="text-center lg:text-left">
+        <div class="text-center lg:text-start">
           <span class="badge bg-white/10 text-teal-200 ring-1 ring-white/20 backdrop-blur px-4 py-1.5">
-            Summer Sale â€” up to 40% off
+            Summer Sale — up to 40% off
           </span>
           <h1 class="mt-6 text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.1]">
             Shop smarter.<br />
@@ -21428,7 +21811,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
           <div class="mt-8 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
             <a routerLink="/shop" class="btn-primary bg-teal-600 hover:bg-teal-500 px-8 py-4 text-base shadow-lg shadow-teal-950/40">
               Shop the Collection
-              <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <svg class="w-4 h-4 ms-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
               </svg>
             </a>
@@ -21441,16 +21824,16 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
 
           <!-- Trust stats -->
           <div class="mt-12 grid grid-cols-3 gap-6 max-w-md mx-auto lg:mx-0">
-            <div class="text-center lg:text-left">
+            <div class="text-center lg:text-start">
               <div class="text-2xl font-bold text-white">50K+</div>
               <div class="text-xs text-teal-200/70 mt-1">Happy Shoppers</div>
             </div>
-            <div class="text-center lg:text-left">
+            <div class="text-center lg:text-start">
               <div class="text-2xl font-bold text-white">200+</div>
               <div class="text-xs text-teal-200/70 mt-1">Trusted Vendors</div>
             </div>
-            <div class="text-center lg:text-left">
-              <div class="text-2xl font-bold text-white">4.9â˜…</div>
+            <div class="text-center lg:text-start">
+              <div class="text-2xl font-bold text-white">4.9★</div>
               <div class="text-xs text-teal-200/70 mt-1">Average Rating</div>
             </div>
           </div>
@@ -21494,7 +21877,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
     </section>
 
-    <!-- â•â• Value props â•â• -->
+    <!-- ══ Value props ══ -->
     <section class="max-w-7xl mx-auto px-4 sm:px-6 -mt-8 relative z-10">
       <div class="card grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 shadow-lg shadow-slate-200/60">
         @for (prop of valueProps; track prop.title) {
@@ -21513,7 +21896,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
     </section>
 
-    <!-- â•â• Top categories â•â• -->
+    <!-- ══ Top categories ══ -->
     <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20">
       <div class="flex items-end justify-between mb-8">
         <div>
@@ -21553,7 +21936,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
     </section>
 
-    <!-- â•â• Featured deals â•â• -->
+    <!-- ══ Featured deals ══ -->
     <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20">
       <div class="flex items-end justify-between mb-8">
         <div>
@@ -21575,11 +21958,11 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
     </section>
 
-    <!-- â•â• Promo banner â•â• -->
+    <!-- ══ Promo banner ══ -->
     <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20">
       <div class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-teal-700 to-teal-800 px-8 py-12 sm:px-14 sm:py-16">
-        <div class="absolute -top-16 -right-16 w-64 h-64 bg-white/10 rounded-full blur-2xl"></div>
-        <div class="absolute -bottom-20 left-1/4 w-72 h-72 bg-teal-400/20 rounded-full blur-3xl"></div>
+        <div class="absolute -top-16 -end-16 w-64 h-64 bg-white/10 rounded-full blur-2xl"></div>
+        <div class="absolute -bottom-20 start-1/4 w-72 h-72 bg-teal-400/20 rounded-full blur-3xl"></div>
         <div class="relative max-w-xl">
           <span class="badge bg-white/15 text-white ring-1 ring-white/25 px-3 py-1">Limited time</span>
           <h2 class="mt-4 text-3xl sm:text-4xl font-extrabold text-white tracking-tight">Get 20% off your next order</h2>
@@ -21594,7 +21977,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
     </section>
 
-    <!-- â•â• New arrivals â•â• -->
+    <!-- ══ New arrivals ══ -->
     <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20 mb-4">
       <div class="flex items-end justify-between mb-8">
         <div>
@@ -21785,7 +22168,7 @@ type Tab = 'description' | 'specs' | 'reviews';
           <span class="text-slate-600 font-medium truncate max-w-[16rem]">{{ p.name }}</span>
         </nav>
 
-        <!-- â•â• Main section â•â• -->
+        <!-- ══ Main section ══ -->
         <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14">
           <!-- Gallery -->
           <div>
@@ -21898,6 +22281,24 @@ type Tab = 'description' | 'specs' | 'reviews';
             }
 
             <!-- Quantity + CTAs -->
+            @if (p.isAvailableForRent) {
+              <div class="mt-6 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+                <div class="flex flex-wrap gap-2" role="radiogroup" aria-label="Purchase type">
+                  <button type="button" (click)="purchaseType.set('Purchase')" [attr.aria-checked]="purchaseType() === 'Purchase'" role="radio"
+                          class="rounded-xl px-3 py-2 text-sm font-semibold" [class]="purchaseType() === 'Purchase' ? 'bg-violet-600 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200'">Buy</button>
+                  <button type="button" (click)="purchaseType.set('Rental')" [attr.aria-checked]="purchaseType() === 'Rental'" role="radio"
+                          class="rounded-xl px-3 py-2 text-sm font-semibold" [class]="purchaseType() === 'Rental' ? 'bg-violet-600 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200'">Rent</button>
+                </div>
+                @if (purchaseType() === 'Rental') {
+                  <div class="mt-3 grid grid-cols-2 gap-3">
+                    <label class="text-xs font-semibold text-slate-600">Start date<input type="date" [value]="rentalStartDate()" (change)="rentalStartDate.set($any($event.target).value)" class="input-field mt-1" /></label>
+                    <label class="text-xs font-semibold text-slate-600">End date<input type="date" [value]="rentalEndDate()" (change)="rentalEndDate.set($any($event.target).value)" class="input-field mt-1" /></label>
+                  </div>
+                }
+              </div>
+            }
+
+            <!-- Quantity + CTAs -->
             <div class="mt-8 flex flex-col sm:flex-row gap-3">
               <div class="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 p-1 w-fit">
                 <button type="button" (click)="decrement()" [disabled]="quantity() <= 1" aria-label="Decrease quantity" class="qty-btn">
@@ -21913,7 +22314,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
                 </svg>
-                {{ p.stock === 0 ? 'Out of stock' : 'Add to Cart â€” ' + (p.price * quantity() | currency) }}
+                {{ p.stock === 0 ? 'Out of stock' : 'Add to Cart — ' + (p.price * quantity() | currency) }}
               </button>
 
               <button
@@ -21936,19 +22337,19 @@ type Tab = 'description' | 'specs' | 'reviews';
                 <svg class="w-5 h-5 text-violet-500 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
                 </svg>
-                <p class="text-sm text-slate-600"><span class="font-semibold text-slate-900">Free delivery</span> on orders over $75 Â· arrives in 2â€“4 business days</p>
+                <p class="text-sm text-slate-600"><span class="font-semibold text-slate-900">Free delivery</span> on orders over $75 · arrives in 2–4 business days</p>
               </div>
               <div class="flex items-center gap-3 px-5 py-3.5">
                 <svg class="w-5 h-5 text-violet-500 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
                 </svg>
-                <p class="text-sm text-slate-600"><span class="font-semibold text-slate-900">Free 30-day returns</span> â€” no questions asked</p>
+                <p class="text-sm text-slate-600"><span class="font-semibold text-slate-900">Free 30-day returns</span> — no questions asked</p>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- â•â• Tabs â•â• -->
+        <!-- ══ Tabs ══ -->
         <div class="mt-14" id="product-tabs">
           <div class="border-b border-slate-200 flex gap-1 overflow-x-auto no-scrollbar" role="tablist" aria-label="Product information">
             @for (tab of tabs; track tab.key) {
@@ -21961,7 +22362,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                 [class]="activeTab() === tab.key ? 'text-violet-700' : 'text-slate-500 hover:text-slate-800'">
                 {{ tab.label }}
                 @if (tab.key === 'reviews') {
-                  <span class="ml-1.5 badge bg-slate-100 text-slate-500">{{ reviews().length }}</span>
+                  <span class="ms-1.5 badge bg-slate-100 text-slate-500">{{ reviews().length }}</span>
                 }
                 @if (activeTab() === tab.key) {
                   <span class="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-violet-600"></span>
@@ -22004,7 +22405,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                     <tbody>
                       @for (spec of (p.specs || []); track spec.label; let even = $even) {
                         <tr [class]="even ? 'bg-slate-50/70' : 'bg-white'">
-                          <th scope="row" class="text-left font-semibold text-slate-700 px-6 py-3.5 w-1/3">{{ spec.label }}</th>
+                          <th scope="row" class="text-start font-semibold text-slate-700 px-6 py-3.5 w-1/3">{{ spec.label }}</th>
                           <td class="text-slate-600 px-6 py-3.5">{{ spec.value }}</td>
                         </tr>
                       }
@@ -22035,7 +22436,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                             <div class="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
                               <div class="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 transition-all duration-500" [style.width.%]="bucket.percent"></div>
                             </div>
-                            <span class="text-xs text-slate-400 w-9 text-right shrink-0">{{ bucket.percent }}%</span>
+                            <span class="text-xs text-slate-400 w-9 text-end shrink-0">{{ bucket.percent }}%</span>
                           </div>
                         }
                       </div>
@@ -22045,7 +22446,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                           <h3 class="font-bold text-sm mb-3">Write a Review</h3>
                           <div class="flex items-center gap-1 mb-4">
                             @for (star of [1,2,3,4,5]; track star) {
-                              <button type="button" (click)="newReviewRating.set(star)" class="text-2xl transition-colors" [class]="star <= newReviewRating() ? 'text-amber-400' : 'text-slate-200'">â˜…</button>
+                              <button type="button" (click)="newReviewRating.set(star)" class="text-2xl transition-colors" [class]="star <= newReviewRating() ? 'text-amber-400' : 'text-slate-200'">★</button>
                             }
                           </div>
                           <textarea [(ngModel)]="newReviewComment" rows="3" class="w-full rounded-xl border-slate-200 text-sm focus:border-violet-500 focus:ring-violet-500 mb-3" placeholder="Share your thoughts..."></textarea>
@@ -22063,14 +22464,14 @@ type Tab = 'description' | 'specs' | 'reviews';
                       <app-empty-state
                         icon="reviews"
                         title="No reviews yet"
-                        message="Be the first to share your experience with this product â€” your review helps other shoppers decide." />
+                        message="Be the first to share your experience with this product — your review helps other shoppers decide." />
                     }
                     @for (review of reviews(); track review.id) {
                       <article class="card p-6">
                         @if (isEditingReview() === review.id) {
                           <div class="flex items-center gap-1 mb-4">
                             @for (star of [1,2,3,4,5]; track star) {
-                              <button type="button" (click)="editReviewRating.set(star)" class="text-2xl transition-colors" [class]="star <= editReviewRating() ? 'text-amber-400' : 'text-slate-200'">â˜…</button>
+                              <button type="button" (click)="editReviewRating.set(star)" class="text-2xl transition-colors" [class]="star <= editReviewRating() ? 'text-amber-400' : 'text-slate-200'">★</button>
                             }
                           </div>
                           <textarea [(ngModel)]="editReviewComment" rows="3" class="w-full rounded-xl border-slate-200 text-sm focus:border-violet-500 focus:ring-violet-500 mb-3"></textarea>
@@ -22117,7 +22518,7 @@ type Tab = 'description' | 'specs' | 'reviews';
           </div>
         </div>
 
-        <!-- â•â• Related products â•â• -->
+        <!-- ══ Related products ══ -->
         <section class="mt-10">
           <h2 class="text-2xl font-bold text-slate-900 tracking-tight mb-6">You might also like</h2>
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -22189,6 +22590,9 @@ export class ProductDetailComponent implements OnDestroy {
   readonly selectedColor = signal('');
   readonly selectedSize = signal('');
   readonly quantity = signal(1);
+  readonly purchaseType = signal<'Purchase' | 'Rental'>('Purchase');
+  readonly rentalStartDate = signal('');
+  readonly rentalEndDate = signal('');
   readonly activeTab = signal<Tab>('description');
   readonly categories = toSignal(this.productService.getCategories(), { initialValue: [] });
   readonly relatedProducts = signal<Product[]>([]);
@@ -22269,7 +22673,10 @@ export class ProductDetailComponent implements OnDestroy {
         this.productService.getBySlug(slug).subscribe(product => {
           this.product.set(product);
           this.activeIndex.set(0);
-          this.quantity.set(1);
+           this.quantity.set(1);
+           this.purchaseType.set('Purchase');
+           this.rentalStartDate.set('');
+           this.rentalEndDate.set('');
           this.activeTab.set('description');
           this.selectedColor.set(product?.colors?.[0]?.name ?? '');
           this.selectedSize.set(product?.sizes?.[0] ?? '');
@@ -22296,7 +22703,9 @@ export class ProductDetailComponent implements OnDestroy {
               this.hubConnection.stop();
             }
             this.hubConnection = new signalR.HubConnectionBuilder()
-              .withUrl(`${environment.apiUrl.replace('/api', '')}/hubs/reviews`)
+              .withUrl(`${environment.apiUrl.replace('/api', '')}/hubs/reviews`, {
+                accessTokenFactory: () => this.authService.getToken() || ''
+              })
               .withAutomaticReconnect()
               .build();
               
@@ -22336,7 +22745,12 @@ export class ProductDetailComponent implements OnDestroy {
   addToCart(): void {
     const p = this.product();
     if (!p || p.stock === 0) return;
-    this.cart.add(p, this.quantity(), this.selectedColor() || undefined, this.selectedSize() || undefined);
+    if (this.purchaseType() === 'Rental' && (!this.rentalStartDate() || !this.rentalEndDate())) {
+      this.toastService.error('Select rental start and end dates first.');
+      return;
+    }
+    this.cart.add(p, this.quantity(), this.selectedColor() || undefined, this.selectedSize() || undefined,
+      this.purchaseType(), this.rentalStartDate() || undefined, this.rentalEndDate() || undefined);
   }
 
   toggleWishlist(): void {
@@ -22447,7 +22861,7 @@ import { CartItem } from '../../core/models/shop.models';
 
       <!-- Drawer panel -->
       <aside
-        class="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col animate-[slideIn_0.3s_ease-out]"
+        class="fixed inset-y-0 end-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col animate-[slideIn_0.3s_ease-out]"
         role="dialog"
         aria-modal="true"
         aria-label="Shopping cart">
@@ -22482,27 +22896,6 @@ import { CartItem } from '../../core/models/shop.models';
             <button type="button" (click)="goTo('/shop')" class="btn-primary mt-6">Start Shopping</button>
           </div>
         } @else {
-          <!-- Free shipping progress -->
-          @if (cart.amountToFreeShipping() > 0) {
-            <div class="px-5 pt-4">
-              <p class="text-xs text-slate-500 mb-2">
-                You're <span class="font-semibold text-violet-700">{{ cart.amountToFreeShipping() | currency }}</span> away from <span class="font-semibold">free shipping</span>
-              </p>
-              <div class="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                <div class="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all duration-500" [style.width.%]="shippingProgress()"></div>
-              </div>
-            </div>
-          } @else {
-            <div class="px-5 pt-4">
-              <p class="text-xs font-medium text-emerald-600 flex items-center gap-1.5">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Congratulations â€” your order ships free!
-              </p>
-            </div>
-          }
-
           <!-- Items -->
           <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4">
             @for (item of cart.items(); track trackItem(item)) {
@@ -22513,8 +22906,12 @@ import { CartItem } from '../../core/models/shop.models';
                     <div class="min-w-0">
                       <p class="text-sm font-semibold text-slate-900 truncate">{{ item.name }}</p>
                       <p class="mt-0.5 text-xs text-slate-400">
-                        {{ item.color }}{{ item.color && item.size ? ' Â· ' : '' }}{{ item.size }}
+                        {{ item.color }}{{ item.color && item.size ? ' · ' : '' }}{{ item.size }}
                       </p>
+                      <p class="mt-0.5 text-xs font-medium text-violet-600">{{ item.type ?? 'Purchase' }}</p>
+                      @if (item.type === 'Rental') {
+                        <p class="text-xs text-slate-400">{{ item.rentalStartDate }} to {{ item.rentalEndDate }}</p>
+                      }
                     </div>
                     <button
                       type="button"
@@ -22555,17 +22952,11 @@ import { CartItem } from '../../core/models/shop.models';
                 <span class="font-semibold text-emerald-600">-{{ cart.discount() | currency }}</span>
               </div>
             }
-            <div class="flex justify-between text-sm">
-              <span class="text-slate-500">Shipping</span>
-              <span class="font-semibold" [class]="cart.shipping() === 0 ? 'text-emerald-600' : 'text-slate-900'">
-                {{ cart.shipping() === 0 ? 'Free' : (cart.shipping() | currency) }}
-              </span>
-            </div>
             <div class="flex justify-between text-base font-bold text-slate-900 pt-2 border-t border-slate-200">
-              <span>Total</span>
+              <span>{{ cart.hasRental() ? 'Estimated total' : 'Total' }}</span>
               <span>{{ cart.total() | currency }}</span>
             </div>
-            <p class="text-[11px] text-slate-400">Tax included: {{ cart.tax() | currency }}. Shipping calculated at checkout.</p>
+            <p class="text-[11px] text-slate-400">Final pricing is calculated by the server when the order is placed.</p>
             <div class="grid grid-cols-2 gap-3 pt-1">
               <button type="button" (click)="goTo('/cart')" class="btn-secondary py-3">View Cart</button>
               <button type="button" (click)="goTo('/checkout')" class="btn-primary py-3">Checkout</button>
@@ -22586,11 +22977,6 @@ export class CartDrawerComponent {
 
   trackItem(item: CartItem): string {
     return `${item.productId}-${item.color ?? ''}-${item.size ?? ''}`;
-  }
-
-  shippingProgress(): number {
-    const subtotal = this.cart.subtotal() - this.cart.discount();
-    return Math.min(100, (subtotal / 75) * 100);
   }
 
   goTo(path: string): void {
@@ -22826,7 +23212,7 @@ import { DatePipe } from '@angular/common';
               }
             </button>
 
-            <a routerLink="/" class="flex items-center gap-2 group -ml-3">
+            <a routerLink="/" class="flex items-center gap-2 group -ms-3">
               <img src="/images/logo.png" alt="Budgetha" class="h-16 w-auto object-contain" />
               <span class="text-3xl font-black text-slate-900 tracking-tighter hidden sm:block" style="font-family: 'Outfit', sans-serif; padding-top: 4px;">Budgetha</span>
             </a>
@@ -22853,7 +23239,7 @@ import { DatePipe } from '@angular/common';
 
             <!-- Desktop search -->
             <form (submit)="$event.preventDefault()" class="hidden md:block relative">
-              <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <svg class="absolute start-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
               </svg>
               <input
@@ -22861,9 +23247,9 @@ import { DatePipe } from '@angular/common';
                 name="search"
                 [(ngModel)]="searchTerm"
                 (ngModelChange)="onSearchChange($event)"
-                placeholder="Search productsâ€¦"
+                placeholder="Search products…"
                 aria-label="Search products"
-                class="w-44 lg:w-64 rounded-full border border-slate-200 bg-slate-50/70 pl-10 pr-4 py-2.5 text-sm
+                class="w-44 lg:w-64 rounded-full border border-slate-200 bg-slate-50/70 ps-10 pe-4 py-2.5 text-sm
                        placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20
                        focus:border-teal-500 focus:bg-white transition-all duration-300" />
             </form>
@@ -22874,7 +23260,7 @@ import { DatePipe } from '@angular/common';
                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
               </svg>
               @if (wishlistCount() > 0) {
-                <span class="absolute -top-0.5 -right-0.5 h-5 min-w-5 px-1 rounded-full bg-rose-500 text-white text-[11px] font-bold flex items-center justify-center">
+                <span class="absolute -top-0.5 -end-0.5 h-5 min-w-5 px-1 rounded-full bg-rose-500 text-white text-[11px] font-bold flex items-center justify-center">
                   {{ wishlistCount() }}
                 </span>
               }
@@ -22886,7 +23272,7 @@ import { DatePipe } from '@angular/common';
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
               </svg>
               @if (cartCount() > 0) {
-                <span class="absolute -top-0.5 -right-0.5 h-5 min-w-5 px-1 rounded-full bg-teal-600 text-white text-[11px] font-bold flex items-center justify-center">
+                <span class="absolute -top-0.5 -end-0.5 h-5 min-w-5 px-1 rounded-full bg-teal-600 text-white text-[11px] font-bold flex items-center justify-center">
                   {{ cartCount() }}
                 </span>
               }
@@ -22900,13 +23286,13 @@ import { DatePipe } from '@angular/common';
                     <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
                   </svg>
                   @if (notificationCount() > 0) {
-                    <span class="absolute top-0 right-0.5 h-3 min-w-3 px-1 rounded-full bg-red-500 border border-white text-white text-[9px] font-bold flex items-center justify-center">
+                    <span class="absolute top-0 end-0.5 h-3 min-w-3 px-1 rounded-full bg-red-500 border border-white text-white text-[9px] font-bold flex items-center justify-center">
                     </span>
                   }
                 </button>
                 
                 @if (notificationMenuOpen()) {
-                  <div class="absolute right-0 mt-2 w-80 card bg-white shadow-xl shadow-slate-200/80 animate-[menuIn_0.15s_ease-out] z-50 overflow-hidden" (click)="$event.stopPropagation()">
+                  <div class="absolute end-0 mt-2 w-80 card bg-white shadow-xl shadow-slate-200/80 animate-[menuIn_0.15s_ease-out] z-50 overflow-hidden" (click)="$event.stopPropagation()">
                     <div class="px-4 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                       <span class="text-sm font-semibold text-slate-800">Notifications</span>
                       @if (notificationCount() > 0) {
@@ -22960,7 +23346,7 @@ import { DatePipe } from '@angular/common';
                   (click)="toggleUserMenu($event)"
                   [attr.aria-expanded]="userMenuOpen()"
                   aria-label="Account menu"
-                  class="flex items-center gap-2 rounded-full pl-1 pr-1 sm:pr-3 py-1 hover:bg-slate-100 transition-colors duration-300">
+                  class="flex items-center gap-2 rounded-full ps-1 pe-1 sm:pe-3 py-1 hover:bg-slate-100 transition-colors duration-300">
                   <span class="h-8 w-8 rounded-full bg-gradient-to-br from-teal-500 to-teal-700 text-white text-xs font-bold flex items-center justify-center">
                     {{ initials() }}
                   </span>
@@ -22970,7 +23356,7 @@ import { DatePipe } from '@angular/common';
                 </button>
 
                 @if (userMenuOpen()) {
-                  <div class="absolute right-0 mt-2 w-64 card p-2 bg-white shadow-xl shadow-slate-200/80 animate-[menuIn_0.15s_ease-out] z-50" (click)="$event.stopPropagation()">
+                  <div class="absolute end-0 mt-2 w-64 card p-2 bg-white shadow-xl shadow-slate-200/80 animate-[menuIn_0.15s_ease-out] z-50" (click)="$event.stopPropagation()">
                     <div class="px-3 py-2.5 border-b border-slate-100 mb-1">
                       <p class="text-sm font-semibold text-slate-900 truncate">{{ auth.user()?.firstName }} {{ auth.user()?.lastName }}</p>
                       <p class="text-xs text-slate-400 break-all">{{ auth.user()?.email }}</p>
@@ -23007,14 +23393,14 @@ import { DatePipe } from '@angular/common';
                 class="hidden sm:inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 transition-all duration-300">
                 Sign in
               </a>
-              <a routerLink="/auth/register" class="btn-primary px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm ml-1">Sign up</a>
+              <a routerLink="/auth/register" class="btn-primary px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm ms-1">Sign up</a>
             }
           </div>
         </div>
 
         <!-- Mobile search -->
         <form (submit)="$event.preventDefault()" class="md:hidden pb-3 relative">
-          <svg class="absolute left-3.5 top-1/2 -translate-y-[calc(50%+0.375rem)] w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <svg class="absolute start-3.5 top-1/2 -translate-y-[calc(50%+0.375rem)] w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
           </svg>
           <input
@@ -23022,9 +23408,9 @@ import { DatePipe } from '@angular/common';
             name="search-mobile"
             [(ngModel)]="searchTerm"
             (ngModelChange)="onSearchChange($event)"
-            placeholder="Search productsâ€¦"
+            placeholder="Search products…"
             aria-label="Search products"
-            class="w-full rounded-full border border-slate-200 bg-slate-50/70 pl-10 pr-4 py-2.5 text-sm
+            class="w-full rounded-full border border-slate-200 bg-slate-50/70 ps-10 pe-4 py-2.5 text-sm
                    placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20
                    focus:border-teal-500 focus:bg-white transition-all duration-300" />
         </form>
@@ -23165,7 +23551,7 @@ export class HeaderComponent implements OnInit {
   logout(): void {
     this.userMenuOpen.set(false);
     this.auth.logout();
-    this.toast.success('Youâ€™ve been signed out.');
+    this.toast.success('You’ve been signed out.');
   }
 
   installApp(): void {
@@ -23249,15 +23635,15 @@ import { CommonModule } from '@angular/common';
       </div>
 
       <!-- Floating Buttons -->
-      <button type="button" (click)="prevCard()" class="absolute -left-5 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white backdrop-blur-md transition-all duration-300 border border-white/20 shadow-[0_4px_12px_rgba(0,0,0,0.2)] hover:scale-110 active:scale-95" style="z-index: 40;">
+      <button type="button" (click)="prevCard()" class="absolute -start-5 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white backdrop-blur-md transition-all duration-300 border border-white/20 shadow-[0_4px_12px_rgba(0,0,0,0.2)] hover:scale-110 active:scale-95" style="z-index: 40;">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
       </button>
-      <button type="button" (click)="nextCard()" class="absolute -right-5 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white backdrop-blur-md transition-all duration-300 border border-white/20 shadow-[0_4px_12px_rgba(0,0,0,0.2)] hover:scale-110 active:scale-95" style="z-index: 40;">
+      <button type="button" (click)="nextCard()" class="absolute -end-5 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white backdrop-blur-md transition-all duration-300 border border-white/20 shadow-[0_4px_12px_rgba(0,0,0,0.2)] hover:scale-110 active:scale-95" style="z-index: 40;">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
       </button>
 
       <!-- Slider Dots -->
-      <div class="absolute -bottom-8 left-0 right-0 flex justify-center gap-1.5 flex-wrap px-4">
+      <div class="absolute -bottom-8 start-0 end-0 flex justify-center gap-1.5 flex-wrap px-4">
         <button type="button" *ngFor="let dot of cards; let i = index" 
                 (click)="currentCardIndex.set(i)"
                 class="h-2 rounded-full transition-all duration-300 ease-out"
@@ -23591,7 +23977,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
   imports: [CurrencyPipe, RouterLink, StarRatingComponent],
   template: `
     @if (layout() === 'grid') {
-      <!-- â”€â”€ Grid card â”€â”€ -->
+      <!-- ── Grid card ── -->
       <article class="group card overflow-hidden hover:shadow-xl hover:shadow-violet-100/60 hover:-translate-y-1 transition-all duration-300 flex flex-col h-full">
         <div class="relative aspect-square overflow-hidden bg-slate-100">
           <a [routerLink]="['/products', product().slug]" class="block h-full p-4">
@@ -23603,7 +23989,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
           </a>
 
           <!-- Badges -->
-          <div class="absolute top-3 left-3 flex flex-col gap-1.5">
+          <div class="absolute top-3 start-3 flex flex-col gap-1.5">
             @if (discountPercent() > 0) {
               <span class="badge bg-rose-500 text-white shadow-sm">-{{ discountPercent() }}%</span>
             }
@@ -23621,7 +24007,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
           </div>
 
           <!-- Hover actions -->
-          <div class="absolute top-3 right-3 flex flex-col gap-2 opacity-100 lg:opacity-0 lg:translate-x-2 lg:group-hover:opacity-100 lg:group-hover:translate-x-0 transition-all duration-300">
+          <div class="absolute top-3 end-3 flex flex-col gap-2 opacity-100 lg:opacity-0 lg:translate-x-2 lg:group-hover:opacity-100 lg:group-hover:translate-x-0 transition-all duration-300">
             <button
               type="button"
               (click)="toggleWishlist()"
@@ -23679,7 +24065,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
         </div>
       </article>
     } @else {
-      <!-- â”€â”€ List card â”€â”€ -->
+      <!-- ── List card ── -->
       <article class="group card overflow-hidden hover:shadow-xl hover:shadow-violet-100/60 transition-all duration-300 flex flex-col sm:flex-row">
         <div class="relative sm:w-56 lg:w-64 shrink-0 aspect-square sm:aspect-auto overflow-hidden bg-slate-100">
           <a [routerLink]="['/products', product().slug]" class="block h-full p-4">
@@ -23689,7 +24075,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
               loading="lazy"
               class="h-full w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-500 p-2" />
           </a>
-          <div class="absolute top-3 left-3 flex flex-col gap-1.5">
+          <div class="absolute top-3 start-3 flex flex-col gap-1.5">
             @if (discountPercent() > 0) {
               <span class="badge bg-rose-500 text-white shadow-sm">-{{ discountPercent() }}%</span>
             }
@@ -23826,17 +24212,17 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
                 type="button"
                 (click)="close()"
                 aria-label="Close quick view"
-                class="absolute top-4 right-4 icon-btn h-9 w-9 bg-slate-100">
+                class="absolute top-4 end-4 icon-btn h-9 w-9 bg-slate-100">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
 
               <span class="text-xs font-medium uppercase tracking-wider text-slate-400">{{ p.brand }}</span>
-              <h2 class="mt-1 text-xl font-bold text-slate-900 pr-10">{{ p.name }}</h2>
+              <h2 class="mt-1 text-xl font-bold text-slate-900 pe-10">{{ p.name }}</h2>
               <div class="mt-2 flex items-center gap-2">
                 <app-star-rating [rating]="p.rating" size="sm" />
-                <span class="text-xs text-slate-400">{{ p.rating }} Â· {{ p.reviewCount }} reviews</span>
+                <span class="text-xs text-slate-400">{{ p.rating }} · {{ p.reviewCount }} reviews</span>
               </div>
 
               <div class="mt-4 flex items-baseline gap-2">
@@ -24010,7 +24396,7 @@ import { Toast, ToastService, ToastType } from '../../../core/services/toast.ser
          pointer-events are off on the stack and back on per card, so the
          container never blocks clicks on the page beneath it. -->
     <div
-      class="fixed inset-x-4 top-20 z-[60] flex flex-col items-end gap-3 sm:inset-x-auto sm:right-6 sm:top-24 sm:max-w-sm pointer-events-none"
+      class="fixed inset-x-4 top-20 z-[60] flex flex-col items-end gap-3 sm:inset-x-auto sm:end-6 sm:top-24 sm:max-w-sm pointer-events-none"
       role="region"
       aria-label="Notifications">
       <div aria-live="polite" aria-atomic="false" class="sr-only">
@@ -24047,7 +24433,7 @@ import { Toast, ToastService, ToastType } from '../../../core/services/toast.ser
               type="button"
               (click)="dismiss(toast.id)"
               aria-label="Dismiss notification"
-              class="-mr-1 -mt-1 shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600
+              class="-me-1 -mt-1 shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600
                      focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600
                      transition-colors duration-200">
               <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">

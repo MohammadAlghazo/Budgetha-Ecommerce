@@ -56,5 +56,4 @@ public interface IAdminService
     Task<bool> BanUserAsync(string actorId, bool actorIsSuperAdmin, string userId);
     Task<bool> UnbanUserAsync(string actorId, bool actorIsSuperAdmin, string userId);
     Task<bool> DeleteUserAsync(string actorId, bool actorIsSuperAdmin, string userId);
-    Task<bool> DeleteProductAsync(Guid productId);
 }

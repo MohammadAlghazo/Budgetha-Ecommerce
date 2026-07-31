@@ -28,6 +28,7 @@ public class GetAddressesQueryHandler : IRequestHandler<GetAddressesQuery, List<
             .Select(a => new AddressDto(
                 a.Id,
                 a.FullName,
+                a.Phone,
                 a.Line1,
                 a.Line2,
                 a.City,

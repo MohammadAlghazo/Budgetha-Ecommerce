@@ -7,6 +7,7 @@ namespace Budgetha.Application.Features.Addresses.Commands;
 public record UpdateAddressCommand(
     Guid Id,
     string FullName,
+    string Phone,
     string Line1,
     string? Line2,
     string City,
@@ -46,6 +47,7 @@ public class UpdateAddressCommandHandler : IRequestHandler<UpdateAddressCommand,
         }
 
         address.FullName = request.FullName;
+        address.Phone = request.Phone;
         address.Line1 = request.Line1;
         address.Line2 = request.Line2;
         address.City = request.City;

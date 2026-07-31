@@ -8,6 +8,7 @@ namespace Budgetha.Application.Features.Cart.Commands;
 
 public record SyncCartItemDto(
     Guid ProductId,
+    Guid? VariantId,
     int Quantity,
     string? Color,
     string? Size,
@@ -51,12 +52,13 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
         }
 
         var syncedItems = request.Items
-            .GroupBy(i => new { i.ProductId, i.Color, i.Size, i.Type, i.RentalStartDate, i.RentalEndDate })
+            .GroupBy(i => new { i.ProductId, i.VariantId, i.Type, i.RentalStartDate, i.RentalEndDate })
             .Select(group => new SyncCartItemDto(
                 group.Key.ProductId,
+                group.Key.VariantId,
                 group.Sum(i => i.Quantity),
-                group.Key.Color,
-                group.Key.Size,
+                group.First().Color,
+                group.First().Size,
                 group.Key.Type,
                 group.Key.RentalStartDate,
                 group.Key.RentalEndDate))
@@ -66,14 +68,17 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
         {
             CartRules.ValidateQuantity(itemDto.Quantity);
 
-            var product = await _context.Products.FindAsync(new object[] { itemDto.ProductId }, cancellationToken);
+            var product = await _context.Products
+                .Include(p => p.Variants)
+                .SingleOrDefaultAsync(p => p.Id == itemDto.ProductId, cancellationToken);
             if (product == null || !product.IsActive || product.ApprovalStatus != ApprovalStatus.Approved)
                 throw new InvalidOperationException($"Product {itemDto.ProductId} is not available.");
 
+            var variant = InventoryRules.ValidateVariant(product, itemDto.VariantId, itemDto.Color, itemDto.Size);
+
             var existingItem = cart.Items.FirstOrDefault(i => 
                 i.ProductId == itemDto.ProductId && 
-                i.Color == itemDto.Color && 
-                i.Size == itemDto.Size &&
+                i.VariantId == itemDto.VariantId &&
                 i.Type == itemDto.Type &&
                 i.RentalStartDate == itemDto.RentalStartDate &&
                 i.RentalEndDate == itemDto.RentalEndDate);
@@ -84,7 +89,7 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
 
             if (itemDto.Type == OrderItemType.Purchase)
             {
-                if (mergedQuantity > product.StockQuantity)
+                if (mergedQuantity > (variant?.StockQuantity ?? product.StockQuantity))
                     throw new InvalidOperationException($"Not enough stock available for product {itemDto.ProductId}.");
             }
             else if (itemDto.Type == OrderItemType.Rental)
@@ -94,17 +99,11 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
 
                 CartRules.ValidateRentalDates(itemDto.RentalStartDate, itemDto.RentalEndDate);
 
-                var totalRented = await _context.OrderItems
-                    .Where(oi => oi.ProductId == itemDto.ProductId &&
-                                 oi.Type == OrderItemType.Rental &&
-                                 oi.Order != null &&
-                                 oi.Order.Status != OrderStatus.Cancelled &&
-                                 oi.Order.Status != OrderStatus.Failed &&
-                                 oi.RentalStartDate <= itemDto.RentalEndDate &&
-                                 oi.RentalEndDate >= itemDto.RentalStartDate)
-                    .SumAsync(oi => oi.Quantity, cancellationToken);
+                var totalRented = await InventoryRules.GetMaximumReservedQuantityAsync(
+                    _context, itemDto.ProductId, variant?.Id, itemDto.RentalStartDate!.Value,
+                    itemDto.RentalEndDate!.Value, cancellationToken);
 
-                if (mergedQuantity > product.StockQuantity - totalRented)
+                if (mergedQuantity > (variant?.StockQuantity ?? product.StockQuantity) - totalRented)
                     throw new InvalidOperationException($"Not enough rental stock available for product {itemDto.ProductId}.");
             }
             else
@@ -115,15 +114,18 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
             if (existingItem != null)
             {
                 existingItem.Quantity = mergedQuantity;
+                existingItem.Color = variant?.Color;
+                existingItem.Size = variant?.Size;
             }
             else
             {
                 cart.Items.Add(new CartItem
                 {
                     ProductId = itemDto.ProductId,
+                    VariantId = variant?.Id,
                     Quantity = mergedQuantity,
-                    Color = itemDto.Color,
-                    Size = itemDto.Size,
+                    Color = variant?.Color,
+                    Size = variant?.Size,
                     Type = itemDto.Type,
                     RentalStartDate = itemDto.RentalStartDate,
                     RentalEndDate = itemDto.RentalEndDate

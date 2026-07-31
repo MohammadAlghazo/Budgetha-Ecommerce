@@ -25,6 +25,13 @@ public class OrdersController : ControllerBase
         return Ok(orderId);
     }
 
+    [HttpPost("quote")]
+    public async Task<ActionResult<Budgetha.Application.Common.Models.CheckoutQuote>> GetQuote(
+        [FromBody] GetCheckoutQuoteQuery query)
+    {
+        return Ok(await _mediator.Send(query));
+    }
+
     [HttpGet("history")]
     [Authorize(Roles = "Seller,Admin,SuperAdmin")]
     public async Task<ActionResult<List<TransactionHistoryDto>>> GetHistory(

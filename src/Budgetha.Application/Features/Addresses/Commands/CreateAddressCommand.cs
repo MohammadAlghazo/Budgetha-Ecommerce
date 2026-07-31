@@ -7,6 +7,7 @@ namespace Budgetha.Application.Features.Addresses.Commands;
 
 public record CreateAddressCommand(
     string FullName,
+    string Phone,
     string Line1,
     string? Line2,
     string City,
@@ -46,6 +47,7 @@ public class CreateAddressCommandHandler : IRequestHandler<CreateAddressCommand,
         {
             UserId = userId,
             FullName = request.FullName,
+            Phone = request.Phone,
             Line1 = request.Line1,
             Line2 = request.Line2,
             City = request.City,

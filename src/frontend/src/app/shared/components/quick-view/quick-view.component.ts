@@ -72,7 +72,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
                     @for (color of p.colors; track color.name) {
                       <button
                         type="button"
-                        (click)="selectedColor.set(color.name)"
+                        (click)="selectColor(color.name)"
                         [attr.aria-label]="color.name"
                         class="h-8 w-8 rounded-full ring-2 ring-offset-2 transition-all duration-300"
                         [class]="selectedColor() === color.name ? 'ring-violet-600 scale-110' : 'ring-transparent hover:ring-slate-300'"
@@ -89,7 +89,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
                     @for (size of p.sizes; track size) {
                       <button
                         type="button"
-                        (click)="selectedSize.set(size)"
+                        (click)="selectSize(size)"
                         class="min-w-[2.75rem] px-3 py-2 rounded-lg border text-sm font-medium transition-all duration-300"
                         [class]="selectedSize() === size
                           ? 'border-violet-600 bg-violet-50 text-violet-700'
@@ -129,6 +129,7 @@ export class QuickViewComponent {
   readonly activeIndex = signal(0);
   readonly selectedColor = signal<string>('');
   readonly selectedSize = signal<string>('');
+  readonly selectedVariantId = signal<string | undefined>(undefined);
 
   readonly activeImage = computed(() => {
     const p = this.product();
@@ -141,8 +142,10 @@ export class QuickViewComponent {
     effect(() => {
       const p = this.product();
       this.activeIndex.set(0);
-      this.selectedColor.set(p?.colors[0]?.name ?? '');
-      this.selectedSize.set(p?.sizes[0] ?? '');
+      const variant = p?.variants?.find(item => item.isActive);
+      this.selectedColor.set(variant?.color ?? '');
+      this.selectedSize.set(variant?.size ?? '');
+      this.selectedVariantId.set(variant?.id);
     });
   }
 
@@ -156,10 +159,31 @@ export class QuickViewComponent {
     this.cart.add(
       p,
       1,
-      this.selectedColor() || p.colors[0]?.name,
-      this.selectedSize() || p.sizes[0]
+      this.selectedColor(),
+      this.selectedSize(),
+      'Purchase', undefined, undefined, this.selectedVariantId()
     );
     this.close();
+  }
+
+  selectColor(color: string): void {
+    this.selectedColor.set(color);
+    const variant = this.product()?.variants?.find(v => v.color === color && (!this.selectedSize() || v.size === this.selectedSize()))
+      ?? this.product()?.variants?.find(v => v.color === color);
+    if (variant) {
+      this.selectedVariantId.set(variant.id);
+      this.selectedSize.set(variant.size ?? '');
+    }
+  }
+
+  selectSize(size: string): void {
+    this.selectedSize.set(size);
+    const variant = this.product()?.variants?.find(v => v.size === size && (!this.selectedColor() || v.color === this.selectedColor()))
+      ?? this.product()?.variants?.find(v => v.size === size);
+    if (variant) {
+      this.selectedVariantId.set(variant.id);
+      this.selectedColor.set(variant.color ?? '');
+    }
   }
 
   viewFullDetails(): void {

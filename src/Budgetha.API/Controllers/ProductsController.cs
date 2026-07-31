@@ -1,4 +1,5 @@
 using Budgetha.Application.Features.Products.Commands;
+using Budgetha.Application.Features.Products;
 using Budgetha.Application.Features.Products.Queries;
 using Budgetha.Domain.Enums;
 using MediatR;
@@ -50,12 +51,17 @@ public class ProductsController : ControllerBase
             request.Price,
             request.StockQuantity,
             request.CategoryId,
-            request.ImageUrls ?? new List<string>(),
+            request.Images ?? new List<ProductImageInput>(),
             request.IsAvailableForRent,
             request.RentalPricePerDay,
             userId,
             request.Brand,
-            request.OriginalPrice
+            request.OriginalPrice,
+            request.Colors,
+            request.Sizes,
+            request.Specs,
+            request.Features,
+            request.Variants
         );
 
         var productId = await _mediator.Send(command);
@@ -76,12 +82,17 @@ public class ProductsController : ControllerBase
             request.Price,
             request.StockQuantity,
             request.CategoryId,
-            request.ImageUrls ?? new List<string>(),
+            request.Images ?? new List<ProductImageInput>(),
             request.IsAvailableForRent,
             request.RentalPricePerDay,
             userId,
             request.Brand,
-            request.OriginalPrice
+            request.OriginalPrice,
+            request.Colors,
+            request.Sizes,
+            request.Specs,
+            request.Features,
+            request.Variants
         );
 
         var result = await _mediator.Send(command);
@@ -132,9 +143,14 @@ public record CreateProductRequest(
     decimal Price,
     int StockQuantity,
     Guid CategoryId,
-    List<string> ImageUrls,
+    List<ProductImageInput> Images,
     bool IsAvailableForRent,
     decimal? RentalPricePerDay,
     string Brand,
-    decimal? OriginalPrice
+    decimal? OriginalPrice,
+    List<string>? Colors = null,
+    List<string>? Sizes = null,
+    Dictionary<string, string>? Specs = null,
+    List<string>? Features = null,
+    List<ProductVariantInput>? Variants = null
 );

@@ -1,4 +1,6 @@
 using Budgetha.Application.Common.Interfaces;
+using Budgetha.Application.Features.Products.Commands;
+using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -11,10 +13,12 @@ namespace Budgetha.API.Controllers;
 public class ImagesController : ControllerBase
 {
     private readonly IImageService _imageService;
+    private readonly IMediator _mediator;
 
-    public ImagesController(IImageService imageService)
+    public ImagesController(IImageService imageService, IMediator mediator)
     {
         _imageService = imageService;
+        _mediator = mediator;
     }
 
     [HttpPost("upload")]
@@ -38,5 +42,12 @@ public class ImagesController : ControllerBase
             return StatusCode(500, "Image upload failed.");
 
         return Ok(new { url = result.Url, publicId = result.PublicId });
+    }
+
+    [HttpDelete]
+    public async Task<IActionResult> DeleteUnattached([FromQuery] string publicId)
+    {
+        var deleted = await _mediator.Send(new DeleteUnattachedProductImageCommand(publicId));
+        return deleted ? NoContent() : Conflict("The image is attached to a product or could not be deleted.");
     }
 }

@@ -185,7 +185,8 @@ export class ProductCardComponent {
 
   addToCart(): void {
     const p = this.product();
-    this.cart.add(p, 1, p.colors[0]?.name, p.sizes[0]);
+    const variant = p.variants?.find(item => item.isActive);
+    this.cart.add(p, 1, variant?.color, variant?.size, 'Purchase', undefined, undefined, variant?.id);
   }
 
   toggleWishlist(): void {

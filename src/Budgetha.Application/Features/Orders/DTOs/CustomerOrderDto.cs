@@ -16,6 +16,7 @@ public class CustomerOrderDto
 public class CustomerOrderItemDto
 {
     public Guid ProductId { get; set; }
+    public Guid? VariantId { get; set; }
     public string ProductName { get; set; } = string.Empty;
     public string ProductImage { get; set; } = string.Empty;
     public int Quantity { get; set; }

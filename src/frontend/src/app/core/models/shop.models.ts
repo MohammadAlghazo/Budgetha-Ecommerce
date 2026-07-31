@@ -16,6 +16,17 @@ export interface ProductSpec {
   value: string;
 }
 
+export interface ProductVariant {
+  id: string;
+  sku: string;
+  color?: string;
+  size?: string;
+  stockQuantity: number;
+  price?: number;
+  rentalPricePerDay?: number;
+  isActive: boolean;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -32,6 +43,7 @@ export interface Product {
   features: string[];
   specs: ProductSpec[];
   images: string[];
+  imageDetails?: ProductImage[];
   colors: ProductColor[];
   sizes: string[];
   stock: number;
@@ -40,6 +52,12 @@ export interface Product {
   approvalStatus?: string;
   isAvailableForRent?: boolean;
   rentalPricePerDay?: number;
+  variants: ProductVariant[];
+}
+
+export interface ProductImage {
+  url: string;
+  publicId?: string | null;
 }
 
 export interface Review {
@@ -64,6 +82,7 @@ export interface RatingBucket {
 export interface CartItem {
   id?: string;
   productId: string;
+  variantId?: string;
   name: string;
   slug: string;
   brand: string;
@@ -115,6 +134,7 @@ export type OrderStatus = 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | '
 
 export interface OrderItem {
   productId: string;
+  variantId?: string;
   name: string;
   image: string;
   price: number;

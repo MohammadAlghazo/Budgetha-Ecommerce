@@ -1,6 +1,6 @@
-﻿import { Component, inject, signal, OnInit } from '@angular/core';
-import { FormBuilder, Validators, ReactiveFormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+﻿import { Component, inject, signal, OnDestroy, OnInit } from '@angular/core';
+import { FormArray, FormBuilder, Validators, ReactiveFormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { ToastService } from '../../core/services/toast.service';
 import { ProductService } from '../../core/services/product.service';
@@ -9,9 +9,14 @@ import { Category } from '../../core/models/shop.models';
 import { environment } from '../../../environments/environment';
 import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 
+interface ProductImageState {
+  url: string;
+  publicId: string | null;
+}
+
 @Component({
   selector: 'app-admin-add-product',
-  imports: [ReactiveFormsModule, RouterLink],
+  imports: [ReactiveFormsModule],
   template: `
     <div class="max-w-4xl mx-auto space-y-6 pb-20">
       <div>
@@ -127,6 +132,30 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
           <!-- Variants & Features -->
           <div class="space-y-6">
             <h3 class="text-base font-semibold text-slate-900 border-b border-slate-100 pb-2">Variants & Specifications</h3>
+
+            <div class="space-y-3" formArrayName="variants">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm font-semibold text-slate-800">Inventory variants</p>
+                  <p class="text-xs text-slate-500">Each SKU owns its stock and may override product prices.</p>
+                </div>
+                <button type="button" (click)="addVariant()" class="px-3 py-2 text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50">Add variant</button>
+              </div>
+              @for (variant of variants.controls; track $index; let i = $index) {
+                <div [formGroupName]="i" class="grid grid-cols-2 md:grid-cols-8 gap-3 p-4 rounded-xl border border-slate-200 bg-slate-50">
+                  <input formControlName="sku" placeholder="SKU" class="md:col-span-2 px-3 py-2 bg-white border border-slate-200 rounded-lg">
+                  <input formControlName="color" placeholder="Color" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
+                  <input formControlName="size" placeholder="Size" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
+                  <input type="number" min="0" formControlName="stockQuantity" placeholder="Stock" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
+                  <input type="number" min="0.01" step="0.01" formControlName="price" placeholder="Price override" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
+                  <input type="number" min="0.01" step="0.01" formControlName="rentalPricePerDay" placeholder="Rental/day" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
+                  <div class="flex items-center gap-2">
+                    <label class="flex items-center gap-1 text-xs text-slate-600"><input type="checkbox" formControlName="isActive"> Active</label>
+                    <button type="button" (click)="removeVariant(i)" class="px-2 py-2 text-xs font-semibold text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-50">Remove</button>
+                  </div>
+                </div>
+              }
+            </div>
             
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div class="space-y-2">
@@ -195,7 +224,7 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
               <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-6">
                 @for (img of uploadedImages(); track img; let i = $index) {
                   <div class="group relative aspect-square rounded-2xl overflow-hidden bg-white border border-slate-200 shadow-sm p-1">
-                    <img [src]="img" alt="Product Image" class="w-full h-full object-contain rounded-xl">
+                    <img [src]="img.url" alt="Product Image" class="w-full h-full object-contain rounded-xl">
                     <!-- Delete Button -->
                     <button type="button" (click)="removeImage(i)" 
                             class="absolute top-2 end-2 w-8 h-8 rounded-full bg-white/90 text-rose-500 shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-50 hover:text-rose-600 focus:outline-none">
@@ -219,9 +248,9 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 
           <!-- Submit -->
           <div class="pt-6 border-t border-slate-100 flex items-center justify-end gap-4">
-            <a routerLink="/seller/products" class="px-6 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+            <button type="button" (click)="cancel()" class="px-6 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
               Cancel
-            </a>
+            </button>
             <button type="submit" [disabled]="form.invalid || isSubmitting || uploadedImages().length === 0"
                     class="px-8 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-all shadow-sm shadow-indigo-200">
               @if (isSubmitting) {
@@ -254,7 +283,7 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
     }
   `
 })
-export class AdminAddProductComponent implements OnInit {
+export class AdminAddProductComponent implements OnInit, OnDestroy {
   private fb = inject(FormBuilder);
   private http = inject(HttpClient);
   private router = inject(Router);
@@ -268,7 +297,8 @@ export class AdminAddProductComponent implements OnInit {
   isEditMode = signal(false);
   editProductId = signal<string | null>(null);
 
-  uploadedImages = signal<string[]>([]);
+  uploadedImages = signal<ProductImageState[]>([]);
+  private readonly pendingImageIds = new Set<string>();
   categories = signal<Category[]>([]);
   editingFile = signal<File | null>(null);
   editorInstance: any = null;
@@ -286,8 +316,13 @@ export class AdminAddProductComponent implements OnInit {
     colors: [''],
     sizes: [''],
     features: [''],
-    specs: ['']
+    specs: [''],
+    variants: this.fb.array([])
   });
+
+  get variants(): FormArray {
+    return this.form.controls.variants;
+  }
 
   ngOnInit() {
     this.productService.getCategories().subscribe(res => {
@@ -322,8 +357,17 @@ export class AdminAddProductComponent implements OnInit {
           features: product.features ? product.features.map((f: any) => f.value).join('\n') : '',
           specs: product.specs ? product.specs.map((s: any) => `${s.key}: ${s.value}`).join('\n') : ''
         });
-        if (product.images) {
-          this.uploadedImages.set(product.images);
+        if (product.imageDetails?.length) {
+          this.uploadedImages.set(product.imageDetails.map(image => ({
+            url: image.url,
+            publicId: image.publicId ?? null
+          })));
+        } else if (product.images) {
+          this.uploadedImages.set(product.images.map(url => ({ url, publicId: null })));
+        }
+        this.variants.clear();
+        for (const variant of product.variants ?? []) {
+          this.variants.push(this.createVariantGroup(variant));
         }
         if (product.isAvailableForRent) {
           this.form.get('rentalPricePerDay')?.setValidators([Validators.required, Validators.min(0.01)]);
@@ -351,6 +395,27 @@ export class AdminAddProductComponent implements OnInit {
       }
       rentPriceControl?.updateValueAndValidity();
     }
+  }
+
+  addVariant(): void {
+    this.variants.push(this.createVariantGroup());
+  }
+
+  removeVariant(index: number): void {
+    this.variants.removeAt(index);
+  }
+
+  private createVariantGroup(variant?: any) {
+    return this.fb.group({
+      id: [variant?.id ?? null],
+      sku: [variant?.sku ?? '', Validators.required],
+      color: [variant?.color ?? null],
+      size: [variant?.size ?? null],
+      stockQuantity: [variant?.stockQuantity ?? 0, [Validators.required, Validators.min(0)]],
+      price: [variant?.price ?? null, Validators.min(0.01)],
+      rentalPricePerDay: [variant?.rentalPricePerDay ?? null, Validators.min(0.01)],
+      isActive: [variant?.isActive ?? true]
+    });
   }
 
   onFileSelected(event: any): void {
@@ -439,7 +504,11 @@ export class AdminAddProductComponent implements OnInit {
         this.isUploadingImage.set(true);
         this.cloudinary.uploadImage(newFile).subscribe({
           next: (response) => {
-            this.uploadedImages.update(images => [...images, response.url]);
+            this.uploadedImages.update(images => [...images, {
+              url: response.url,
+              publicId: response.publicId
+            }]);
+            this.pendingImageIds.add(response.publicId);
             this.isUploadingImage.set(false);
             this.toast.success('Image edited and uploaded successfully!');
           },
@@ -453,10 +522,32 @@ export class AdminAddProductComponent implements OnInit {
   }
 
   removeImage(index: number): void {
+    const image = this.uploadedImages()[index];
     this.uploadedImages.update(images => images.filter((_, i) => i !== index));
+    if (image?.publicId && this.pendingImageIds.has(image.publicId)) {
+      this.deletePendingImage(image.publicId);
+    }
   }
 
-  
+  cancel(): void {
+    this.cleanupPendingImages();
+    this.router.navigate(['/admin/products']);
+  }
+
+  ngOnDestroy(): void {
+    this.cleanupPendingImages();
+  }
+
+  private deletePendingImage(publicId: string): void {
+    this.pendingImageIds.delete(publicId);
+    this.cloudinary.deleteImage(publicId).subscribe({
+      error: error => console.warn('Failed to remove abandoned product image', error)
+    });
+  }
+
+  private cleanupPendingImages(): void {
+    for (const publicId of [...this.pendingImageIds]) this.deletePendingImage(publicId);
+  }
 
   onSubmit(): void {
     if (this.form.invalid) {
@@ -497,18 +588,24 @@ export class AdminAddProductComponent implements OnInit {
       originalPrice: val.originalPrice,
       stockQuantity: val.stockQuantity,
       categoryId: categoryId,
-      imageUrls: this.uploadedImages(),
+      images: this.uploadedImages(),
       isAvailableForRent: val.isAvailableForRent,
       rentalPricePerDay: val.rentalPricePerDay,
       colors: colors.length > 0 ? colors : null,
       sizes: sizes.length > 0 ? sizes : null,
       features: features.length > 0 ? features : null,
-      specs: Object.keys(specsDict).length > 0 ? specsDict : null
+      specs: Object.keys(specsDict).length > 0 ? specsDict : null,
+      variants: this.variants.getRawValue().map(variant => ({
+        ...variant,
+        color: variant.color?.trim() || null,
+        size: variant.size?.trim() || null
+      }))
     };
 
     if (this.isEditMode() && this.editProductId()) {
       this.http.put<void>(`${environment.apiUrl}/products/${this.editProductId()}`, payload).subscribe({
         next: () => {
+          this.pendingImageIds.clear();
           this.toast.success('Product updated successfully!');
           this.router.navigate(['/admin/products']);
         },
@@ -521,6 +618,7 @@ export class AdminAddProductComponent implements OnInit {
     } else {
       this.http.post<string>(`${environment.apiUrl}/products`, payload).subscribe({
         next: () => {
+          this.pendingImageIds.clear();
           this.toast.success('Product added successfully!');
           this.router.navigate(['/admin/products']);
         },

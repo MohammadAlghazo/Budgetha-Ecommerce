@@ -60,6 +60,7 @@ public class GetCustomerOrdersQueryHandler : IRequestHandler<GetCustomerOrdersQu
         Items = order.Items.Select(item => new CustomerOrderItemDto
         {
             ProductId = item.ProductId,
+            VariantId = item.VariantId,
             ProductName = item.Product.Name,
             ProductImage = item.Product.ThumbnailUrl ?? string.Empty,
             Quantity = item.Quantity,

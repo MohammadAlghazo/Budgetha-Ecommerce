@@ -3,6 +3,7 @@ namespace Budgetha.Application.Features.Addresses.Queries;
 public record AddressDto(
     Guid Id,
     string FullName,
+    string Phone,
     string Line1,
     string? Line2,
     string City,

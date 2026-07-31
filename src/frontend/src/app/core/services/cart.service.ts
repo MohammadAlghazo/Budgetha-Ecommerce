@@ -65,8 +65,6 @@ export class CartService {
   private syncWithBackend() {
     const localItems = this.load();
     if (localItems.length > 0) {
-      // Temporarily clear local items so we don't push them again
-      localStorage.removeItem(STORAGE_KEY);
       this.pushLocalToBackend(localItems);
     } else {
       this.fetchFromBackend();
@@ -80,6 +78,7 @@ export class CartService {
           const mappedItems: CartItem[] = cart.items.map((i: any) => ({
             id: i.id,
             productId: i.productId,
+            variantId: i.variantId,
             name: i.productName,
             slug: '', // missing in backend dto, can add if needed
             brand: '',
@@ -105,6 +104,7 @@ export class CartService {
   private pushLocalToBackend(localItems: CartItem[]) {
     const items = localItems.map(item => ({
       productId: item.productId,
+      variantId: item.variantId,
       quantity: item.quantity,
       color: item.color,
       size: item.size,
@@ -114,7 +114,10 @@ export class CartService {
     }));
 
     this.http.post(`${this.apiUrl}/sync`, { items }).subscribe({
-      next: () => this.fetchFromBackend(),
+      next: () => {
+        localStorage.removeItem(STORAGE_KEY);
+        this.fetchFromBackend();
+      },
       error: (err) => console.error('Failed to bulk sync cart', err)
     });
   }
@@ -126,11 +129,29 @@ export class CartService {
     size?: string,
     type: 'Purchase' | 'Rental' = 'Purchase',
     rentalStartDate?: string,
-    rentalEndDate?: string
+    rentalEndDate?: string,
+    variantId?: string
   ): void {
+    const variant = product.variants?.find(v => v.id === variantId && v.isActive);
+    if (product.variants?.some(v => v.isActive) && !variant) {
+      this.toast.error('Select an available product variant');
+      return;
+    }
+    if (type === 'Rental' && (!rentalStartDate || !rentalEndDate || rentalEndDate <= rentalStartDate)) {
+      this.toast.error('Rental end date must be after the start date');
+      return;
+    }
+    const stock = variant?.stockQuantity ?? product.stock;
+    const days = type === 'Rental' && rentalStartDate && rentalEndDate
+      ? (Date.parse(rentalEndDate) - Date.parse(rentalStartDate)) / 86400000
+      : 1;
+    const price = type === 'Rental'
+      ? (variant?.rentalPricePerDay ?? product.rentalPricePerDay ?? variant?.price ?? product.price) * days
+      : variant?.price ?? product.price;
     if (this.auth.isAuthenticated()) {
       this.http.post(`${this.apiUrl}/items`, {
         productId: product.id,
+        variantId: variant?.id ?? null,
         quantity: quantity,
         type: type === 'Rental' ? 1 : 0,
         rentalStartDate: rentalStartDate ?? null,
@@ -148,7 +169,7 @@ export class CartService {
       // Local logic
       this._items.update(items => {
         const existing = items.find(
-          i => i.productId === product.id && i.color === color && i.size === size &&
+          i => i.productId === product.id && i.variantId === variant?.id &&
             i.type === type && i.rentalStartDate === rentalStartDate && i.rentalEndDate === rentalEndDate
         );
         if (existing) {
@@ -164,11 +185,12 @@ export class CartService {
             slug: product.slug,
             brand: product.brand,
             image: product.images?.[0] || '',
-            price: product.price,
-            quantity: Math.min(quantity, product.stock),
-            stock: product.stock,
-            color,
-            size,
+            variantId: variant?.id,
+            price,
+            quantity: Math.min(quantity, stock),
+            stock,
+            color: variant?.color,
+            size: variant?.size,
             type,
             rentalStartDate,
             rentalEndDate,
@@ -197,7 +219,8 @@ export class CartService {
     } else {
       this._items.update(items =>
         items.map(i =>
-          i.productId === item.productId && i.color === item.color && i.size === item.size
+          i.productId === item.productId && i.variantId === item.variantId &&
+            i.type === item.type && i.rentalStartDate === item.rentalStartDate && i.rentalEndDate === item.rentalEndDate
             ? { ...i, quantity: Math.min(quantity, i.stock) }
             : i
         )
@@ -217,7 +240,8 @@ export class CartService {
     } else {
       this._items.update(items =>
         items.filter(
-          i => !(i.productId === item.productId && i.color === item.color && i.size === item.size)
+          i => !(i.productId === item.productId && i.variantId === item.variantId &&
+            i.type === item.type && i.rentalStartDate === item.rentalStartDate && i.rentalEndDate === item.rentalEndDate)
         )
       );
       this.toast.success('Item removed');

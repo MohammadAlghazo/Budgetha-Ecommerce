@@ -1,4 +1,5 @@
 using Budgetha.Application.Common.Interfaces;
+using Budgetha.Application.Features.Products.Commands;
 using Budgetha.Application.Features.Products.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
@@ -81,7 +82,10 @@ public class AdminController : ControllerBase
     [Authorize(Roles = "SuperAdmin")]
     public async Task<IActionResult> DeleteProduct(Guid id)
     {
-        var result = await _adminService.DeleteProductAsync(id);
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+        var result = await _mediator.Send(new DeleteProductCommand(id, userId, true));
         if (!result) return NotFound();
         return NoContent();
     }

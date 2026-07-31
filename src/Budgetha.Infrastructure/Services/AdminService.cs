@@ -16,15 +16,13 @@ public class AdminService : IAdminService
     private readonly ApplicationDbContext _context;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IMemoryCache _cache;
-    private readonly IImageService _imageService;
     private const string UsersCacheKey = "Admin_AllUsersCache";
 
-    public AdminService(ApplicationDbContext context, UserManager<ApplicationUser> userManager, IMemoryCache cache, IImageService imageService)
+    public AdminService(ApplicationDbContext context, UserManager<ApplicationUser> userManager, IMemoryCache cache)
     {
         _context = context;
         _userManager = userManager;
         _cache = cache;
-        _imageService = imageService;
     }
 
     public async Task<PagedResult<AdminUserDto>> GetAllUsersAsync(int page = 1, int pageSize = 50)
@@ -159,29 +157,6 @@ public class AdminService : IAdminService
             TotalRevenue = totalRevenue,
             TotalOrders = totalOrders
         };
-    }
-
-    public async Task<bool> DeleteProductAsync(Guid productId)
-    {
-        var product = await _context.Products.Include(p => p.Images).FirstOrDefaultAsync(p => p.Id == productId);
-        if (product == null) return false;
-
-        if (!string.IsNullOrEmpty(product.ThumbnailPublicId))
-        {
-            await _imageService.DeleteImageAsync(product.ThumbnailPublicId);
-        }
-
-        foreach (var image in product.Images)
-        {
-            if (!string.IsNullOrEmpty(image.PublicId))
-            {
-                await _imageService.DeleteImageAsync(image.PublicId);
-            }
-        }
-
-        _context.Products.Remove(product);
-        await _context.SaveChangesAsync();
-        return true;
     }
 
     public async Task<AdminUserProfileDto?> GetUserProfileAsync(string userId)

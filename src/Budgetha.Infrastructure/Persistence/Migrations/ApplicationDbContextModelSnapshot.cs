@@ -252,11 +252,16 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CartId");
 
                     b.HasIndex("ProductId");
+
+                    b.HasIndex("VariantId");
 
                     b.ToTable("CartItems");
                 });
@@ -453,11 +458,16 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("OrderId");
 
                     b.HasIndex("ProductId");
+
+                    b.HasIndex("VariantId");
 
                     b.ToTable("OrderItems");
                 });
@@ -512,7 +522,6 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .IsRequired()
-                        .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("bytea");
 
                     b.Property<string>("Status")
@@ -770,6 +779,72 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.HasIndex("ProductId");
 
                     b.ToTable("ProductSpecs");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("RentalPricePerDay")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SKU")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Size")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("StockQuantity")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SKU")
+                        .IsUnique();
+
+                    b.HasIndex("ProductId", "IsActive");
+
+                    b.HasIndex("ProductId", "Color", "Size")
+                        .IsUnique()
+                        .HasFilter("\"IsActive\"");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("ProductId", "Color", "Size"), false);
+
+                    b.ToTable("ProductVariants", t =>
+                        {
+                            t.HasCheckConstraint("CK_ProductVariants_Price_Positive", "\"Price\" IS NULL OR \"Price\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_SKU_NotEmpty", "length(trim(\"SKU\")) > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_Stock_NonNegative", "\"StockQuantity\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("Budgetha.Domain.Entities.PromoCode", b =>
@@ -1199,9 +1274,16 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Budgetha.Domain.Entities.ProductVariant", "Variant")
+                        .WithMany("CartItems")
+                        .HasForeignKey("VariantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Cart");
 
                     b.Navigation("Product");
+
+                    b.Navigation("Variant");
                 });
 
             modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
@@ -1257,9 +1339,16 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Budgetha.Domain.Entities.ProductVariant", "Variant")
+                        .WithMany("OrderItems")
+                        .HasForeignKey("VariantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Order");
 
                     b.Navigation("Product");
+
+                    b.Navigation("Variant");
                 });
 
             modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
@@ -1340,6 +1429,17 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                 {
                     b.HasOne("Budgetha.Domain.Entities.Product", "Product")
                         .WithMany("Specs")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Variants")
                         .HasForeignKey("ProductId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -1525,7 +1625,16 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
                     b.Navigation("Specs");
 
+                    b.Navigation("Variants");
+
                     b.Navigation("Wishlists");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.Navigation("CartItems");
+
+                    b.Navigation("OrderItems");
                 });
 
             modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>

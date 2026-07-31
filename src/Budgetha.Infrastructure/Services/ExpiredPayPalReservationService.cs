@@ -49,6 +49,8 @@ public sealed class ExpiredPayPalReservationService : BackgroundService
             .Include(order => order.Payment)
             .Include(order => order.Items)
             .ThenInclude(item => item.Product)
+            .Include(order => order.Items)
+            .ThenInclude(item => item.Variant)
             .Where(order => order.Status == OrderStatus.Pending &&
                             order.Payment != null &&
                             order.Payment.Provider == PaymentProvider.PayPal &&
@@ -62,7 +64,12 @@ public sealed class ExpiredPayPalReservationService : BackgroundService
             order.Payment!.Status = PaymentStatus.Failed;
             order.ReservationExpiresAt = null;
             foreach (var item in order.Items.Where(item => item.Type == OrderItemType.Purchase))
-                item.Product.StockQuantity += item.Quantity;
+            {
+                if (item.Variant != null)
+                    item.Variant.StockQuantity += item.Quantity;
+                else
+                    item.Product.StockQuantity += item.Quantity;
+            }
 
             try
             {

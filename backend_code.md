@@ -27,6 +27,14 @@
   },
   "GoogleAuth": {
     "ClientId": ""
+  },
+  "PayPal": {
+    "Mode": "Sandbox",
+    "ClientId": "",
+    "Secret": "",
+    "WebhookId": "",
+    "MerchantId": "",
+    "PayeeEmail": ""
   }
 }
 
@@ -51,6 +59,9 @@
     "FromEmail": "support@budgetha.com"
   },
   "AllowedHosts": "*",
+  "BootstrapAdmin": {
+    "Enabled": false
+  },
   "ConnectionStrings": {
     "DefaultConnection": ""
   },
@@ -67,6 +78,14 @@
   },
   "GoogleAuth": {
     "ClientId": "617748704610-fkb78ghi924ucdutur23971k003gsmg8.apps.googleusercontent.com"
+  },
+  "PayPal": {
+    "Mode": "Sandbox",
+    "ClientId": "",
+    "Secret": "",
+    "WebhookId": "",
+    "MerchantId": "",
+    "PayeeEmail": ""
   }
 }
 
@@ -138,6 +157,9 @@ using Budgetha.Infrastructure.Persistence;
 using Budgetha.Api.Hubs;
 using Budgetha.API.Hubs;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -153,13 +175,25 @@ builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddRateLimiter(options =>
 {
-    options.AddFixedWindowLimiter("GlobalLimiter", opt =>
-    {
-        opt.PermitLimit = 100;
-        opt.Window = TimeSpan.FromMinutes(1);
-        opt.QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst;
-        opt.QueueLimit = 10;
-    });
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            GetRateLimitPartitionKey(context),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 100,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+    options.AddPolicy("AuthLimiter", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            GetRateLimitPartitionKey(context),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
 });
 builder.Services.AddSwaggerGen(options =>
 {
@@ -208,11 +242,11 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
-    await ApplicationDbInitializer.SeedRolesAsync(services);
-    await ApplicationDbInitializer.SeedSuperAdminAsync(services);
-    
     var dbContext = services.GetRequiredService<ApplicationDbContext>();
-    await ApplicationDbInitializer.SeedCatalogAsync(dbContext);
+    await dbContext.Database.MigrateAsync();
+    await ApplicationDbInitializer.SeedRolesAsync(services);
+    var bootstrapAdminId = await ApplicationDbInitializer.BootstrapSuperAdminAsync(services, builder.Configuration);
+    await ApplicationDbInitializer.SeedCatalogAsync(dbContext, bootstrapAdminId);
 }
 
 if (app.Environment.IsDevelopment())
@@ -225,16 +259,23 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
-app.UseRateLimiter();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
-app.MapControllers().RequireRateLimiting("GlobalLimiter");
+app.MapControllers();
 app.MapHub<ReviewHub>("/hubs/reviews");
 app.MapHub<NotificationHub>("/hubs/notifications");
 
 app.Run();
+
+static string GetRateLimitPartitionKey(HttpContext context)
+{
+    return context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+        ?? context.Connection.RemoteIpAddress?.ToString()
+        ?? "unknown";
+}
 
 ``
 
@@ -327,6 +368,26 @@ public class AddressesController : ControllerBase
         var id = await _mediator.Send(command);
         return Ok(id);
     }
+
+    [HttpPut("{id}")]
+    public async Task<ActionResult> UpdateAddress(Guid id, [FromBody] UpdateAddressCommand command)
+    {
+        if (id != command.Id)
+        {
+            return BadRequest("ID mismatch");
+        }
+        var success = await _mediator.Send(command);
+        if (!success) return NotFound();
+        return NoContent();
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<ActionResult> DeleteAddress(Guid id)
+    {
+        var success = await _mediator.Send(new DeleteAddressCommand(id));
+        if (!success) return NotFound();
+        return NoContent();
+    }
 }
 
 ``
@@ -383,6 +444,7 @@ public class AdminController : ControllerBase
     }
 
     [HttpGet("recent-users")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> GetRecentUsers([FromQuery] int count = 5)
     {
         var users = await _adminService.GetRecentUsersAsync(count);
@@ -434,7 +496,9 @@ public class AdminController : ControllerBase
     [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> BanUser(string id)
     {
-        var success = await _adminService.BanUserAsync(id);
+        var actorId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(actorId)) return Unauthorized();
+        var success = await _adminService.BanUserAsync(actorId, User.IsInRole("SuperAdmin"), id);
         if (!success) return BadRequest("Could not ban user.");
         return Ok();
     }
@@ -443,7 +507,9 @@ public class AdminController : ControllerBase
     [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> UnbanUser(string id)
     {
-        var success = await _adminService.UnbanUserAsync(id);
+        var actorId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(actorId)) return Unauthorized();
+        var success = await _adminService.UnbanUserAsync(actorId, User.IsInRole("SuperAdmin"), id);
         if (!success) return BadRequest("Could not unban user.");
         return Ok();
     }
@@ -452,7 +518,9 @@ public class AdminController : ControllerBase
     [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> DeleteUser(string id)
     {
-        var success = await _adminService.DeleteUserAsync(id);
+        var actorId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(actorId)) return Unauthorized();
+        var success = await _adminService.DeleteUserAsync(actorId, User.IsInRole("SuperAdmin"), id);
         if (!success) return BadRequest("Could not delete user.");
         return Ok();
     }
@@ -536,11 +604,13 @@ using Budgetha.Application.Common.Interfaces;
 using Google.Apis.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Budgetha.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[EnableRateLimiting("AuthLimiter")]
 public class AuthController : ControllerBase
 {
     private readonly IIdentityService _identityService;
@@ -786,6 +856,7 @@ public class CartController : ControllerBase
 using Budgetha.Application.Features.Categories.Commands;
 using Budgetha.Application.Features.Categories.Queries;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Budgetha.API.Controllers;
@@ -809,6 +880,7 @@ public class CategoriesController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult<Guid>> CreateCategory([FromBody] CreateCategoryCommand command)
     {
         var result = await _mediator.Send(command);
@@ -816,10 +888,20 @@ public class CategoriesController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult> UpdateCategory(Guid id, [FromBody] UpdateCategoryCommand command)
     {
         if (id != command.Id) return BadRequest();
         var result = await _mediator.Send(command);
+        if (!result) return NotFound();
+        return NoContent();
+    }
+
+    [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    public async Task<ActionResult> DeleteCategory(Guid id)
+    {
+        var result = await _mediator.Send(new DeleteCategoryCommand(id));
         if (!result) return NotFound();
         return NoContent();
     }
@@ -976,6 +1058,33 @@ public class OrdersController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("mine")]
+    public async Task<ActionResult<List<CustomerOrderDto>>> GetMyOrders()
+    {
+        return Ok(await _mediator.Send(new GetCustomerOrdersQuery()));
+    }
+
+    [HttpGet("mine/{id:guid}")]
+    public async Task<ActionResult<CustomerOrderDto>> GetMyOrder(Guid id)
+    {
+        var result = await _mediator.Send(new GetCustomerOrderQuery(id));
+        return result == null ? NotFound() : Ok(result);
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task<ActionResult<CustomerOrderDto>> GetOrder(Guid id)
+    {
+        var result = await _mediator.Send(new GetCustomerOrderQuery(id));
+        return result == null ? NotFound() : Ok(result);
+    }
+
+    [HttpGet("mine/by-number/{orderNumber}")]
+    public async Task<ActionResult<CustomerOrderDto>> GetMyOrderByNumber(string orderNumber)
+    {
+        var result = await _mediator.Send(new GetCustomerOrderByNumberQuery(orderNumber));
+        return result == null ? NotFound() : Ok(result);
+    }
+
     [HttpPost("{id:guid}/create-paypal-order")]
     public async Task<ActionResult<string>> CreatePayPalOrder(Guid id)
     {
@@ -1007,6 +1116,14 @@ public class OrdersController : ControllerBase
     {
         var success = await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.UpdateOrderStatusCommand(id, request.Status));
         if (!success) return BadRequest("Failed to update status.");
+        return Ok();
+    }
+
+    [HttpPost("{id:guid}/cancel")]
+    public async Task<ActionResult> Cancel(Guid id)
+    {
+        var success = await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.CancelOrderCommand(id));
+        if (!success) return BadRequest("Order cannot be cancelled.");
         return Ok();
     }
 }
@@ -1306,6 +1423,9 @@ public class RolesController : ControllerBase
     [HttpPost("assign")]
     public async Task<IActionResult> AssignRole([FromBody] AssignRoleRequest request)
     {
+        if (IsSelfTarget(request.UserId))
+            return BadRequest(new { Message = "SuperAdmin accounts cannot modify their own roles." });
+
         var result = await _identityService.AssignRoleAsync(request.UserId, request.Role);
         if (!result)
             return BadRequest(new { Message = "Failed to assign role. Check user ID and role name." });
@@ -1316,6 +1436,9 @@ public class RolesController : ControllerBase
     [HttpPost("remove")]
     public async Task<IActionResult> RemoveRole([FromBody] AssignRoleRequest request)
     {
+        if (IsSelfTarget(request.UserId))
+            return BadRequest(new { Message = "SuperAdmin accounts cannot modify their own roles." });
+
         var result = await _identityService.RemoveRoleAsync(request.UserId, request.Role);
         if (!result)
             return BadRequest(new { Message = "Failed to remove role." });
@@ -1328,6 +1451,12 @@ public class RolesController : ControllerBase
     {
         var roles = await _identityService.GetRolesAsync(userId);
         return Ok(new { UserId = userId, Roles = roles });
+    }
+
+    private bool IsSelfTarget(string userId)
+    {
+        var actorId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        return string.Equals(actorId, userId, StringComparison.Ordinal);
     }
 }
 
@@ -1462,11 +1591,11 @@ public class ReplyToTicketRequest
 ## Budgetha.API\Controllers\WebhooksController.cs
 
 ``csharp
+using System.Text.Json;
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Domain.Enums;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Text.Json;
 
 namespace Budgetha.Api.Controllers;
 
@@ -1475,80 +1604,86 @@ namespace Budgetha.Api.Controllers;
 public class WebhooksController : ControllerBase
 {
     private readonly IApplicationDbContext _context;
+    private readonly IPaymentService _paymentService;
     private readonly ILogger<WebhooksController> _logger;
-    private readonly IConfiguration _configuration;
 
-    public WebhooksController(IApplicationDbContext context, ILogger<WebhooksController> logger, IConfiguration configuration)
+    public WebhooksController(
+        IApplicationDbContext context,
+        IPaymentService paymentService,
+        ILogger<WebhooksController> logger)
     {
         _context = context;
+        _paymentService = paymentService;
         _logger = logger;
-        _configuration = configuration;
     }
 
     [HttpPost("paypal")]
-    public async Task<IActionResult> PayPalWebhook()
+    public async Task<IActionResult> PayPalWebhook(CancellationToken cancellationToken)
     {
+        if (!Request.Headers.TryGetValue("PAYPAL-TRANSMISSION-ID", out var transmissionId) ||
+            !Request.Headers.TryGetValue("PAYPAL-TRANSMISSION-TIME", out var transmissionTime) ||
+            !Request.Headers.TryGetValue("PAYPAL-TRANSMISSION-SIG", out var transmissionSignature) ||
+            !Request.Headers.TryGetValue("PAYPAL-CERT-URL", out var certificateUrl) ||
+            !Request.Headers.TryGetValue("PAYPAL-AUTH-ALGO", out var authenticationAlgorithm))
+        {
+            return Unauthorized();
+        }
+
         using var reader = new StreamReader(Request.Body);
-        var body = await reader.ReadToEndAsync();
-        
+        var body = await reader.ReadToEndAsync(cancellationToken);
         try
         {
-            var document = JsonDocument.Parse(body);
-            var root = document.RootElement;
-            var eventType = root.GetProperty("event_type").GetString();
-            
-            // Validate webhook signature here using PayPal SDK if needed.
-            // For now, we will process the event type.
+            using var document = JsonDocument.Parse(body);
+            var resource = document.RootElement.GetProperty("resource");
+            var relatedIds = resource.GetProperty("supplementary_data").GetProperty("related_ids");
+            var paypalOrderId = relatedIds.GetProperty("order_id").GetString();
+            if (string.IsNullOrWhiteSpace(paypalOrderId))
+                return BadRequest();
 
-            if (eventType == "PAYMENT.CAPTURE.COMPLETED")
+            var payment = await _context.Payments
+                .Include(p => p.Order)
+                .FirstOrDefaultAsync(p => p.ExternalTransactionId == paypalOrderId, cancellationToken);
+            if (payment == null)
+                return Ok();
+
+            if (payment.Provider != PaymentProvider.PayPal || payment.Status != PaymentStatus.Pending ||
+                payment.Order?.Status != OrderStatus.Pending)
+                return Ok();
+
+            var verification = await _paymentService.VerifyPayPalWebhookAsync(
+                new PayPalWebhookRequest(body, transmissionId!, transmissionTime!, transmissionSignature!, certificateUrl!, authenticationAlgorithm!),
+                payment.Amount,
+                payment.Currency,
+                cancellationToken);
+            if (!verification.IsValid || string.IsNullOrWhiteSpace(verification.EventId) ||
+                string.IsNullOrWhiteSpace(verification.CaptureId) ||
+                verification.OrderId != payment.ExternalTransactionId)
+                return Unauthorized();
+
+            if (payment.LastWebhookEventId == verification.EventId || payment.Status == PaymentStatus.Completed)
+                return Ok();
+
+            payment.Status = PaymentStatus.Completed;
+            payment.ExternalCaptureId = verification.CaptureId;
+            payment.LastWebhookEventId = verification.EventId;
+            if (payment.Order != null)
             {
-                var resource = root.GetProperty("resource");
-                var captureId = resource.GetProperty("id").GetString();
-                
-                // Assuming PayPal passes back the order ID in supplementary data or custom ID.
-                // Normally, we'd look up by PayPal Order ID, but in webhook it might be the capture ID or order ID is in a different field.
-                // E.g., supplementary_data.related_ids.order_id
-                string? payPalOrderId = null;
-                if (resource.TryGetProperty("supplementary_data", out var supplementaryData))
-                {
-                    if (supplementaryData.TryGetProperty("related_ids", out var relatedIds))
-                    {
-                        if (relatedIds.TryGetProperty("order_id", out var orderIdProp))
-                        {
-                            payPalOrderId = orderIdProp.GetString();
-                        }
-                    }
-                }
-                
-                if (string.IsNullOrEmpty(payPalOrderId))
-                {
-                    _logger.LogWarning("PayPal Order ID not found in webhook payload.");
-                    return Ok();
-                }
-
-                // Find the Payment by ExternalTransactionId
-                var payment = await _context.Payments
-                    .Include(p => p.Order)
-                    .FirstOrDefaultAsync(p => p.ExternalTransactionId == payPalOrderId);
-
-                if (payment != null && payment.Status != PaymentStatus.Completed)
-                {
-                    payment.Status = PaymentStatus.Completed;
-                    if (payment.Order != null)
-                    {
-                        // Update order status if needed
-                    }
-                    await _context.SaveChangesAsync(default);
-                    _logger.LogInformation("Payment {PaymentId} marked as Completed from Webhook", payment.Id);
-                }
+                payment.Order.Status = OrderStatus.Processing;
+                payment.Order.ReservationExpiresAt = null;
             }
 
+            await _context.SaveChangesAsync(cancellationToken);
             return Ok();
         }
-        catch (Exception ex)
+        catch (JsonException)
         {
-            _logger.LogError(ex, "Error processing PayPal webhook");
             return BadRequest();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // A duplicate delivery racing the first delivery is already safe to acknowledge.
+            _logger.LogInformation("Concurrent PayPal webhook delivery acknowledged.");
+            return Ok();
         }
     }
 }
@@ -1811,7 +1946,7 @@ public class UnhandledExceptionBehaviour<TRequest, TResponse>(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unhandled exception for request {Name} {@Request}", typeof(TRequest).Name, request);
+            logger.LogError(ex, "Unhandled exception for request {Name}", typeof(TRequest).Name);
             throw;
         }
     }
@@ -1896,9 +2031,9 @@ public interface IAdminService
     Task<PagedResult<AdminUserDto>> GetAllUsersAsync(int page = 1, int pageSize = 50);
     Task<List<AdminUserDto>> GetUsersByIdsAsync(IEnumerable<string> userIds);
     Task<AdminUserProfileDto?> GetUserProfileAsync(string userId);
-    Task<bool> BanUserAsync(string userId);
-    Task<bool> UnbanUserAsync(string userId);
-    Task<bool> DeleteUserAsync(string userId);
+    Task<bool> BanUserAsync(string actorId, bool actorIsSuperAdmin, string userId);
+    Task<bool> UnbanUserAsync(string actorId, bool actorIsSuperAdmin, string userId);
+    Task<bool> DeleteUserAsync(string actorId, bool actorIsSuperAdmin, string userId);
     Task<bool> DeleteProductAsync(Guid productId);
 }
 
@@ -2051,8 +2186,33 @@ namespace Budgetha.Application.Common.Interfaces;
 public interface IPaymentService
 {
     Task<string> CreatePayPalOrderAsync(decimal amount, string currency = "USD");
-    Task<bool> CapturePayPalOrderAsync(string orderId);
+    Task<PayPalCaptureResult> CapturePayPalOrderAsync(
+        string orderId,
+        decimal expectedAmount,
+        string expectedCurrency,
+        CancellationToken cancellationToken = default);
+    Task<PayPalWebhookResult> VerifyPayPalWebhookAsync(
+        PayPalWebhookRequest request,
+        decimal expectedAmount,
+        string expectedCurrency,
+        CancellationToken cancellationToken = default);
 }
+
+public record PayPalCaptureResult(bool IsValid, string? OrderId, string? CaptureId);
+
+public record PayPalWebhookRequest(
+    string Body,
+    string TransmissionId,
+    string TransmissionTime,
+    string TransmissionSignature,
+    string CertificateUrl,
+    string AuthenticationAlgorithm);
+
+public record PayPalWebhookResult(
+    bool IsValid,
+    string? EventId,
+    string? OrderId,
+    string? CaptureId);
 
 ``
 
@@ -2193,6 +2353,113 @@ public class CreateAddressCommandHandler : IRequestHandler<CreateAddressCommand,
         await _context.SaveChangesAsync(cancellationToken);
 
         return address.Id;
+    }
+}
+
+``
+
+## Budgetha.Application\Features\Addresses\Commands\DeleteAddressCommand.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Addresses.Commands;
+
+public record DeleteAddressCommand(Guid Id) : IRequest<bool>;
+
+public class DeleteAddressCommandHandler : IRequestHandler<DeleteAddressCommand, bool>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public DeleteAddressCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task<bool> Handle(DeleteAddressCommand request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            return false;
+
+        var address = await _context.Addresses.FirstOrDefaultAsync(a => a.Id == request.Id && a.UserId == userId, cancellationToken);
+        if (address == null) return false;
+
+        _context.Addresses.Remove(address);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return true;
+    }
+}
+
+``
+
+## Budgetha.Application\Features\Addresses\Commands\UpdateAddressCommand.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Addresses.Commands;
+
+public record UpdateAddressCommand(
+    Guid Id,
+    string FullName,
+    string Line1,
+    string? Line2,
+    string City,
+    string State,
+    string PostalCode,
+    string Country,
+    bool IsDefault
+) : IRequest<bool>;
+
+public class UpdateAddressCommandHandler : IRequestHandler<UpdateAddressCommand, bool>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public UpdateAddressCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task<bool> Handle(UpdateAddressCommand request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            return false;
+
+        var address = await _context.Addresses.FirstOrDefaultAsync(a => a.Id == request.Id && a.UserId == userId, cancellationToken);
+        if (address == null) return false;
+
+        if (request.IsDefault && !address.IsDefault)
+        {
+            var existingAddresses = await _context.Addresses.Where(a => a.UserId == userId && a.Id != request.Id).ToListAsync(cancellationToken);
+            foreach (var addr in existingAddresses)
+            {
+                addr.IsDefault = false;
+            }
+        }
+
+        address.FullName = request.FullName;
+        address.Line1 = request.Line1;
+        address.Line2 = request.Line2;
+        address.City = request.City;
+        address.State = request.State;
+        address.PostalCode = request.PostalCode;
+        address.Country = request.Country;
+        address.IsDefault = request.IsDefault;
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return true;
     }
 }
 
@@ -2499,6 +2766,36 @@ public class GetAllAnnouncementsQueryHandler : IRequestHandler<GetAllAnnouncemen
 
 ``
 
+## Budgetha.Application\Features\Cart\CartRules.cs
+
+``csharp
+namespace Budgetha.Application.Features.Cart;
+
+internal static class CartRules
+{
+    internal const int MaximumQuantity = 1000;
+
+    internal static void ValidateQuantity(int quantity)
+    {
+        if (quantity <= 0 || quantity > MaximumQuantity)
+            throw new InvalidOperationException($"Quantity must be between 1 and {MaximumQuantity}.");
+    }
+
+    internal static void ValidateRentalDates(DateOnly? startDate, DateOnly? endDate)
+    {
+        if (!startDate.HasValue || !endDate.HasValue)
+            throw new InvalidOperationException("Rental dates are required.");
+
+        if (startDate.Value < DateOnly.FromDateTime(DateTime.UtcNow))
+            throw new InvalidOperationException("Rental start date cannot be in the past.");
+
+        if (endDate.Value < startDate.Value)
+            throw new InvalidOperationException("Rental end date must be on or after the start date.");
+    }
+}
+
+``
+
 ## Budgetha.Application\Features\Cart\Commands\AddToCartCommand.cs
 
 ``csharp
@@ -2526,6 +2823,8 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
 
     public async Task Handle(AddToCartCommand request, CancellationToken cancellationToken)
     {
+        CartRules.ValidateQuantity(request.Quantity);
+
         var userId = _currentUserService.UserId;
         if (string.IsNullOrEmpty(userId))
             throw new UnauthorizedAccessException();
@@ -2541,37 +2840,8 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
         }
 
         var product = await _context.Products.FindAsync(new object[] { request.ProductId }, cancellationToken);
-        if (product == null || !product.IsActive)
+        if (product == null || !product.IsActive || product.ApprovalStatus != ApprovalStatus.Approved)
             throw new NotFoundException(nameof(Product), request.ProductId);
-
-        if (request.Type == OrderItemType.Purchase && product.StockQuantity < request.Quantity)
-            throw new InvalidOperationException("Not enough stock available.");
-
-        if (request.Type == OrderItemType.Rental)
-        {
-            if (!request.RentalStartDate.HasValue || !request.RentalEndDate.HasValue)
-                throw new InvalidOperationException("Rental dates are required.");
-                
-            if (request.RentalStartDate > request.RentalEndDate)
-                throw new InvalidOperationException("End date must be after start date.");
-
-            // Check for overlap in existing non-cancelled orders
-            var overlappingOrders = await _context.OrderItems
-                .Include(oi => oi.Order)
-                .Where(oi => oi.ProductId == request.ProductId &&
-                             oi.Type == OrderItemType.Rental &&
-                             oi.Order != null && 
-                             oi.Order.Status != OrderStatus.Cancelled &&
-                             oi.Order.Status != OrderStatus.Failed &&
-                             oi.RentalStartDate <= request.RentalEndDate &&
-                             oi.RentalEndDate >= request.RentalStartDate)
-                .ToListAsync(cancellationToken);
-
-            var totalRented = overlappingOrders.Sum(oi => oi.Quantity);
-            
-            if (product.StockQuantity - totalRented < request.Quantity)
-                throw new InvalidOperationException("Not enough items available for the selected dates.");
-        }
 
         // Check if item already exists in cart with same type, variants, and dates
         var existingItem = cart.Items.FirstOrDefault(i => 
@@ -2584,9 +2854,9 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
 
         if (existingItem != null)
         {
-            existingItem.Quantity += request.Quantity;
-            if (request.Type == OrderItemType.Purchase && existingItem.Quantity > product.StockQuantity)
-                throw new InvalidOperationException("Cannot add more than available stock.");
+            var mergedQuantity = checked(existingItem.Quantity + request.Quantity);
+            CartRules.ValidateQuantity(mergedQuantity);
+            existingItem.Quantity = mergedQuantity;
         }
         else
         {
@@ -2601,6 +2871,37 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
                 Size = request.Size
             };
             cart.Items.Add(newItem);
+        }
+
+        var quantity = existingItem?.Quantity ?? request.Quantity;
+        if (request.Type == OrderItemType.Purchase)
+        {
+            if (quantity > product.StockQuantity)
+                throw new InvalidOperationException("Not enough stock available.");
+        }
+        else if (request.Type == OrderItemType.Rental)
+        {
+            if (!product.IsAvailableForRent)
+                throw new InvalidOperationException("This product is not available for rent.");
+
+            CartRules.ValidateRentalDates(request.RentalStartDate, request.RentalEndDate);
+
+            var totalRented = await _context.OrderItems
+                .Where(oi => oi.ProductId == request.ProductId &&
+                             oi.Type == OrderItemType.Rental &&
+                             oi.Order != null &&
+                             oi.Order.Status != OrderStatus.Cancelled &&
+                             oi.Order.Status != OrderStatus.Failed &&
+                             oi.RentalStartDate <= request.RentalEndDate &&
+                             oi.RentalEndDate >= request.RentalStartDate)
+                .SumAsync(oi => oi.Quantity, cancellationToken);
+
+            if (quantity > product.StockQuantity - totalRented)
+                throw new InvalidOperationException("Not enough items available for the selected dates.");
+        }
+        else
+        {
+            throw new InvalidOperationException("Invalid cart item type.");
         }
 
         await _context.SaveChangesAsync(cancellationToken);
@@ -2700,12 +3001,20 @@ public class RemoveFromCartCommandHandler : IRequestHandler<RemoveFromCartComman
 ``csharp
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Budgetha.Application.Features.Cart.Commands;
 
-public record SyncCartItemDto(Guid ProductId, int Quantity, string? Color, string? Size);
+public record SyncCartItemDto(
+    Guid ProductId,
+    int Quantity,
+    string? Color,
+    string? Size,
+    OrderItemType Type = OrderItemType.Purchase,
+    DateOnly? RentalStartDate = null,
+    DateOnly? RentalEndDate = null);
 
 public record SyncCartCommand(List<SyncCartItemDto> Items) : IRequest;
 
@@ -2723,7 +3032,14 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
     public async Task Handle(SyncCartCommand request, CancellationToken cancellationToken)
     {
         var userId = _currentUserService.UserId;
-        if (string.IsNullOrEmpty(userId)) return;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        if (request.Items == null)
+            throw new InvalidOperationException("Cart items are required.");
+
+        foreach (var item in request.Items)
+            CartRules.ValidateQuantity(item.Quantity);
 
         var cart = await _context.Carts
             .Include(c => c.Items)
@@ -2735,26 +3051,83 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
             _context.Carts.Add(cart);
         }
 
-        // Merge items instead of clearing
-        foreach (var itemDto in request.Items)
+        var syncedItems = request.Items
+            .GroupBy(i => new { i.ProductId, i.Color, i.Size, i.Type, i.RentalStartDate, i.RentalEndDate })
+            .Select(group => new SyncCartItemDto(
+                group.Key.ProductId,
+                group.Sum(i => i.Quantity),
+                group.Key.Color,
+                group.Key.Size,
+                group.Key.Type,
+                group.Key.RentalStartDate,
+                group.Key.RentalEndDate))
+            .ToList();
+
+        foreach (var itemDto in syncedItems)
         {
+            CartRules.ValidateQuantity(itemDto.Quantity);
+
+            var product = await _context.Products.FindAsync(new object[] { itemDto.ProductId }, cancellationToken);
+            if (product == null || !product.IsActive || product.ApprovalStatus != ApprovalStatus.Approved)
+                throw new InvalidOperationException($"Product {itemDto.ProductId} is not available.");
+
             var existingItem = cart.Items.FirstOrDefault(i => 
                 i.ProductId == itemDto.ProductId && 
                 i.Color == itemDto.Color && 
-                i.Size == itemDto.Size);
+                i.Size == itemDto.Size &&
+                i.Type == itemDto.Type &&
+                i.RentalStartDate == itemDto.RentalStartDate &&
+                i.RentalEndDate == itemDto.RentalEndDate);
+
+            // Taking the larger synchronized quantity converges on retries without reducing server state.
+            var mergedQuantity = Math.Max(existingItem?.Quantity ?? 0, itemDto.Quantity);
+            CartRules.ValidateQuantity(mergedQuantity);
+
+            if (itemDto.Type == OrderItemType.Purchase)
+            {
+                if (mergedQuantity > product.StockQuantity)
+                    throw new InvalidOperationException($"Not enough stock available for product {itemDto.ProductId}.");
+            }
+            else if (itemDto.Type == OrderItemType.Rental)
+            {
+                if (!product.IsAvailableForRent)
+                    throw new InvalidOperationException($"Product {itemDto.ProductId} is not available for rent.");
+
+                CartRules.ValidateRentalDates(itemDto.RentalStartDate, itemDto.RentalEndDate);
+
+                var totalRented = await _context.OrderItems
+                    .Where(oi => oi.ProductId == itemDto.ProductId &&
+                                 oi.Type == OrderItemType.Rental &&
+                                 oi.Order != null &&
+                                 oi.Order.Status != OrderStatus.Cancelled &&
+                                 oi.Order.Status != OrderStatus.Failed &&
+                                 oi.RentalStartDate <= itemDto.RentalEndDate &&
+                                 oi.RentalEndDate >= itemDto.RentalStartDate)
+                    .SumAsync(oi => oi.Quantity, cancellationToken);
+
+                if (mergedQuantity > product.StockQuantity - totalRented)
+                    throw new InvalidOperationException($"Not enough rental stock available for product {itemDto.ProductId}.");
+            }
+            else
+            {
+                throw new InvalidOperationException("Invalid cart item type.");
+            }
 
             if (existingItem != null)
             {
-                existingItem.Quantity += itemDto.Quantity;
+                existingItem.Quantity = mergedQuantity;
             }
             else
             {
                 cart.Items.Add(new CartItem
                 {
                     ProductId = itemDto.ProductId,
-                    Quantity = itemDto.Quantity,
+                    Quantity = mergedQuantity,
                     Color = itemDto.Color,
-                    Size = itemDto.Size
+                    Size = itemDto.Size,
+                    Type = itemDto.Type,
+                    RentalStartDate = itemDto.RentalStartDate,
+                    RentalEndDate = itemDto.RentalEndDate
                 });
             }
         }
@@ -2771,6 +3144,7 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
 using Budgetha.Application.Common.Exceptions;
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -2809,7 +3183,28 @@ public class UpdateCartItemQuantityCommandHandler : IRequestHandler<UpdateCartIt
         }
         else
         {
-            if (cartItem.Product.StockQuantity < request.Quantity)
+            CartRules.ValidateQuantity(request.Quantity);
+
+            var availableStock = cartItem.Product.StockQuantity;
+            if (cartItem.Type == OrderItemType.Rental)
+            {
+                if (!cartItem.Product.IsAvailableForRent)
+                    throw new InvalidOperationException("This product is not available for rent.");
+
+                CartRules.ValidateRentalDates(cartItem.RentalStartDate, cartItem.RentalEndDate);
+                var totalRented = await _context.OrderItems
+                    .Where(oi => oi.ProductId == cartItem.ProductId &&
+                                 oi.Type == OrderItemType.Rental &&
+                                 oi.Order != null &&
+                                 oi.Order.Status != OrderStatus.Cancelled &&
+                                 oi.Order.Status != OrderStatus.Failed &&
+                                 oi.RentalStartDate <= cartItem.RentalEndDate &&
+                                 oi.RentalEndDate >= cartItem.RentalStartDate)
+                    .SumAsync(oi => oi.Quantity, cancellationToken);
+                availableStock -= totalRented;
+            }
+
+            if (availableStock < request.Quantity)
                 throw new InvalidOperationException("Not enough stock available.");
                 
             cartItem.Quantity = request.Quantity;
@@ -2839,7 +3234,9 @@ public record CartItemDto(
     int Stock,
     OrderItemType Type,
     DateOnly? RentalStartDate,
-    DateOnly? RentalEndDate
+    DateOnly? RentalEndDate,
+    string? Color,
+    string? Size
 );
 
 public record CartDto(
@@ -2901,7 +3298,9 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, CartDto>
             i.Product.StockQuantity,
             i.Type,
             i.RentalStartDate,
-            i.RentalEndDate
+            i.RentalEndDate,
+            i.Color,
+            i.Size
         )).ToList();
 
         return new CartDto(cart.Id, items);
@@ -2961,6 +3360,32 @@ public class CreateCategoryCommandHandler : IRequestHandler<CreateCategoryComman
         await _context.SaveChangesAsync(cancellationToken);
 
         return category.Id;
+    }
+}
+
+``
+
+## Budgetha.Application\Features\Categories\Commands\DeleteCategoryCommand.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using MediatR;
+
+namespace Budgetha.Application.Features.Categories.Commands;
+
+public record DeleteCategoryCommand(Guid Id) : IRequest<bool>;
+
+public class DeleteCategoryCommandHandler(IApplicationDbContext context)
+    : IRequestHandler<DeleteCategoryCommand, bool>
+{
+    public async Task<bool> Handle(DeleteCategoryCommand request, CancellationToken cancellationToken)
+    {
+        var category = await context.Categories.FindAsync([request.Id], cancellationToken);
+        if (category is null) return false;
+
+        context.Categories.Remove(category);
+        await context.SaveChangesAsync(cancellationToken);
+        return true;
     }
 }
 
@@ -3242,33 +3667,53 @@ public record CancelOrderCommand(Guid OrderId) : IRequest<bool>;
 public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, bool>
 {
     private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+    private readonly IIdentityService _identityService;
 
-    public CancelOrderCommandHandler(IApplicationDbContext context)
+    public CancelOrderCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUserService,
+        IIdentityService identityService)
     {
         _context = context;
+        _currentUserService = currentUserService;
+        _identityService = identityService;
     }
 
     public async Task<bool> Handle(CancelOrderCommand request, CancellationToken cancellationToken)
     {
         var order = await _context.Orders
+            .Include(o => o.Payment)
             .Include(o => o.Items)
+            .ThenInclude(i => i.Product)
             .FirstOrDefaultAsync(o => o.Id == request.OrderId, cancellationToken);
 
         if (order == null) throw new NotFoundException(nameof(Order), request.OrderId);
 
-        if (order.Status == OrderStatus.Cancelled || order.Status == OrderStatus.Delivered)
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new UnauthorizedAccessException();
+
+        var roles = await _identityService.GetRolesAsync(userId);
+        var isAdmin = roles.Contains("Admin") || roles.Contains("SuperAdmin");
+        if (!isAdmin && order.UserId != userId)
+            throw new ForbiddenAccessException();
+
+        if (order.Status == OrderStatus.Cancelled || order.Status == OrderStatus.Delivered ||
+            order.Status == OrderStatus.Shipped || order.Status == OrderStatus.Refunded)
             return false;
+
+        if (order.Payment?.Status == PaymentStatus.Completed)
+            throw new InvalidOperationException("A paid order cannot be cancelled until a refund has been processed.");
 
         order.Status = OrderStatus.Cancelled;
 
-        // Restock
+        // Purchase stock was reserved at order creation; rental stock was never decremented.
         foreach (var item in order.Items)
         {
-            var product = await _context.Products.FindAsync(new object[] { item.ProductId }, cancellationToken);
-            if (product != null)
+            if (item.Type == OrderItemType.Purchase && item.Product != null)
             {
-                product.StockQuantity += item.Quantity;
-                _context.Products.Update(product);
+                item.Product.StockQuantity += item.Quantity;
             }
         }
 
@@ -3296,36 +3741,87 @@ public record CapturePayPalOrderCommand(Guid OrderId, string PayPalOrderId) : IR
 public class CapturePayPalOrderCommandHandler : IRequestHandler<CapturePayPalOrderCommand, bool>
 {
     private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
     private readonly IPaymentService _paymentService;
 
-    public CapturePayPalOrderCommandHandler(IApplicationDbContext context, IPaymentService paymentService)
+    public CapturePayPalOrderCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUserService,
+        IPaymentService paymentService)
     {
         _context = context;
+        _currentUserService = currentUserService;
         _paymentService = paymentService;
     }
 
     public async Task<bool> Handle(CapturePayPalOrderCommand request, CancellationToken cancellationToken)
     {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new UnauthorizedAccessException();
+
         var order = await _context.Orders
-            .FirstOrDefaultAsync(o => o.Id == request.OrderId, cancellationToken);
+            .Include(o => o.Payment)
+            .Include(o => o.Items)
+            .FirstOrDefaultAsync(o => o.Id == request.OrderId && o.UserId == userId, cancellationToken);
+        if (order == null)
+            throw new NotFoundException(nameof(Order), request.OrderId);
 
-        if (order == null) throw new NotFoundException(nameof(Order), request.OrderId);
-        
-        if (order.Payment == null) throw new InvalidOperationException("No payment record found.");
-
-        var success = await _paymentService.CapturePayPalOrderAsync(request.PayPalOrderId);
-
-        if (success)
+        var payment = order.Payment ?? throw new InvalidOperationException("No payment record found.");
+        if (payment.Provider != PaymentProvider.PayPal ||
+            !string.Equals(payment.ExternalTransactionId, request.PayPalOrderId, StringComparison.Ordinal))
         {
-            order.Payment.Status = PaymentStatus.Completed;
-            
-            await _context.SaveChangesAsync(cancellationToken);
-            return true;
+            throw new InvalidOperationException("The PayPal order does not match this payment.");
         }
 
-        order.Payment.Status = PaymentStatus.Failed;
-        await _context.SaveChangesAsync(cancellationToken);
-        return false;
+        if (payment.Status == PaymentStatus.Completed)
+            return !string.IsNullOrWhiteSpace(payment.ExternalCaptureId);
+        if (payment.Status != PaymentStatus.Pending || order.Status != OrderStatus.Pending)
+            throw new InvalidOperationException("Order cannot be captured in its current state.");
+        if (order.ReservationExpiresAt <= DateTimeOffset.UtcNow)
+            throw new InvalidOperationException("The stock reservation has expired.");
+
+        var result = await _paymentService.CapturePayPalOrderAsync(
+            request.PayPalOrderId,
+            payment.Amount,
+            payment.Currency,
+            cancellationToken);
+        if (!result.IsValid || result.OrderId != payment.ExternalTransactionId || string.IsNullOrWhiteSpace(result.CaptureId))
+            return false;
+
+        payment.Status = PaymentStatus.Completed;
+        payment.ExternalCaptureId = result.CaptureId;
+        order.Status = OrderStatus.Processing;
+        order.ReservationExpiresAt = null;
+        RemoveUnchangedOrderItemsFromCart(order);
+
+        try
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException("The order changed while payment was being captured. PayPal payment may require reconciliation.");
+        }
+
+        return true;
+    }
+
+    private void RemoveUnchangedOrderItemsFromCart(Order order)
+    {
+        var cartItems = _context.CartItems.Where(item => item.Cart.UserId == order.UserId).ToList();
+        foreach (var orderItem in order.Items)
+        {
+            var cartItem = cartItems.FirstOrDefault(item =>
+                item.ProductId == orderItem.ProductId && item.Quantity == orderItem.Quantity &&
+                item.Type == orderItem.Type && item.RentalStartDate == orderItem.RentalStartDate &&
+                item.RentalEndDate == orderItem.RentalEndDate && item.Color == orderItem.Color && item.Size == orderItem.Size);
+            if (cartItem != null)
+            {
+                _context.CartItems.Remove(cartItem);
+                cartItems.Remove(cartItem);
+            }
+        }
     }
 }
 
@@ -3374,6 +3870,13 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         var userId = _currentUserService.UserId;
         if (string.IsNullOrEmpty(userId))
             throw new UnauthorizedAccessException();
+
+        if (request.ShippingAddressId.HasValue && !await _context.Addresses
+                .AnyAsync(a => a.Id == request.ShippingAddressId.Value && a.UserId == userId, cancellationToken))
+            throw new UnauthorizedAccessException("The shipping address does not belong to the current user.");
+
+        var isPayPal = request.PaymentMethod.Equals("CreditCard", StringComparison.OrdinalIgnoreCase) ||
+                       request.PaymentMethod.Equals("PayPal", StringComparison.OrdinalIgnoreCase);
 
         // 1. Get Cart
         var cart = await _context.Carts
@@ -3471,18 +3974,19 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
             TotalAmount = totalAmount,
             Notes = request.Notes,
             ShippingAddressId = request.ShippingAddressId,
-            Items = orderItems
+            Items = orderItems,
+            ReservationExpiresAt = isPayPal ? DateTimeOffset.UtcNow.AddMinutes(30) : null
         };
 
         // 4. Create Payment if not COD
-        if (request.PaymentMethod.Equals("CreditCard", StringComparison.OrdinalIgnoreCase) || request.PaymentMethod.Equals("PayPal", StringComparison.OrdinalIgnoreCase))
+        if (isPayPal)
         {
             order.Payment = new Payment
             {
                 Amount = totalAmount,
+                Currency = "USD",
                 Status = PaymentStatus.Pending,
-                Provider = PaymentProvider.PayPal,
-                ExternalTransactionId = Guid.NewGuid().ToString() // Mock transaction ID
+                Provider = PaymentProvider.PayPal
             };
         }
         else
@@ -3490,6 +3994,7 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
             order.Payment = new Payment
             {
                 Amount = totalAmount,
+                Currency = "USD",
                 Status = PaymentStatus.Pending,
                 Provider = PaymentProvider.CashOnDelivery
             };
@@ -3497,10 +4002,18 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
 
         _context.Orders.Add(order);
 
-        // 5. Clear Cart
-        _context.CartItems.RemoveRange(cart.Items);
+        // Keep PayPal carts intact until capture so an abandoned checkout loses neither stock nor cart.
+        if (!isPayPal)
+            _context.CartItems.RemoveRange(cart.Items);
 
-        await _context.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException("One or more products in your cart were just sold out or updated. Please try again.");
+        }
 
         // 6. Send Notifications & Emails
         var user = await _context.Users.FindAsync(new object[] { userId }, cancellationToken);
@@ -3534,8 +4047,15 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
                 </div>
             </div>";
 
-            await _emailService.SendEmailAsync(user.Email, $"Order Confirmation #{order.Id.ToString().Substring(0, 8).ToUpper()}", invoiceHtml);
-            await _notificationService.SendNotificationAsync(userId, "Order Placed Successfully", $"Your order #{order.Id.ToString().Substring(0, 8).ToUpper()} has been received.", "Order", order.Id.ToString());
+            try
+            {
+                await _emailService.SendEmailAsync(user.Email, $"Order Confirmation #{order.Id.ToString().Substring(0, 8).ToUpper()}", invoiceHtml);
+                await _notificationService.SendNotificationAsync(userId, "Order Placed Successfully", $"Your order #{order.Id.ToString().Substring(0, 8).ToUpper()} has been received.", "Order", order.Id.ToString());
+            }
+            catch
+            {
+                // The order is committed; delivery failures must not turn success into an API error.
+            }
         }
 
         // Notify sellers
@@ -3544,7 +4064,14 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         {
             if (sellerId != null)
             {
-                await _notificationService.SendNotificationAsync(sellerId, "New Sale!", "One or more of your products have been sold.", "Sale", order.Id.ToString());
+                try
+                {
+                    await _notificationService.SendNotificationAsync(sellerId, "New Sale!", "One or more of your products have been sold.", "Sale", order.Id.ToString());
+                }
+                catch
+                {
+                    // Notifications are post-commit best effort.
+                }
             }
         }
 
@@ -3560,6 +4087,7 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
 using Budgetha.Application.Common.Exceptions;
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -3590,10 +4118,17 @@ public class CreatePayPalOrderCommandHandler : IRequestHandler<CreatePayPalOrder
 
         if (order == null) throw new NotFoundException(nameof(Order), request.OrderId);
 
-        if (order.Payment == null || order.Payment.Status == Budgetha.Domain.Enums.PaymentStatus.Completed)
+        if (order.Payment == null || order.Payment.Provider != PaymentProvider.PayPal ||
+            order.Payment.Status != PaymentStatus.Pending || order.Status != OrderStatus.Pending)
             throw new InvalidOperationException("Order cannot be paid with PayPal at this time.");
 
-        var paypalOrderId = await _paymentService.CreatePayPalOrderAsync(order.TotalAmount);
+        if (order.ReservationExpiresAt <= DateTimeOffset.UtcNow)
+            throw new InvalidOperationException("The stock reservation has expired. Cancel this order and try again.");
+
+        if (!string.IsNullOrWhiteSpace(order.Payment.ExternalTransactionId))
+            return order.Payment.ExternalTransactionId;
+
+        var paypalOrderId = await _paymentService.CreatePayPalOrderAsync(order.Payment.Amount, order.Payment.Currency);
         
         order.Payment.ExternalTransactionId = paypalOrderId;
         await _context.SaveChangesAsync(cancellationToken);
@@ -3624,31 +4159,56 @@ public class UpdateOrderStatusCommandHandler : IRequestHandler<UpdateOrderStatus
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUserService;
+    private readonly IIdentityService _identityService;
     private readonly INotificationService _notificationService;
     private readonly IEmailService _emailService;
 
     public UpdateOrderStatusCommandHandler(
         IApplicationDbContext context, 
         ICurrentUserService currentUserService,
+        IIdentityService identityService,
         INotificationService notificationService,
         IEmailService emailService)
     {
         _context = context;
         _currentUserService = currentUserService;
+        _identityService = identityService;
         _notificationService = notificationService;
         _emailService = emailService;
     }
 
     public async Task<bool> Handle(UpdateOrderStatusCommand request, CancellationToken cancellationToken)
     {
-        // Ideally verify if user is admin/seller here. For simplicity, we just process it.
-
         var order = await _context.Orders
             .Include(o => o.User)
+            .Include(o => o.Items)
+            .ThenInclude(i => i.Product)
             .FirstOrDefaultAsync(o => o.Id == request.OrderId, cancellationToken);
 
         if (order == null)
             throw new NotFoundException(nameof(Domain.Entities.Order), request.OrderId);
+
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new UnauthorizedAccessException();
+
+        var roles = await _identityService.GetRolesAsync(userId);
+        var isAdmin = roles.Contains("Admin") || roles.Contains("SuperAdmin");
+        if (!isAdmin && !order.Items.All(item => item.Product.SellerId == userId))
+            throw new ForbiddenAccessException();
+
+        var validTransition = (order.Status, request.Status) switch
+        {
+            (OrderStatus.Pending, OrderStatus.Processing) => true,
+            (OrderStatus.Processing, OrderStatus.Shipped) => true,
+            (OrderStatus.Shipped, OrderStatus.Delivered) => true,
+            (OrderStatus.Pending, OrderStatus.Failed) => true,
+            (OrderStatus.Processing, OrderStatus.Failed) => true,
+            _ when order.Status == request.Status => true,
+            _ => false
+        };
+        if (!validTransition)
+            throw new InvalidOperationException($"Order status cannot transition from {order.Status} to {request.Status}.");
 
         order.Status = request.Status;
         await _context.SaveChangesAsync(cancellationToken);
@@ -3673,13 +4233,65 @@ public class UpdateOrderStatusCommandHandler : IRequestHandler<UpdateOrderStatus
                     </div>
                 </div>";
 
-                await _emailService.SendEmailAsync(order.User.Email, $"Order Shipped #{order.Id.ToString().Substring(0, 8).ToUpper()}", emailHtml);
-                await _notificationService.SendNotificationAsync(order.UserId, "Order Shipped", $"Your order #{order.Id.ToString().Substring(0, 8).ToUpper()} has been shipped.", "Order", order.Id.ToString());
+                try
+                {
+                    await _emailService.SendEmailAsync(order.User.Email, $"Order Shipped #{order.Id.ToString().Substring(0, 8).ToUpper()}", emailHtml);
+                    await _notificationService.SendNotificationAsync(order.UserId, "Order Shipped", $"Your order #{order.Id.ToString().Substring(0, 8).ToUpper()} has been shipped.", "Order", order.Id.ToString());
+                }
+                catch
+                {
+                    // Post-commit delivery is best effort.
+                }
             }
         }
 
         return true;
     }
+}
+
+``
+
+## Budgetha.Application\Features\Orders\DTOs\CustomerOrderDto.cs
+
+``csharp
+namespace Budgetha.Application.Features.Orders.DTOs;
+
+public class CustomerOrderDto
+{
+    public Guid Id { get; set; }
+    public string OrderNumber { get; set; } = string.Empty;
+    public DateTime Date { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public decimal TotalAmount { get; set; }
+    public List<CustomerOrderItemDto> Items { get; set; } = new();
+    public CustomerShippingAddressDto? ShippingAddress { get; set; }
+    public string? PaymentProvider { get; set; }
+    public string? PaymentStatus { get; set; }
+}
+
+public class CustomerOrderItemDto
+{
+    public Guid ProductId { get; set; }
+    public string ProductName { get; set; } = string.Empty;
+    public string ProductImage { get; set; } = string.Empty;
+    public int Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public string Type { get; set; } = string.Empty;
+    public DateOnly? RentalStartDate { get; set; }
+    public DateOnly? RentalEndDate { get; set; }
+    public string? Color { get; set; }
+    public string? Size { get; set; }
+}
+
+public class CustomerShippingAddressDto
+{
+    public string FullName { get; set; } = string.Empty;
+    public string Line1 { get; set; } = string.Empty;
+    public string? Line2 { get; set; }
+    public string City { get; set; } = string.Empty;
+    public string State { get; set; } = string.Empty;
+    public string PostalCode { get; set; } = string.Empty;
+    public string Country { get; set; } = string.Empty;
 }
 
 ``
@@ -3779,6 +4391,148 @@ public class GetAdminOrdersQueryHandler : IRequestHandler<GetAdminOrdersQuery, L
             .ToListAsync(cancellationToken);
 
         return orders;
+    }
+}
+
+``
+
+## Budgetha.Application\Features\Orders\Queries\GetCustomerOrdersQuery.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Application.Features.Orders.DTOs;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Orders.Queries;
+
+public record GetCustomerOrdersQuery : IRequest<List<CustomerOrderDto>>;
+public record GetCustomerOrderQuery(Guid OrderId) : IRequest<CustomerOrderDto?>;
+public record GetCustomerOrderByNumberQuery(string OrderNumber) : IRequest<CustomerOrderDto?>;
+
+public class GetCustomerOrdersQueryHandler : IRequestHandler<GetCustomerOrdersQuery, List<CustomerOrderDto>>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public GetCustomerOrdersQueryHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task<List<CustomerOrderDto>> Handle(GetCustomerOrdersQuery request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var orders = await _context.Orders
+            .AsNoTracking()
+            .Include(o => o.Items).ThenInclude(i => i.Product)
+            .Include(o => o.ShippingAddress)
+            .Include(o => o.Payment)
+            .Where(o => o.UserId == userId)
+            .OrderByDescending(o => o.Created)
+            .ToListAsync(cancellationToken);
+
+        return orders.Select(ToDto).ToList();
+    }
+
+    public static CustomerOrderDto ToDto(Domain.Entities.Order order) => new()
+    {
+        Id = order.Id,
+        OrderNumber = GetOrderNumber(order),
+        Date = order.Created.DateTime,
+        Status = order.Status.ToString(),
+        TotalAmount = order.TotalAmount,
+        PaymentProvider = order.Payment?.Provider.ToString(),
+        PaymentStatus = order.Payment?.Status.ToString(),
+        ShippingAddress = order.ShippingAddress == null ? null : new CustomerShippingAddressDto
+        {
+            FullName = order.ShippingAddress.FullName,
+            Line1 = order.ShippingAddress.Line1,
+            Line2 = order.ShippingAddress.Line2,
+            City = order.ShippingAddress.City,
+            State = order.ShippingAddress.State,
+            PostalCode = order.ShippingAddress.PostalCode,
+            Country = order.ShippingAddress.Country
+        },
+        Items = order.Items.Select(item => new CustomerOrderItemDto
+        {
+            ProductId = item.ProductId,
+            ProductName = item.Product.Name,
+            ProductImage = item.Product.ThumbnailUrl ?? string.Empty,
+            Quantity = item.Quantity,
+            UnitPrice = item.UnitPrice,
+            Type = item.Type.ToString(),
+            RentalStartDate = item.RentalStartDate,
+            RentalEndDate = item.RentalEndDate,
+            Color = item.Color,
+            Size = item.Size
+        }).ToList()
+    };
+
+    private static string GetOrderNumber(Domain.Entities.Order order) =>
+        $"BGT-{order.Created.Year}-{order.Id.ToString()[..4].ToUpperInvariant()}";
+}
+
+public class GetCustomerOrderQueryHandler : IRequestHandler<GetCustomerOrderQuery, CustomerOrderDto?>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public GetCustomerOrderQueryHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task<CustomerOrderDto?> Handle(GetCustomerOrderQuery request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var order = await _context.Orders
+            .AsNoTracking()
+            .Include(o => o.Items).ThenInclude(i => i.Product)
+            .Include(o => o.ShippingAddress)
+            .Include(o => o.Payment)
+            .SingleOrDefaultAsync(o => o.Id == request.OrderId && o.UserId == userId, cancellationToken);
+
+        return order == null ? null : GetCustomerOrdersQueryHandler.ToDto(order);
+    }
+}
+
+public class GetCustomerOrderByNumberQueryHandler : IRequestHandler<GetCustomerOrderByNumberQuery, CustomerOrderDto?>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public GetCustomerOrderByNumberQueryHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task<CustomerOrderDto?> Handle(GetCustomerOrderByNumberQuery request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var order = await _context.Orders
+            .AsNoTracking()
+            .Include(o => o.Items).ThenInclude(i => i.Product)
+            .Include(o => o.ShippingAddress)
+            .Include(o => o.Payment)
+            .Where(o => o.UserId == userId)
+            .ToListAsync(cancellationToken);
+
+        var match = order.SingleOrDefault(o =>
+            $"BGT-{o.Created.Year}-{o.Id.ToString()[..4].ToUpperInvariant()}".Equals(request.OrderNumber, StringComparison.OrdinalIgnoreCase));
+        return match == null ? null : GetCustomerOrdersQueryHandler.ToDto(match);
     }
 }
 
@@ -3917,6 +4671,49 @@ public class GetTransactionHistoryQueryHandler : IRequestHandler<GetTransactionH
 
 ``
 
+## Budgetha.Application\Features\Products\ProductRules.cs
+
+``csharp
+using System.Text.RegularExpressions;
+
+namespace Budgetha.Application.Features.Products;
+
+internal static class ProductRules
+{
+    internal static void Validate(decimal price, int stockQuantity, decimal? originalPrice, bool isAvailableForRent, decimal? rentalPricePerDay)
+    {
+        if (price <= 0)
+            throw new InvalidOperationException("Product price must be positive.");
+
+        if (stockQuantity < 0)
+            throw new InvalidOperationException("Product stock cannot be negative.");
+
+        if (originalPrice.HasValue && originalPrice.Value <= 0)
+            throw new InvalidOperationException("Original price must be positive when provided.");
+
+        if (rentalPricePerDay.HasValue && rentalPricePerDay.Value <= 0)
+            throw new InvalidOperationException("Rental price must be positive when provided.");
+
+        if (isAvailableForRent && !rentalPricePerDay.HasValue)
+            throw new InvalidOperationException("A rental price is required for rentable products.");
+    }
+
+    internal static string GenerateSlug(string name)
+    {
+        var slug = Regex.Replace(name.Trim().ToLowerInvariant(), @"[^a-z0-9\p{IsArabic}\s-]", "");
+        slug = Regex.Replace(slug, @"\s+", " ").Trim();
+        slug = slug[..Math.Min(slug.Length, 45)].Trim();
+        slug = Regex.Replace(slug, @"\s", "-");
+
+        if (string.IsNullOrWhiteSpace(slug))
+            throw new InvalidOperationException("Product name must produce a non-empty slug.");
+
+        return slug;
+    }
+}
+
+``
+
 ## Budgetha.Application\Features\Products\Commands\ApproveProductCommand.cs
 
 ``csharp
@@ -3960,7 +4757,6 @@ using Budgetha.Domain.Entities;
 using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using System.Text.RegularExpressions;
 
 namespace Budgetha.Application.Features.Products.Commands;
 
@@ -3985,15 +4781,18 @@ public record CreateProductCommand(
 public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand, Guid>
 {
     private readonly IApplicationDbContext _context;
+    private readonly IIdentityService _identityService;
 
-    public CreateProductCommandHandler(IApplicationDbContext context)
+    public CreateProductCommandHandler(IApplicationDbContext context, IIdentityService identityService)
     {
         _context = context;
+        _identityService = identityService;
     }
 
     public async Task<Guid> Handle(CreateProductCommand request, CancellationToken cancellationToken)
     {
-        
+        ProductRules.Validate(request.Price, request.StockQuantity, request.OriginalPrice, request.IsAvailableForRent, request.RentalPricePerDay);
+
         var categoryExists = await _context.Categories.AnyAsync(c => c.Id == request.CategoryId, cancellationToken);
         if (!categoryExists)
         {
@@ -4001,7 +4800,7 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
         }
 
         
-        var slug = GenerateSlug(request.Name);
+        var slug = ProductRules.GenerateSlug(request.Name);
         var originalSlug = slug;
         var counter = 1;
 
@@ -4011,6 +4810,9 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             slug = $"{originalSlug}-{counter}";
             counter++;
         }
+
+        var roles = await _identityService.GetRolesAsync(request.SellerId);
+        var isAdmin = roles.Contains("Admin") || roles.Contains("SuperAdmin");
 
         var product = new Product
         {
@@ -4027,7 +4829,7 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             SellerId = request.SellerId,
             Slug = slug,
             IsActive = true,
-            ApprovalStatus = ApprovalStatus.Approved
+            ApprovalStatus = isAdmin ? ApprovalStatus.Approved : ApprovalStatus.Pending
         };
 
         if (request.ImageUrls != null && request.ImageUrls.Any())
@@ -4071,19 +4873,6 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
         await _context.SaveChangesAsync(cancellationToken);
 
         return product.Id;
-    }
-
-    private string GenerateSlug(string name)
-    {
-        string str = name.ToLower();
-        
-        str = Regex.Replace(str, @"[^a-z0-9\s-]", "");
-        
-        str = Regex.Replace(str, @"\s+", " ").Trim();
-        
-        str = str.Substring(0, str.Length <= 45 ? str.Length : 45).Trim();
-        str = Regex.Replace(str, @"\s", "-"); 
-        return str;
     }
 }
 
@@ -4132,6 +4921,7 @@ public class DeleteProductCommandHandler : IRequestHandler<DeleteProductCommand,
 ``csharp
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -4173,6 +4963,8 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
 
     public async Task<bool> Handle(UpdateProductCommand request, CancellationToken cancellationToken)
     {
+        ProductRules.Validate(request.Price, request.StockQuantity, request.OriginalPrice, request.IsAvailableForRent, request.RentalPricePerDay);
+
         var product = await _context.Products
             .Include(p => p.Images)
             .Include(p => p.Colors)
@@ -4182,17 +4974,22 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
             .FirstOrDefaultAsync(p => p.Id == request.Id, cancellationToken);
         if (product == null) return false;
 
-        // Verify ownership or Admin rights
-        if (product.SellerId != request.UserId)
+        var roles = await _identityService.GetRolesAsync(request.UserId);
+        var isAdmin = roles.Contains("Admin") || roles.Contains("SuperAdmin");
+
+        if (product.SellerId != request.UserId && !isAdmin)
         {
-            var roles = await _identityService.GetRolesAsync(request.UserId);
-            if (!roles.Contains("Admin") && !roles.Contains("SuperAdmin"))
-            {
-                return false;
-            }
+            return false;
         }
 
+        var slug = ProductRules.GenerateSlug(request.Name);
+        var originalSlug = slug;
+        var counter = 1;
+        while (await _context.Products.AnyAsync(p => p.Id != product.Id && p.Slug == slug, cancellationToken))
+            slug = $"{originalSlug}-{counter++}";
+
         product.Name = request.Name;
+        product.Slug = slug;
         product.Description = request.Description;
         product.Price = request.Price;
         product.StockQuantity = request.StockQuantity;
@@ -4208,6 +5005,7 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
         product.RentalPricePerDay = request.RentalPricePerDay;
         product.Brand = request.Brand;
         product.OriginalPrice = request.OriginalPrice;
+        product.ApprovalStatus = isAdmin ? ApprovalStatus.Approved : ApprovalStatus.Pending;
 
         if (request.Colors != null)
         {
@@ -4332,6 +5130,7 @@ public class GetPriceBoundsQueryHandler : IRequestHandler<GetPriceBoundsQuery, P
 
 ``csharp
 using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -4355,7 +5154,10 @@ public class GetProductBySlugQueryHandler : IRequestHandler<GetProductBySlugQuer
             .Include(x => x.Images)
             .Include(x => x.Reviews)
             .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Slug == request.Slug, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Slug == request.Slug &&
+                                      x.IsActive &&
+                                      x.ApprovalStatus == ApprovalStatus.Approved,
+                cancellationToken);
 
         if (p == null) return null;
 
@@ -4436,7 +5238,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
         var query = _context.Products
             .Include(p => p.Category)
             .Include(p => p.Images)
-            .Where(p => p.IsActive)
+            .Where(p => p.IsActive && p.ApprovalStatus == ApprovalStatus.Approved)
             .AsNoTracking();
 
         if (!string.IsNullOrEmpty(request.SellerId))
@@ -4587,6 +5389,9 @@ public class AddReviewCommandHandler : IRequestHandler<AddReviewCommand, Guid>
 
     public async Task<Guid> Handle(AddReviewCommand request, CancellationToken cancellationToken)
     {
+        if (request.Rating is < 1 or > 5)
+            throw new InvalidOperationException("Rating must be between 1 and 5.");
+
         var userId = _currentUserService.UserId;
         if (string.IsNullOrEmpty(userId))
             throw new UnauthorizedAccessException();
@@ -4671,6 +5476,17 @@ public class DeleteReviewCommandHandler : IRequestHandler<DeleteReviewCommand>
         if (!isAuthor && !isAdmin)
             throw new UnauthorizedAccessException("You are not authorized to delete this review.");
 
+        var product = await _context.Products.FindAsync(new object[] { review.ProductId }, cancellationToken)
+            ?? throw new NotFoundException(nameof(Product), review.ProductId);
+        var reviewCount = await _context.Reviews.CountAsync(r => r.ProductId == review.ProductId, cancellationToken);
+        var totalRating = await _context.Reviews
+            .Where(r => r.ProductId == review.ProductId)
+            .SumAsync(r => r.Rating, cancellationToken);
+
+        product.ReviewCount = Math.Max(0, reviewCount - 1);
+        product.AverageRating = product.ReviewCount == 0
+            ? 0
+            : (decimal)(totalRating - review.Rating) / product.ReviewCount;
         _context.Reviews.Remove(review);
         await _context.SaveChangesAsync(cancellationToken);
     }
@@ -4704,6 +5520,9 @@ public class UpdateReviewCommandHandler : IRequestHandler<UpdateReviewCommand>
 
     public async Task Handle(UpdateReviewCommand request, CancellationToken cancellationToken)
     {
+        if (request.Rating is < 1 or > 5)
+            throw new InvalidOperationException("Rating must be between 1 and 5.");
+
         var userId = _currentUserService.UserId;
         if (string.IsNullOrEmpty(userId))
             throw new UnauthorizedAccessException();
@@ -4717,6 +5536,17 @@ public class UpdateReviewCommandHandler : IRequestHandler<UpdateReviewCommand>
         if (review.UserId != userId)
             throw new UnauthorizedAccessException("You can only update your own reviews.");
 
+        var product = await _context.Products.FindAsync(new object[] { review.ProductId }, cancellationToken)
+            ?? throw new NotFoundException(nameof(Product), review.ProductId);
+        var reviewCount = await _context.Reviews.CountAsync(r => r.ProductId == review.ProductId, cancellationToken);
+        var totalRating = await _context.Reviews
+            .Where(r => r.ProductId == review.ProductId)
+            .SumAsync(r => r.Rating, cancellationToken);
+
+        product.ReviewCount = reviewCount;
+        product.AverageRating = reviewCount == 0
+            ? 0
+            : (decimal)(totalRating - review.Rating + request.Rating) / reviewCount;
         review.Rating = request.Rating;
         review.Comment = request.Comment;
 
@@ -5108,11 +5938,16 @@ public class ReplyToTicketCommandHandler : IRequestHandler<ReplyToTicketCommand,
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUserService;
+    private readonly IIdentityService _identityService;
 
-    public ReplyToTicketCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    public ReplyToTicketCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUserService,
+        IIdentityService identityService)
     {
         _context = context;
         _currentUserService = currentUserService;
+        _identityService = identityService;
     }
 
     public async Task<bool> Handle(ReplyToTicketCommand request, CancellationToken cancellationToken)
@@ -5125,6 +5960,10 @@ public class ReplyToTicketCommandHandler : IRequestHandler<ReplyToTicketCommand,
             .FirstOrDefaultAsync(t => t.Id == request.TicketId, cancellationToken);
 
         if (ticket == null) return false;
+
+        var roles = await _identityService.GetRolesAsync(userId);
+        if (ticket.UserId != userId && !roles.Contains("Admin") && !roles.Contains("SuperAdmin"))
+            return false;
 
         var message = new TicketMessage
         {
@@ -5675,12 +6514,16 @@ public class Order : BaseAuditableEntity
     public OrderStatus Status { get; set; } = OrderStatus.Pending;
     public decimal TotalAmount { get; set; }
     public string? Notes { get; set; }
+    public DateTimeOffset? ReservationExpiresAt { get; set; }
 
     public Guid? ShippingAddressId { get; set; }
     public Address? ShippingAddress { get; set; }
 
     public ICollection<OrderItem> Items { get; set; } = new List<OrderItem>();
     public Payment? Payment { get; set; }
+
+    [System.ComponentModel.DataAnnotations.Timestamp]
+    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 }
 
 ``
@@ -5726,9 +6569,15 @@ public class Payment : BaseAuditableEntity
     public Order Order { get; set; } = null!;
 
     public decimal Amount { get; set; }
+    public string Currency { get; set; } = "USD";
     public PaymentStatus Status { get; set; } = PaymentStatus.Pending;
     public PaymentProvider Provider { get; set; }
     public string? ExternalTransactionId { get; set; }
+    public string? ExternalCaptureId { get; set; }
+    public string? LastWebhookEventId { get; set; }
+
+    [System.ComponentModel.DataAnnotations.Timestamp]
+    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 }
 
 ``
@@ -5775,6 +6624,9 @@ public class Product : BaseAuditableEntity
     public ICollection<ProductSize> Sizes { get; set; } = new List<ProductSize>();
     public ICollection<ProductSpec> Specs { get; set; } = new List<ProductSpec>();
     public ICollection<ProductFeature> Features { get; set; } = new List<ProductFeature>();
+
+    [System.ComponentModel.DataAnnotations.Timestamp]
+    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 }
 
 ``
@@ -6549,6 +7401,7 @@ public static class InfrastructureServiceRegistration
         services.AddScoped<IImageService, ImageService>();
 
         services.AddHttpClient<IPaymentService, PaymentService>();
+        services.AddHostedService<ExpiredPayPalReservationService>();
 
         return services;
     }
@@ -6617,6 +7470,24 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
+        foreach (var entry in ChangeTracker.Entries<Product>()
+                     .Where(entry => entry.State is EntityState.Added or EntityState.Modified))
+        {
+            entry.Entity.RowVersion = Guid.NewGuid().ToByteArray();
+        }
+
+        foreach (var entry in ChangeTracker.Entries<Order>()
+                     .Where(entry => entry.State is EntityState.Added or EntityState.Modified))
+        {
+            entry.Entity.RowVersion = Guid.NewGuid().ToByteArray();
+        }
+
+        foreach (var entry in ChangeTracker.Entries<Payment>()
+                     .Where(entry => entry.State is EntityState.Added or EntityState.Modified))
+        {
+            entry.Entity.RowVersion = Guid.NewGuid().ToByteArray();
+        }
+
         foreach (var entry in ChangeTracker.Entries<BaseAuditableEntity>())
         {
             var now = _dateTimeService.UtcNow;
@@ -6648,6 +7519,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
 ``csharp
 using Budgetha.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Budgetha.Infrastructure.Persistence;
@@ -6667,30 +7539,63 @@ public static class ApplicationDbInitializer
         }
     }
 
-    public static async Task SeedSuperAdminAsync(IServiceProvider serviceProvider)
+    public static async Task<string?> BootstrapSuperAdminAsync(
+        IServiceProvider serviceProvider,
+        IConfiguration configuration)
     {
+        var section = configuration.GetSection("BootstrapAdmin");
+        if (!section.GetValue<bool>("Enabled")) return null;
+
+        var email = section["Email"]?.Trim();
+        var password = section["Password"];
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+            throw new InvalidOperationException("BootstrapAdmin requires Email and Password when enabled.");
+
         var userManager = serviceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-
-        const string email = "superadmin@budgetha.com";
-        var existing = await userManager.FindByEmailAsync(email);
-        if (existing is not null) return;
-
         var superAdmin = new ApplicationUser
         {
             UserName = email,
             Email = email,
-            FirstName = "Super",
-            LastName = "Admin",
+            FirstName = section["FirstName"]?.Trim() ?? "Development",
+            LastName = section["LastName"]?.Trim() ?? "Administrator",
             EmailConfirmed = true
         };
 
-        var result = await userManager.CreateAsync(superAdmin, "SuperAdmin@123!");
-        if (result.Succeeded)
-            await userManager.AddToRolesAsync(superAdmin, AllRoles);
+        var passwordErrors = new List<IdentityError>();
+        foreach (var validator in userManager.PasswordValidators)
+        {
+            var validation = await validator.ValidateAsync(userManager, superAdmin, password);
+            if (!validation.Succeeded) passwordErrors.AddRange(validation.Errors);
+        }
+        if (passwordErrors.Count > 0)
+            throw new InvalidOperationException($"BootstrapAdmin password is invalid: {string.Join("; ", passwordErrors.Select(e => e.Description))}");
+
+        var existing = await userManager.FindByEmailAsync(email);
+        if (existing is not null)
+        {
+            if (!await userManager.IsInRoleAsync(existing, "SuperAdmin"))
+                throw new InvalidOperationException("BootstrapAdmin email belongs to an existing non-SuperAdmin account.");
+
+            return existing.Id;
+        }
+
+        var result = await userManager.CreateAsync(superAdmin, password);
+        if (!result.Succeeded)
+            throw new InvalidOperationException($"BootstrapAdmin could not be created: {string.Join("; ", result.Errors.Select(e => e.Description))}");
+
+        var roleResult = await userManager.AddToRoleAsync(superAdmin, "SuperAdmin");
+        if (!roleResult.Succeeded)
+        {
+            await userManager.DeleteAsync(superAdmin);
+            throw new InvalidOperationException($"BootstrapAdmin role assignment failed: {string.Join("; ", roleResult.Errors.Select(e => e.Description))}");
+        }
+
+        return superAdmin.Id;
     }
 
-    public static async Task SeedCatalogAsync(ApplicationDbContext context)
+    public static async Task SeedCatalogAsync(ApplicationDbContext context, string? sellerId)
     {
+        if (sellerId is null) return;
         if (context.Categories.Any() || context.Products.Any()) return;
 
         var electronics = new Category { Name = "Electronics", Slug = "electronics" };
@@ -6698,9 +7603,6 @@ public static class ApplicationDbInitializer
         
         context.Categories.AddRange(electronics, clothing);
         await context.SaveChangesAsync();
-
-        var superAdmin = context.Users.FirstOrDefault(u => u.Email == "superadmin@budgetha.com");
-        var sellerId = superAdmin?.Id ?? Guid.NewGuid().ToString(); // Fallback if not found
 
         var products = new List<Product>
         {
@@ -6867,6 +7769,7 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.Status).HasConversion<string>().HasMaxLength(50);
 
         builder.HasIndex(o => o.Status);
+        builder.HasIndex(o => o.ReservationExpiresAt);
 
         builder.HasOne(o => o.User)
             .WithMany(u => u.Orders)
@@ -6926,11 +7829,17 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
     public void Configure(EntityTypeBuilder<Payment> builder)
     {
         builder.Property(p => p.Amount).HasPrecision(18, 2);
+        builder.Property(p => p.Currency).HasMaxLength(3).IsRequired();
         builder.Property(p => p.Status).HasConversion<string>().HasMaxLength(50);
         builder.Property(p => p.Provider).HasConversion<string>().HasMaxLength(50);
         builder.Property(p => p.ExternalTransactionId).HasMaxLength(250);
+        builder.Property(p => p.ExternalCaptureId).HasMaxLength(250);
+        builder.Property(p => p.LastWebhookEventId).HasMaxLength(250);
 
         builder.HasIndex(p => p.OrderId).IsUnique();
+        builder.HasIndex(p => p.ExternalTransactionId).IsUnique();
+        builder.HasIndex(p => p.ExternalCaptureId).IsUnique();
+        builder.HasIndex(p => p.LastWebhookEventId).IsUnique();
 
         builder.HasOne(p => p.Order)
             .WithOne(o => o.Payment)
@@ -6964,6 +7873,14 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.HasIndex(p => p.Slug).IsUnique();
         builder.HasIndex(p => p.IsActive);
         builder.HasIndex(p => p.ApprovalStatus);
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_Products_Price_Positive", "\"Price\" > 0");
+            t.HasCheckConstraint("CK_Products_OriginalPrice_Positive", "\"OriginalPrice\" IS NULL OR \"OriginalPrice\" > 0");
+            t.HasCheckConstraint("CK_Products_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+            t.HasCheckConstraint("CK_Products_Stock_NonNegative", "\"StockQuantity\" >= 0");
+            t.HasCheckConstraint("CK_Products_Slug_NotEmpty", "length(trim(\"Slug\")) > 0");
+        });
 
         builder.HasOne(p => p.Category)
             .WithMany(c => c.Products)
@@ -7020,6 +7937,7 @@ public class ReviewConfiguration : IEntityTypeConfiguration<Review>
         builder.Property(r => r.Comment).HasMaxLength(2000);
 
         builder.HasIndex(r => new { r.ProductId, r.UserId }).IsUnique();
+        builder.ToTable(t => t.HasCheckConstraint("CK_Reviews_Rating_Range", "\"Rating\" >= 1 AND \"Rating\" <= 5"));
 
         builder.HasOne(r => r.Product)
             .WithMany(p => p.Reviews)
@@ -18304,6 +19222,1721 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
 ``
 
+## Budgetha.Infrastructure\Persistence\Migrations\20260731194927_AddCatalogValidationConstraints.cs
+
+``csharp
+using Budgetha.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations
+{
+    /// <inheritdoc />
+    [DbContext(typeof(ApplicationDbContext))]
+    [Migration("20260731194927_AddCatalogValidationConstraints")]
+    public partial class AddCatalogValidationConstraints : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_Reviews_Rating_Range",
+                table: "Reviews",
+                sql: "\"Rating\" >= 1 AND \"Rating\" <= 5");
+
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_Products_Price_Positive",
+                table: "Products",
+                sql: "\"Price\" > 0");
+
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_Products_OriginalPrice_Positive",
+                table: "Products",
+                sql: "\"OriginalPrice\" IS NULL OR \"OriginalPrice\" > 0");
+
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_Products_RentalPrice_Positive",
+                table: "Products",
+                sql: "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_Products_Slug_NotEmpty",
+                table: "Products",
+                sql: "length(trim(\"Slug\")) > 0");
+
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_Products_Stock_NonNegative",
+                table: "Products",
+                sql: "\"StockQuantity\" >= 0");
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_Reviews_Rating_Range",
+                table: "Reviews");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_Products_Price_Positive",
+                table: "Products");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_Products_OriginalPrice_Positive",
+                table: "Products");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_Products_RentalPrice_Positive",
+                table: "Products");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_Products_Slug_NotEmpty",
+                table: "Products");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_Products_Stock_NonNegative",
+                table: "Products");
+        }
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Migrations\20260731195420_AddPaymentVerificationAndOrderReservations.cs
+
+``csharp
+using System;
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations;
+
+public partial class AddPaymentVerificationAndOrderReservations : Migration
+{
+    protected override void Up(MigrationBuilder migrationBuilder)
+    {
+        migrationBuilder.AddColumn<string>(
+            name: "Currency", table: "Payments", type: "character varying(3)", maxLength: 3,
+            nullable: false, defaultValue: "USD");
+        migrationBuilder.AddColumn<string>(
+            name: "ExternalCaptureId", table: "Payments", type: "character varying(250)", maxLength: 250,
+            nullable: true);
+        migrationBuilder.AddColumn<string>(
+            name: "LastWebhookEventId", table: "Payments", type: "character varying(250)", maxLength: 250,
+            nullable: true);
+        migrationBuilder.AddColumn<byte[]>(
+            name: "RowVersion", table: "Payments", type: "bytea", rowVersion: true,
+            nullable: false, defaultValue: new byte[0]);
+        migrationBuilder.AddColumn<DateTimeOffset>(
+            name: "ReservationExpiresAt", table: "Orders", type: "timestamp with time zone", nullable: true);
+        migrationBuilder.AddColumn<byte[]>(
+            name: "RowVersion", table: "Orders", type: "bytea", rowVersion: true,
+            nullable: false, defaultValue: new byte[0]);
+
+        migrationBuilder.CreateIndex(
+            name: "IX_Payments_ExternalCaptureId", table: "Payments", column: "ExternalCaptureId", unique: true);
+        migrationBuilder.CreateIndex(
+            name: "IX_Payments_ExternalTransactionId", table: "Payments", column: "ExternalTransactionId", unique: true);
+        migrationBuilder.CreateIndex(
+            name: "IX_Payments_LastWebhookEventId", table: "Payments", column: "LastWebhookEventId", unique: true);
+        migrationBuilder.CreateIndex(
+            name: "IX_Orders_ReservationExpiresAt", table: "Orders", column: "ReservationExpiresAt");
+
+        migrationBuilder.CreateTable(
+            name: "PromoCodes",
+            columns: table => new
+            {
+                Id = table.Column<Guid>(type: "uuid", nullable: false),
+                Code = table.Column<string>(type: "text", nullable: false),
+                DiscountPercentage = table.Column<decimal>(type: "numeric", nullable: false),
+                MaxDiscountAmount = table.Column<decimal>(type: "numeric", nullable: true),
+                ExpiryDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                IsActive = table.Column<bool>(type: "boolean", nullable: false),
+                Created = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                CreatedBy = table.Column<string>(type: "text", nullable: true),
+                LastModified = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                LastModifiedBy = table.Column<string>(type: "text", nullable: true)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_PromoCodes", x => x.Id);
+            });
+
+        migrationBuilder.CreateIndex(
+            name: "IX_PromoCodes_Code",
+            table: "PromoCodes",
+            column: "Code",
+            unique: true);
+    }
+
+    protected override void Down(MigrationBuilder migrationBuilder)
+    {
+        migrationBuilder.DropIndex(name: "IX_Payments_ExternalCaptureId", table: "Payments");
+        migrationBuilder.DropIndex(name: "IX_Payments_ExternalTransactionId", table: "Payments");
+        migrationBuilder.DropIndex(name: "IX_Payments_LastWebhookEventId", table: "Payments");
+        migrationBuilder.DropIndex(name: "IX_Orders_ReservationExpiresAt", table: "Orders");
+        migrationBuilder.DropTable(name: "PromoCodes");
+        migrationBuilder.DropColumn(name: "Currency", table: "Payments");
+        migrationBuilder.DropColumn(name: "ExternalCaptureId", table: "Payments");
+        migrationBuilder.DropColumn(name: "LastWebhookEventId", table: "Payments");
+        migrationBuilder.DropColumn(name: "RowVersion", table: "Payments");
+        migrationBuilder.DropColumn(name: "ReservationExpiresAt", table: "Orders");
+        migrationBuilder.DropColumn(name: "RowVersion", table: "Orders");
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Migrations\20260731195420_AddPaymentVerificationAndOrderReservations.Designer.cs
+
+``csharp
+// <auto-generated />
+using System;
+using Budgetha.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations
+{
+    [DbContext(typeof(ApplicationDbContext))]
+    [Migration("20260731195420_AddPaymentVerificationAndOrderReservations")]
+    partial class AddPaymentVerificationAndOrderReservations
+    {
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        {
+#pragma warning disable 612, 618
+            modelBuilder
+                .HasAnnotation("ProductVersion", "9.0.9")
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Address", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("City")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Country")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Line1")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Line2")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("PostalCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Addresses");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Announcement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("EndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LinkUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("StartDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Announcements");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ApplicationUser", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<int>("AccessFailedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AvatarUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<bool>("EmailConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("LockoutEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LockoutEnd")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("NormalizedEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("NormalizedUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("PhoneNumberConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("RefreshToken")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("RefreshTokenExpiryTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SecurityStamp")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("UserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedEmail")
+                        .HasDatabaseName("EmailIndex");
+
+                    b.HasIndex("NormalizedUserName")
+                        .IsUnique()
+                        .HasDatabaseName("UserNameIndex");
+
+                    b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("Carts");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.CartItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CartId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("RentalEndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("RentalStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CartId");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("CartItems");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParentId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Categories");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RelatedEntityId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Notifications");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTimeOffset?>("ReservationExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid?>("ShippingAddressId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReservationExpiresAt");
+
+                    b.HasIndex("ShippingAddressId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Orders");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("RentalEndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("RentalStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("OrderItems");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("ExternalCaptureId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<string>("ExternalTransactionId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LastWebhookEventId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalCaptureId")
+                        .IsUnique();
+
+                    b.HasIndex("ExternalTransactionId")
+                        .IsUnique();
+
+                    b.HasIndex("LastWebhookEventId")
+                        .IsUnique();
+
+                    b.HasIndex("OrderId")
+                        .IsUnique();
+
+                    b.ToTable("Payments");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ApprovalStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("AverageRating")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("Brand")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsAvailableForRent")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsFeatured")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal?>("OriginalPrice")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("RentalPricePerDay")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("ReviewCount")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<int>("StockQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ThumbnailPublicId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ThumbnailUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovalStatus");
+
+                    b.HasIndex("CategoryId");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("SellerId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Products", t =>
+                        {
+                            t.HasCheckConstraint("CK_Products_OriginalPrice_Positive", "\"OriginalPrice\" IS NULL OR \"OriginalPrice\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Price_Positive", "\"Price\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Slug_NotEmpty", "length(trim(\"Slug\")) > 0");
+
+                            t.HasCheckConstraint("CK_Products_Stock_NonNegative", "\"StockQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Hex")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductColors");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductFeatures");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AltText")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PublicId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductImages");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSizes");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSpecs");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PromoCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("DiscountPercentage")
+                        .HasColumnType("numeric");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("MaxDiscountAmount")
+                        .HasColumnType("numeric");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PromoCodes");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("ProductId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("Reviews", t =>
+                        {
+                            t.HasCheckConstraint("CK_Reviews_Rating_Range", "\"Rating\" >= 1 AND \"Rating\" <= 5");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SellerRequests");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerVerification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BusinessDescription")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("BusinessName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DocumentUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ReviewedBy")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("SellerVerifications");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("SupportTickets");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.TicketMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("SenderId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TicketId");
+
+                    b.ToTable("TicketMessages");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Wishlist", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("UserId", "ProductId")
+                        .IsUnique();
+
+                    b.ToTable("Wishlists");
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("NormalizedName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasDatabaseName("RoleNameIndex");
+
+                    b.ToTable("AspNetRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RoleId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetRoleClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderKey")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderDisplayName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("LoginProvider", "ProviderKey");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserLogins", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RoleId")
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId", "RoleId");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetUserRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId", "LoginProvider", "Name");
+
+                    b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Address", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Addresses")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithOne("Cart")
+                        .HasForeignKey("Budgetha.Domain.Entities.Cart", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.CartItem", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Cart", "Cart")
+                        .WithMany("Items")
+                        .HasForeignKey("CartId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("CartItems")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Cart");
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Category", "Parent")
+                        .WithMany("Children")
+                        .HasForeignKey("ParentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Parent");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Address", "ShippingAddress")
+                        .WithMany()
+                        .HasForeignKey("ShippingAddressId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Orders")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ShippingAddress");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("Items")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("OrderItems")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithOne("Payment")
+                        .HasForeignKey("Budgetha.Domain.Entities.Payment", "OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Category", "Category")
+                        .WithMany("Products")
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany("Products")
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Category");
+
+                    b.Navigation("Seller");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Colors")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Features")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Images")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Sizes")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Specs")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Reviews")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Reviews")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerVerification", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithOne("SellerVerification")
+                        .HasForeignKey("Budgetha.Domain.Entities.SellerVerification", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("SupportTickets")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.TicketMessage", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.SupportTicket", "Ticket")
+                        .WithMany("Messages")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ticket");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Wishlist", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Wishlists")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Wishlists")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ApplicationUser", b =>
+                {
+                    b.Navigation("Addresses");
+
+                    b.Navigation("Cart");
+
+                    b.Navigation("Orders");
+
+                    b.Navigation("Products");
+
+                    b.Navigation("Reviews");
+
+                    b.Navigation("SellerVerification");
+
+                    b.Navigation("SupportTickets");
+
+                    b.Navigation("Wishlists");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.Navigation("Children");
+
+                    b.Navigation("Products");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.Navigation("Items");
+
+                    b.Navigation("Payment");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.Navigation("CartItems");
+
+                    b.Navigation("Colors");
+
+                    b.Navigation("Features");
+
+                    b.Navigation("Images");
+
+                    b.Navigation("OrderItems");
+
+                    b.Navigation("Reviews");
+
+                    b.Navigation("Sizes");
+
+                    b.Navigation("Specs");
+
+                    b.Navigation("Wishlists");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.Navigation("Messages");
+                });
+#pragma warning restore 612, 618
+        }
+    }
+}
+
+``
+
 ## Budgetha.Infrastructure\Persistence\Migrations\ApplicationDbContextModelSnapshot.cs
 
 ``csharp
@@ -18688,6 +21321,15 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<DateTimeOffset?>("ReservationExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("bytea");
+
                     b.Property<Guid?>("ShippingAddressId")
                         .HasColumnType("uuid");
 
@@ -18706,6 +21348,8 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ReservationExpiresAt");
+
                     b.HasIndex("ShippingAddressId");
 
                     b.HasIndex("Status");
@@ -18721,6 +21365,9 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
                     b.Property<Guid>("OrderId")
                         .HasColumnType("uuid");
 
@@ -18735,6 +21382,9 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
                     b.Property<DateOnly?>("RentalStartDate")
                         .HasColumnType("date");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
 
                     b.Property<string>("Type")
                         .IsRequired()
@@ -18770,6 +21420,15 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.Property<string>("CreatedBy")
                         .HasColumnType("text");
 
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("ExternalCaptureId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
                     b.Property<string>("ExternalTransactionId")
                         .HasMaxLength(250)
                         .HasColumnType("character varying(250)");
@@ -18780,6 +21439,10 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.Property<string>("LastModifiedBy")
                         .HasColumnType("text");
 
+                    b.Property<string>("LastWebhookEventId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
                     b.Property<Guid>("OrderId")
                         .HasColumnType("uuid");
 
@@ -18788,12 +21451,27 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("bytea");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ExternalCaptureId")
+                        .IsUnique();
+
+                    b.HasIndex("ExternalTransactionId")
+                        .IsUnique();
+
+                    b.HasIndex("LastWebhookEventId")
+                        .IsUnique();
 
                     b.HasIndex("OrderId")
                         .IsUnique();
@@ -18865,6 +21543,12 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.Property<int>("ReviewCount")
                         .HasColumnType("integer");
 
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("bytea");
+
                     b.Property<string>("SellerId")
                         .IsRequired()
                         .HasColumnType("text");
@@ -18897,7 +21581,18 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.HasIndex("Slug")
                         .IsUnique();
 
-                    b.ToTable("Products");
+                    b.ToTable("Products", t =>
+                        {
+                            t.HasCheckConstraint("CK_Products_OriginalPrice_Positive", "\"OriginalPrice\" IS NULL OR \"OriginalPrice\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Price_Positive", "\"Price\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Slug_NotEmpty", "length(trim(\"Slug\")) > 0");
+
+                            t.HasCheckConstraint("CK_Products_Stock_NonNegative", "\"StockQuantity\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
@@ -19019,6 +21714,33 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.ToTable("ProductSpecs");
                 });
 
+            modelBuilder.Entity("Budgetha.Domain.Entities.PromoCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("DiscountPercentage")
+                        .HasColumnType("numeric");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("MaxDiscountAmount")
+                        .HasColumnType("numeric");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PromoCodes");
+                });
+
             modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
                 {
                     b.Property<Guid>("Id")
@@ -19058,7 +21780,10 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.HasIndex("ProductId", "UserId")
                         .IsUnique();
 
-                    b.ToTable("Reviews");
+                    b.ToTable("Reviews", t =>
+                        {
+                            t.HasCheckConstraint("CK_Reviews_Rating_Range", "\"Rating\" >= 1 AND \"Rating\" <= 5");
+                        });
                 });
 
             modelBuilder.Entity("Budgetha.Domain.Entities.SellerRequest", b =>
@@ -19987,10 +22712,10 @@ public class AdminService : IAdminService
         };
     }
 
-    public async Task<bool> BanUserAsync(string userId)
+    public async Task<bool> BanUserAsync(string actorId, bool actorIsSuperAdmin, string userId)
     {
         var user = await _userManager.FindByIdAsync(userId);
-        if (user == null) return false;
+        if (user == null || !await CanManageUserAsync(actorId, actorIsSuperAdmin, user)) return false;
 
         
         if (!await _userManager.GetLockoutEnabledAsync(user))
@@ -20005,10 +22730,10 @@ public class AdminService : IAdminService
         return result.Succeeded;
     }
 
-    public async Task<bool> UnbanUserAsync(string userId)
+    public async Task<bool> UnbanUserAsync(string actorId, bool actorIsSuperAdmin, string userId)
     {
         var user = await _userManager.FindByIdAsync(userId);
-        if (user == null) return false;
+        if (user == null || !await CanManageUserAsync(actorId, actorIsSuperAdmin, user)) return false;
 
         var result = await _userManager.SetLockoutEndDateAsync(user, null);
         if (result.Succeeded)
@@ -20016,10 +22741,10 @@ public class AdminService : IAdminService
         return result.Succeeded;
     }
 
-    public async Task<bool> DeleteUserAsync(string userId)
+    public async Task<bool> DeleteUserAsync(string actorId, bool actorIsSuperAdmin, string userId)
     {
         var user = await _userManager.FindByIdAsync(userId);
-        if (user == null) return false;
+        if (user == null || !await CanManageUserAsync(actorId, actorIsSuperAdmin, user)) return false;
 
         
         
@@ -20027,6 +22752,15 @@ public class AdminService : IAdminService
         if (result.Succeeded)
             _cache.Remove(UsersCacheKey);
         return result.Succeeded;
+    }
+
+    private async Task<bool> CanManageUserAsync(string actorId, bool actorIsSuperAdmin, ApplicationUser target)
+    {
+        if (target.Id == actorId) return false;
+
+        var roles = await _userManager.GetRolesAsync(target);
+        if (roles.Contains("SuperAdmin")) return false;
+        return actorIsSuperAdmin || !roles.Contains("Admin");
     }
 }
 
@@ -20058,6 +22792,90 @@ namespace Budgetha.Infrastructure.Services;
 public class DateTimeService : IDateTimeService
 {
     public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
+}
+
+``
+
+## Budgetha.Infrastructure\Services\ExpiredPayPalReservationService.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Enums;
+using Budgetha.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace Budgetha.Infrastructure.Services;
+
+public sealed class ExpiredPayPalReservationService : BackgroundService
+{
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ILogger<ExpiredPayPalReservationService> _logger;
+
+    public ExpiredPayPalReservationService(
+        IServiceScopeFactory scopeFactory,
+        ILogger<ExpiredPayPalReservationService> logger)
+    {
+        _scopeFactory = scopeFactory;
+        _logger = logger;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+        while (await timer.WaitForNextTickAsync(stoppingToken))
+        {
+            try
+            {
+                await ReleaseExpiredReservationsAsync(stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Failed to release expired PayPal reservations.");
+            }
+        }
+    }
+
+    private async Task ReleaseExpiredReservationsAsync(CancellationToken cancellationToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var orders = await context.Orders
+            .Include(order => order.Payment)
+            .Include(order => order.Items)
+            .ThenInclude(item => item.Product)
+            .Where(order => order.Status == OrderStatus.Pending &&
+                            order.Payment != null &&
+                            order.Payment.Provider == PaymentProvider.PayPal &&
+                            order.Payment.Status == PaymentStatus.Pending &&
+                            order.ReservationExpiresAt <= DateTimeOffset.UtcNow)
+            .ToListAsync(cancellationToken);
+
+        foreach (var order in orders)
+        {
+            order.Status = OrderStatus.Failed;
+            order.Payment!.Status = PaymentStatus.Failed;
+            order.ReservationExpiresAt = null;
+            foreach (var item in order.Items.Where(item => item.Type == OrderItemType.Purchase))
+                item.Product.StockQuantity += item.Quantity;
+
+            try
+            {
+                await context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // Capture or cancellation won the race; their row-version prevents double release.
+                context.ChangeTracker.Clear();
+            }
+        }
+    }
 }
 
 ``
@@ -20211,11 +23029,12 @@ public class NotificationService : INotificationService
 ## Budgetha.Infrastructure\Services\PaymentService.cs
 
 ``csharp
-using Budgetha.Application.Common.Interfaces;
-using Microsoft.Extensions.Configuration;
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Budgetha.Application.Common.Interfaces;
+using Microsoft.Extensions.Configuration;
 
 namespace Budgetha.Infrastructure.Services;
 
@@ -20230,79 +23049,187 @@ public class PaymentService : IPaymentService
         _configuration = configuration;
     }
 
-    private async Task<string> GetAccessTokenAsync()
-    {
-        var clientId = _configuration["PayPal:ClientId"];
-        var secret = _configuration["PayPal:Secret"];
-        var baseUrl = _configuration["PayPal:Mode"] == "Live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
-
-        var auth = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{secret}"));
-
-        var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v1/oauth2/token");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", auth);
-        request.Content = new StringContent("grant_type=client_credentials", Encoding.UTF8, "application/x-www-form-urlencoded");
-
-        var response = await _httpClient.SendAsync(request);
-        response.EnsureSuccessStatusCode();
-
-        var content = await response.Content.ReadAsStringAsync();
-        using var jsonDoc = JsonDocument.Parse(content);
-        return jsonDoc.RootElement.GetProperty("access_token").GetString() ?? "";
-    }
-
     public async Task<string> CreatePayPalOrderAsync(decimal amount, string currency = "USD")
     {
-        var token = await GetAccessTokenAsync();
-        var baseUrl = _configuration["PayPal:Mode"] == "Live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
-
-        var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v2/checkout/orders");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        
-        var body = new
+        var request = await CreateAuthorizedRequestAsync(HttpMethod.Post, "/v2/checkout/orders");
+        var purchaseUnit = new Dictionary<string, object>
         {
-            intent = "CAPTURE",
-            purchase_units = new[]
+            ["amount"] = new
             {
-                new
-                {
-                    amount = new
-                    {
-                        currency_code = currency,
-                        value = amount.ToString("F2")
-                    }
-                }
+                currency_code = currency,
+                value = amount.ToString("F2", CultureInfo.InvariantCulture)
             }
         };
 
-        request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+        var merchantId = _configuration["PayPal:MerchantId"];
+        if (!string.IsNullOrWhiteSpace(merchantId))
+            purchaseUnit["payee"] = new { merchant_id = merchantId };
 
-        var response = await _httpClient.SendAsync(request);
-        response.EnsureSuccessStatusCode();
-
-        var content = await response.Content.ReadAsStringAsync();
-        using var jsonDoc = JsonDocument.Parse(content);
-        return jsonDoc.RootElement.GetProperty("id").GetString() ?? "";
-    }
-
-    public async Task<bool> CapturePayPalOrderAsync(string orderId)
-    {
-        var token = await GetAccessTokenAsync();
-        var baseUrl = _configuration["PayPal:Mode"] == "Live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
-
-        var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v2/checkout/orders/{orderId}/capture");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        request.Content = new StringContent("", Encoding.UTF8, "application/json");
-
-        var response = await _httpClient.SendAsync(request);
-        if (response.IsSuccessStatusCode)
+        request.Content = JsonContent(new
         {
-            var content = await response.Content.ReadAsStringAsync();
-            using var jsonDoc = JsonDocument.Parse(content);
-            var status = jsonDoc.RootElement.GetProperty("status").GetString();
-            return status == "COMPLETED";
-        }
-        return false;
+            intent = "CAPTURE",
+            purchase_units = new[] { purchaseUnit }
+        });
+
+        using var response = await _httpClient.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.GetProperty("id").GetString()
+            ?? throw new InvalidOperationException("PayPal did not return an order ID.");
     }
+
+    public async Task<PayPalCaptureResult> CapturePayPalOrderAsync(
+        string orderId,
+        decimal expectedAmount,
+        string expectedCurrency,
+        CancellationToken cancellationToken = default)
+    {
+        var request = await CreateAuthorizedRequestAsync(
+            HttpMethod.Post,
+            $"/v2/checkout/orders/{Uri.EscapeDataString(orderId)}/capture",
+            cancellationToken);
+        request.Content = JsonContent(new { });
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            return new PayPalCaptureResult(false, null, null);
+
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        var root = document.RootElement;
+        if (root.GetProperty("id").GetString() != orderId || root.GetProperty("status").GetString() != "COMPLETED")
+            return new PayPalCaptureResult(false, null, null);
+
+        if (!TryGetSingleCapture(root, out var capture) || !CaptureMatches(capture, expectedAmount, expectedCurrency))
+            return new PayPalCaptureResult(false, null, null);
+
+        return new PayPalCaptureResult(true, orderId, capture.GetProperty("id").GetString());
+    }
+
+    public async Task<PayPalWebhookResult> VerifyPayPalWebhookAsync(
+        PayPalWebhookRequest webhook,
+        decimal expectedAmount,
+        string expectedCurrency,
+        CancellationToken cancellationToken = default)
+    {
+        var webhookId = RequiredSetting("PayPal:WebhookId");
+        using var eventDocument = JsonDocument.Parse(webhook.Body);
+        var request = await CreateAuthorizedRequestAsync(
+            HttpMethod.Post,
+            "/v1/notifications/verify-webhook-signature",
+            cancellationToken);
+        request.Content = JsonContent(new
+        {
+            auth_algo = webhook.AuthenticationAlgorithm,
+            cert_url = webhook.CertificateUrl,
+            transmission_id = webhook.TransmissionId,
+            transmission_sig = webhook.TransmissionSignature,
+            transmission_time = webhook.TransmissionTime,
+            webhook_id = webhookId,
+            webhook_event = eventDocument.RootElement
+        });
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            return new PayPalWebhookResult(false, null, null, null);
+
+        using var verification = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        if (verification.RootElement.GetProperty("verification_status").GetString() != "SUCCESS")
+            return new PayPalWebhookResult(false, null, null, null);
+
+        var root = eventDocument.RootElement;
+        if (root.GetProperty("event_type").GetString() != "PAYMENT.CAPTURE.COMPLETED")
+            return new PayPalWebhookResult(false, null, null, null);
+
+        var resource = root.GetProperty("resource");
+        var orderId = resource.GetProperty("supplementary_data")
+            .GetProperty("related_ids").GetProperty("order_id").GetString();
+        if (resource.GetProperty("status").GetString() != "COMPLETED" ||
+            !CaptureMatches(resource, expectedAmount, expectedCurrency))
+        {
+            return new PayPalWebhookResult(false, null, null, null);
+        }
+
+        return new PayPalWebhookResult(
+            true,
+            root.GetProperty("id").GetString(),
+            orderId,
+            resource.GetProperty("id").GetString());
+    }
+
+    private bool CaptureMatches(JsonElement capture, decimal expectedAmount, string expectedCurrency)
+    {
+        var amount = capture.GetProperty("amount");
+        if (!decimal.TryParse(amount.GetProperty("value").GetString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var value) ||
+            value != expectedAmount ||
+            !string.Equals(amount.GetProperty("currency_code").GetString(), expectedCurrency, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var payee = capture.GetProperty("payee");
+        var merchantId = _configuration["PayPal:MerchantId"];
+        var payeeEmail = _configuration["PayPal:PayeeEmail"];
+        if (string.IsNullOrWhiteSpace(merchantId) && string.IsNullOrWhiteSpace(payeeEmail))
+            throw new InvalidOperationException("PayPal:MerchantId or PayPal:PayeeEmail must be configured.");
+
+        return (!string.IsNullOrWhiteSpace(merchantId) &&
+                payee.TryGetProperty("merchant_id", out var actualMerchant) &&
+                actualMerchant.GetString() == merchantId) ||
+               (!string.IsNullOrWhiteSpace(payeeEmail) &&
+                payee.TryGetProperty("email_address", out var actualEmail) &&
+                string.Equals(actualEmail.GetString(), payeeEmail, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool TryGetSingleCapture(JsonElement order, out JsonElement capture)
+    {
+        capture = default;
+        if (!order.TryGetProperty("purchase_units", out var units) || units.GetArrayLength() != 1 ||
+            !units[0].TryGetProperty("payments", out var payments) ||
+            !payments.TryGetProperty("captures", out var captures) || captures.GetArrayLength() != 1)
+        {
+            return false;
+        }
+
+        capture = captures[0];
+        return capture.GetProperty("status").GetString() == "COMPLETED";
+    }
+
+    private async Task<HttpRequestMessage> CreateAuthorizedRequestAsync(
+        HttpMethod method,
+        string path,
+        CancellationToken cancellationToken = default)
+    {
+        var token = await GetAccessTokenAsync(cancellationToken);
+        var request = new HttpRequestMessage(method, $"{BaseUrl}{path}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return request;
+    }
+
+    private async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default)
+    {
+        var clientId = RequiredSetting("PayPal:ClientId");
+        var secret = RequiredSetting("PayPal:Secret");
+        var auth = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{secret}"));
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/v1/oauth2/token");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", auth);
+        request.Content = new StringContent("grant_type=client_credentials", Encoding.UTF8, "application/x-www-form-urlencoded");
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        return document.RootElement.GetProperty("access_token").GetString()
+            ?? throw new InvalidOperationException("PayPal did not return an access token.");
+    }
+
+    private string RequiredSetting(string key) =>
+        _configuration[key] ?? throw new InvalidOperationException($"Missing configuration setting '{key}'.");
+
+    private string BaseUrl => string.Equals(_configuration["PayPal:Mode"], "Live", StringComparison.OrdinalIgnoreCase)
+        ? "https://api-m.paypal.com"
+        : "https://api-m.sandbox.paypal.com";
+
+    private static StringContent JsonContent(object body) =>
+        new(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 }
 
 ``
@@ -20365,7 +23292,7 @@ public class SmtpEmailService : IEmailService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send email to {To}", to);
-            // Don't throw for now to avoid breaking the flow if SMTP is not configured
+            throw;
         }
     }
 }

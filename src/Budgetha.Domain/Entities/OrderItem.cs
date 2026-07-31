@@ -11,8 +11,12 @@ public class OrderItem : BaseEntity
     public Guid ProductId { get; set; }
     public Product Product { get; set; } = null!;
 
+    public Guid? VariantId { get; set; }
+    public ProductVariant? Variant { get; set; }
+
     public int Quantity { get; set; }
     public decimal UnitPrice { get; set; }
+    public decimal DiscountAmount { get; set; }
     public OrderItemType Type { get; set; } = OrderItemType.Purchase;
     public DateOnly? RentalStartDate { get; set; }
     public DateOnly? RentalEndDate { get; set; }

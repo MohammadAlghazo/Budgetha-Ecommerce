@@ -1,5 +1,6 @@
 using Budgetha.Application.Common.Exceptions;
 using Budgetha.Application.Common.Interfaces;
+using Budgetha.Application.Features.Cart;
 using Budgetha.Domain.Entities;
 using Budgetha.Domain.Enums;
 using MediatR;
@@ -20,17 +21,20 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
     private readonly ICurrentUserService _currentUserService;
     private readonly INotificationService _notificationService;
     private readonly IEmailService _emailService;
+    private readonly IInventoryLockService _inventoryLockService;
 
     public CreateOrderCommandHandler(
         IApplicationDbContext context, 
         ICurrentUserService currentUserService,
         INotificationService notificationService,
-        IEmailService emailService)
+        IEmailService emailService,
+        IInventoryLockService inventoryLockService)
     {
         _context = context;
         _currentUserService = currentUserService;
         _notificationService = notificationService;
         _emailService = emailService;
+        _inventoryLockService = inventoryLockService;
     }
 
     public async Task<Guid> Handle(CreateOrderCommand request, CancellationToken cancellationToken)
@@ -46,59 +50,72 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         var isPayPal = request.PaymentMethod.Equals("CreditCard", StringComparison.OrdinalIgnoreCase) ||
                        request.PaymentMethod.Equals("PayPal", StringComparison.OrdinalIgnoreCase);
 
-        // 1. Get Cart
         var cart = await _context.Carts
             .Include(c => c.Items)
-            .ThenInclude(i => i.Product)
             .FirstOrDefaultAsync(c => c.UserId == userId, cancellationToken);
 
         if (cart == null || !cart.Items.Any())
             throw new InvalidOperationException("Cart is empty.");
 
+        await using var inventoryTransaction = await _inventoryLockService.BeginTransactionAsync(
+            cart.Items.Select(item => item.VariantId ?? item.ProductId), cancellationToken);
+
+        cart = await _context.Carts
+            .Include(c => c.Items)
+            .ThenInclude(i => i.Product)
+            .ThenInclude(p => p.Variants)
+            .FirstAsync(c => c.Id == cart.Id, cancellationToken);
+
         // 2. Validate Stock and Calculate Total
         decimal totalAmount = 0;
         var orderItems = new List<OrderItem>();
+        var pendingRentals = new Dictionary<Guid, List<InventoryRules.RentalReservation>>();
 
-        foreach (var cartItem in cart.Items)
+        foreach (var cartItem in cart.Items.OrderBy(item => item.Type == OrderItemType.Rental ? 1 : 0))
         {
-            if (cartItem.Product.StockQuantity < cartItem.Quantity)
-                throw new InvalidOperationException($"Not enough stock for product {cartItem.Product.Name}");
+            if (!cartItem.Product.IsActive || cartItem.Product.ApprovalStatus != ApprovalStatus.Approved)
+                throw new InvalidOperationException($"Product {cartItem.Product.Name} is no longer available.");
+
+            var variant = InventoryRules.ValidateVariant(
+                cartItem.Product, cartItem.VariantId, cartItem.Color, cartItem.Size);
+            var stock = variant?.StockQuantity ?? cartItem.Product.StockQuantity;
 
             if (cartItem.Type == OrderItemType.Rental)
             {
-                if (!cartItem.RentalStartDate.HasValue || !cartItem.RentalEndDate.HasValue)
-                    throw new InvalidOperationException($"Product {cartItem.Product.Name} requires rental dates.");
+                if (!cartItem.Product.IsAvailableForRent)
+                    throw new InvalidOperationException($"Product {cartItem.Product.Name} is not available for rent.");
+                CartRules.ValidateRentalDates(cartItem.RentalStartDate, cartItem.RentalEndDate);
+                var inventoryId = variant?.Id ?? cartItem.ProductId;
+                if (!pendingRentals.TryGetValue(inventoryId, out var pending))
+                {
+                    pending = [];
+                    pendingRentals[inventoryId] = pending;
+                }
+                var totalRented = await InventoryRules.GetMaximumReservedQuantityAsync(
+                    _context, cartItem.ProductId, variant?.Id, cartItem.RentalStartDate!.Value,
+                    cartItem.RentalEndDate!.Value, cancellationToken, pending);
 
-                var overlappingOrders = await _context.OrderItems
-                    .Include(oi => oi.Order)
-                    .Where(oi => oi.ProductId == cartItem.ProductId &&
-                                 oi.Type == OrderItemType.Rental &&
-                                 oi.Order != null && 
-                                 oi.Order.Status != OrderStatus.Cancelled &&
-                                 oi.Order.Status != OrderStatus.Failed &&
-                                 oi.RentalStartDate <= cartItem.RentalEndDate &&
-                                 oi.RentalEndDate >= cartItem.RentalStartDate)
-                    .ToListAsync(cancellationToken);
-
-                var totalRented = overlappingOrders.Sum(oi => oi.Quantity);
-                
-                if (cartItem.Product.StockQuantity - totalRented < cartItem.Quantity)
+                if (stock - totalRented < cartItem.Quantity)
                     throw new InvalidOperationException($"Product {cartItem.Product.Name} does not have enough stock available for the selected dates.");
+                pending.Add(new InventoryRules.RentalReservation(
+                    cartItem.RentalStartDate.Value, cartItem.RentalEndDate.Value, cartItem.Quantity));
             }
             else 
             {
-                if (cartItem.Product.StockQuantity < cartItem.Quantity)
+                if (stock < cartItem.Quantity)
                     throw new InvalidOperationException($"Product {cartItem.Product.Name} does not have enough stock available.");
-                // Reduce Stock only for purchase, since rental stock returns after date
-                cartItem.Product.StockQuantity -= cartItem.Quantity;
+                if (variant != null)
+                    variant.StockQuantity -= cartItem.Quantity;
+                else
+                    cartItem.Product.StockQuantity -= cartItem.Quantity;
             }
 
             // Calculate Price (Assuming basic price for purchase, ignoring rental logic complexity for now)
-            decimal itemPrice = cartItem.Product.Price;
+            decimal itemPrice = variant?.Price ?? cartItem.Product.Price;
             if (cartItem.Type == OrderItemType.Rental && cartItem.RentalStartDate.HasValue && cartItem.RentalEndDate.HasValue)
             {
-                var days = cartItem.RentalEndDate.Value.DayNumber - cartItem.RentalStartDate.Value.DayNumber;
-                itemPrice = (cartItem.Product.RentalPricePerDay ?? cartItem.Product.Price) * Math.Max(1, days);
+                var days = CartRules.GetChargedDays(cartItem.RentalStartDate.Value, cartItem.RentalEndDate.Value);
+                itemPrice = (variant?.RentalPricePerDay ?? cartItem.Product.RentalPricePerDay ?? itemPrice) * days;
             }
 
             totalAmount += itemPrice * cartItem.Quantity;
@@ -106,13 +123,14 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
             orderItems.Add(new OrderItem
             {
                 ProductId = cartItem.ProductId,
+                VariantId = variant?.Id,
                 Quantity = cartItem.Quantity,
                 UnitPrice = itemPrice,
                 Type = cartItem.Type,
                 RentalStartDate = cartItem.RentalStartDate,
                 RentalEndDate = cartItem.RentalEndDate,
-                Color = cartItem.Color,
-                Size = cartItem.Size
+                Color = variant?.Color,
+                Size = variant?.Size
             });
         }
 
@@ -177,6 +195,7 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         try
         {
             await _context.SaveChangesAsync(cancellationToken);
+            await inventoryTransaction.CommitAsync(cancellationToken);
         }
         catch (DbUpdateConcurrencyException)
         {

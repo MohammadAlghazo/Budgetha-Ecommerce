@@ -37,6 +37,7 @@ public class Product : BaseAuditableEntity
     public ICollection<ProductSize> Sizes { get; set; } = new List<ProductSize>();
     public ICollection<ProductSpec> Specs { get; set; } = new List<ProductSpec>();
     public ICollection<ProductFeature> Features { get; set; } = new List<ProductFeature>();
+    public ICollection<ProductVariant> Variants { get; set; } = new List<ProductVariant>();
 
     [System.ComponentModel.DataAnnotations.Timestamp]
     public byte[] RowVersion { get; set; } = Array.Empty<byte>();

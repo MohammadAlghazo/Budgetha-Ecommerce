@@ -1,13 +1,13 @@
 import { HttpInterceptorFn, HttpErrorResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { catchError, switchMap, throwError, BehaviorSubject, filter, take } from 'rxjs';
+import { catchError, switchMap, throwError, ReplaySubject, take } from 'rxjs';
 import { ToastService } from '../services/toast.service';
 import { AuthService } from '../services/auth.service';
 import { HttpClient } from '@angular/common/http';
 
 let isRefreshing = false;
-const refreshTokenSubject = new BehaviorSubject<any>(null);
+let refreshTokenSubject = new ReplaySubject<string>(1);
 
 export const errorInterceptor: HttpInterceptorFn = (req, next) => {
   const toast = inject(ToastService);
@@ -27,7 +27,7 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
         if (token && user?.refreshToken) {
           if (!isRefreshing) {
             isRefreshing = true;
-            refreshTokenSubject.next(null);
+            refreshTokenSubject = new ReplaySubject<string>(1);
 
             return auth.refreshToken(token, user.refreshToken).pipe(
               switchMap((authResponse) => {
@@ -39,6 +39,7 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
               }),
               catchError((err) => {
                 isRefreshing = false;
+                refreshTokenSubject.error(err);
                 auth.clearSession();
                 router.navigate(['/auth/login'], { queryParams: { returnUrl: router.url } });
                 return throwError(() => err);
@@ -46,7 +47,6 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
             );
           } else {
             return refreshTokenSubject.pipe(
-              filter(token => token != null),
               take(1),
               switchMap(jwt => {
                 return next(req.clone({

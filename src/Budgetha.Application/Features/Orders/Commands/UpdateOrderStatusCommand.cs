@@ -39,6 +39,8 @@ public class UpdateOrderStatusCommandHandler : IRequestHandler<UpdateOrderStatus
             .Include(o => o.User)
             .Include(o => o.Items)
             .ThenInclude(i => i.Product)
+            .Include(o => o.Items)
+            .ThenInclude(i => i.Variant)
             .FirstOrDefaultAsync(o => o.Id == request.OrderId, cancellationToken);
 
         if (order == null)
@@ -66,7 +68,18 @@ public class UpdateOrderStatusCommandHandler : IRequestHandler<UpdateOrderStatus
         if (!validTransition)
             throw new InvalidOperationException($"Order status cannot transition from {order.Status} to {request.Status}.");
 
+        var previousStatus = order.Status;
         order.Status = request.Status;
+        if (previousStatus != OrderStatus.Failed && request.Status == OrderStatus.Failed)
+        {
+            foreach (var item in order.Items.Where(item => item.Type == OrderItemType.Purchase))
+            {
+                if (item.Variant != null)
+                    item.Variant.StockQuantity += item.Quantity;
+                else
+                    item.Product.StockQuantity += item.Quantity;
+            }
+        }
         await _context.SaveChangesAsync(cancellationToken);
 
         // Send notifications if status is Shipped

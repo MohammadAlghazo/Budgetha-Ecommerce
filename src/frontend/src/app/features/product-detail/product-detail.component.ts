@@ -113,7 +113,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                   @for (color of (p.colors || []); track color.name) {
                     <button
                       type="button"
-                      (click)="selectedColor.set(color.name)"
+                       (click)="selectColor(color.name)"
                       [attr.aria-label]="'Select color ' + color.name"
                       [attr.aria-pressed]="selectedColor() === color.name"
                       class="h-10 w-10 rounded-full ring-2 ring-offset-2 transition-all duration-300 border border-slate-200"
@@ -135,7 +135,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                   @for (size of p.sizes; track size) {
                     <button
                       type="button"
-                      (click)="selectedSize.set(size)"
+                       (click)="selectSize(size)"
                       [attr.aria-pressed]="selectedSize() === size"
                       class="min-w-[3rem] px-4 py-2.5 rounded-xl border text-sm font-semibold transition-all duration-300"
                       [class]="selectedSize() === size
@@ -173,16 +173,16 @@ type Tab = 'description' | 'specs' | 'reviews';
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" d="M5 12h14" /></svg>
                 </button>
                 <span class="w-12 text-center text-base font-bold text-slate-900" aria-live="polite">{{ quantity() }}</span>
-                <button type="button" (click)="increment()" [disabled]="quantity() >= p.stock" aria-label="Increase quantity" class="qty-btn">
+                 <button type="button" (click)="increment()" [disabled]="quantity() >= selectedStock()" aria-label="Increase quantity" class="qty-btn">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 5v14M5 12h14" /></svg>
                 </button>
               </div>
 
-              <button type="button" (click)="addToCart()" [disabled]="p.stock === 0" class="btn-primary flex-1 py-3.5 text-base gap-2">
+               <button type="button" (click)="addToCart()" [disabled]="selectedStock() === 0" class="btn-primary flex-1 py-3.5 text-base gap-2">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
                 </svg>
-                {{ p.stock === 0 ? 'Out of stock' : 'Add to Cart — ' + (p.price * quantity() | currency) }}
+                 {{ selectedStock() === 0 ? 'Out of stock' : 'Add to Cart — ' + (selectedPrice() * quantity() | currency) }}
               </button>
 
               <button
@@ -457,6 +457,7 @@ export class ProductDetailComponent implements OnDestroy {
   readonly activeIndex = signal(0);
   readonly selectedColor = signal('');
   readonly selectedSize = signal('');
+  readonly selectedVariantId = signal<string | undefined>(undefined);
   readonly quantity = signal(1);
   readonly purchaseType = signal<'Purchase' | 'Rental'>('Purchase');
   readonly rentalStartDate = signal('');
@@ -475,6 +476,12 @@ export class ProductDetailComponent implements OnDestroy {
     const p = this.product();
     return p && p.images && p.images.length ? p.images[Math.min(this.activeIndex(), p.images.length - 1)] : '';
   });
+
+  readonly selectedVariant = computed(() => this.product()?.variants?.find(v => v.id === this.selectedVariantId()));
+  readonly selectedStock = computed(() => this.selectedVariant()?.stockQuantity ?? this.product()?.stock ?? 0);
+  readonly selectedPrice = computed(() => this.purchaseType() === 'Rental'
+    ? (this.selectedVariant()?.rentalPricePerDay ?? this.product()?.rentalPricePerDay ?? this.selectedVariant()?.price ?? this.product()?.price ?? 0)
+    : (this.selectedVariant()?.price ?? this.product()?.price ?? 0));
 
   readonly inWishlist = computed(() => {
     const p = this.product();
@@ -546,8 +553,10 @@ export class ProductDetailComponent implements OnDestroy {
            this.rentalStartDate.set('');
            this.rentalEndDate.set('');
           this.activeTab.set('description');
-          this.selectedColor.set(product?.colors?.[0]?.name ?? '');
-          this.selectedSize.set(product?.sizes?.[0] ?? '');
+           const firstVariant = product?.variants?.find(variant => variant.isActive);
+           this.selectedColor.set(firstVariant?.color ?? '');
+           this.selectedSize.set(firstVariant?.size ?? '');
+           this.selectedVariantId.set(firstVariant?.id);
           window.scrollTo({ top: 0 });
 
           if (product) {
@@ -571,7 +580,7 @@ export class ProductDetailComponent implements OnDestroy {
               this.hubConnection.stop();
             }
             this.hubConnection = new signalR.HubConnectionBuilder()
-              .withUrl(`${environment.apiUrl.replace('/api', '')}/hubs/reviews`, {
+              .withUrl(`${environment.hubUrl}/reviews`, {
                 accessTokenFactory: () => this.authService.getToken() || ''
               })
               .withAutomaticReconnect()
@@ -602,7 +611,7 @@ export class ProductDetailComponent implements OnDestroy {
   }
 
   increment(): void {
-    const stock = this.product()?.stock ?? 1;
+    const stock = this.selectedStock();
     this.quantity.update(q => Math.min(q + 1, stock));
   }
 
@@ -612,13 +621,38 @@ export class ProductDetailComponent implements OnDestroy {
 
   addToCart(): void {
     const p = this.product();
-    if (!p || p.stock === 0) return;
+    if (!p || this.selectedStock() === 0) return;
     if (this.purchaseType() === 'Rental' && (!this.rentalStartDate() || !this.rentalEndDate())) {
       this.toastService.error('Select rental start and end dates first.');
       return;
     }
+    if (this.purchaseType() === 'Rental' && this.rentalEndDate() <= this.rentalStartDate()) {
+      this.toastService.error('Rental end date must be after the start date.');
+      return;
+    }
     this.cart.add(p, this.quantity(), this.selectedColor() || undefined, this.selectedSize() || undefined,
-      this.purchaseType(), this.rentalStartDate() || undefined, this.rentalEndDate() || undefined);
+      this.purchaseType(), this.rentalStartDate() || undefined, this.rentalEndDate() || undefined,
+      this.selectedVariantId());
+  }
+
+  selectColor(color: string): void {
+    this.selectedColor.set(color);
+    const variant = this.product()?.variants?.find(v => v.color === color && (!this.selectedSize() || v.size === this.selectedSize()))
+      ?? this.product()?.variants?.find(v => v.color === color);
+    if (variant) {
+      this.selectedVariantId.set(variant.id);
+      this.selectedSize.set(variant.size ?? '');
+    }
+  }
+
+  selectSize(size: string): void {
+    this.selectedSize.set(size);
+    const variant = this.product()?.variants?.find(v => v.size === size && (!this.selectedColor() || v.color === this.selectedColor()))
+      ?? this.product()?.variants?.find(v => v.size === size);
+    if (variant) {
+      this.selectedVariantId.set(variant.id);
+      this.selectedColor.set(variant.color ?? '');
+    }
   }
 
   toggleWishlist(): void {

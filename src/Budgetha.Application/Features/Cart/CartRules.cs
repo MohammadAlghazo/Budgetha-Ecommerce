@@ -18,7 +18,9 @@ internal static class CartRules
         if (startDate.Value < DateOnly.FromDateTime(DateTime.UtcNow))
             throw new InvalidOperationException("Rental start date cannot be in the past.");
 
-        if (endDate.Value < startDate.Value)
-            throw new InvalidOperationException("Rental end date must be on or after the start date.");
+        if (endDate.Value <= startDate.Value)
+            throw new InvalidOperationException("Rental end date must be after the start date.");
     }
+
+    internal static int GetChargedDays(DateOnly startDate, DateOnly endDate) => endDate.DayNumber - startDate.DayNumber;
 }

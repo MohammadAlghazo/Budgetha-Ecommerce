@@ -6,6 +6,7 @@ namespace Budgetha.Application.Common.Interfaces;
 public interface IApplicationDbContext
 {
     DbSet<Product> Products { get; }
+    DbSet<ProductVariant> ProductVariants { get; }
     DbSet<Category> Categories { get; }
     DbSet<Order> Orders { get; }
     DbSet<OrderItem> OrderItems { get; }

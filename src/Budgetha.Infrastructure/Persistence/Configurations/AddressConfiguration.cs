@@ -9,6 +9,7 @@ public class AddressConfiguration : IEntityTypeConfiguration<Address>
     public void Configure(EntityTypeBuilder<Address> builder)
     {
         builder.Property(a => a.FullName).HasMaxLength(200).IsRequired();
+        builder.Property(a => a.Phone).HasMaxLength(50).IsRequired();
         builder.Property(a => a.Line1).HasMaxLength(300).IsRequired();
         builder.Property(a => a.Line2).HasMaxLength(300);
         builder.Property(a => a.City).HasMaxLength(100).IsRequired();

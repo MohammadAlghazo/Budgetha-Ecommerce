@@ -5,6 +5,7 @@ namespace Budgetha.Application.Features.Cart.Queries;
 public record CartItemDto(
     Guid Id,
     Guid ProductId,
+    Guid? VariantId,
     string ProductName,
     string? ProductImage,
     string Category,

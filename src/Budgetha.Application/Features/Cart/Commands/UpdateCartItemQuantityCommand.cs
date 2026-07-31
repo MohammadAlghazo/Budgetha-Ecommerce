@@ -29,6 +29,7 @@ public class UpdateCartItemQuantityCommandHandler : IRequestHandler<UpdateCartIt
         var cartItem = await _context.CartItems
             .Include(i => i.Cart)
             .Include(i => i.Product)
+            .ThenInclude(p => p.Variants)
             .FirstOrDefaultAsync(i => i.Id == request.ItemId && i.Cart.UserId == userId, cancellationToken);
 
         if (cartItem == null)
@@ -42,22 +43,17 @@ public class UpdateCartItemQuantityCommandHandler : IRequestHandler<UpdateCartIt
         {
             CartRules.ValidateQuantity(request.Quantity);
 
-            var availableStock = cartItem.Product.StockQuantity;
+            var variant = InventoryRules.ValidateVariant(cartItem.Product, cartItem.VariantId, cartItem.Color, cartItem.Size);
+            var availableStock = variant?.StockQuantity ?? cartItem.Product.StockQuantity;
             if (cartItem.Type == OrderItemType.Rental)
             {
                 if (!cartItem.Product.IsAvailableForRent)
                     throw new InvalidOperationException("This product is not available for rent.");
 
                 CartRules.ValidateRentalDates(cartItem.RentalStartDate, cartItem.RentalEndDate);
-                var totalRented = await _context.OrderItems
-                    .Where(oi => oi.ProductId == cartItem.ProductId &&
-                                 oi.Type == OrderItemType.Rental &&
-                                 oi.Order != null &&
-                                 oi.Order.Status != OrderStatus.Cancelled &&
-                                 oi.Order.Status != OrderStatus.Failed &&
-                                 oi.RentalStartDate <= cartItem.RentalEndDate &&
-                                 oi.RentalEndDate >= cartItem.RentalStartDate)
-                    .SumAsync(oi => oi.Quantity, cancellationToken);
+                var totalRented = await InventoryRules.GetMaximumReservedQuantityAsync(
+                    _context, cartItem.ProductId, variant?.Id, cartItem.RentalStartDate!.Value,
+                    cartItem.RentalEndDate!.Value, cancellationToken);
                 availableStock -= totalRented;
             }
 

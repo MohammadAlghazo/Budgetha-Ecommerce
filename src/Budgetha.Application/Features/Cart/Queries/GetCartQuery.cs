@@ -26,6 +26,8 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, CartDto>
         var cart = await _context.Carts
             .Include(c => c.Items)
             .ThenInclude(i => i.Product)
+            .Include(c => c.Items)
+            .ThenInclude(i => i.Variant)
             .FirstOrDefaultAsync(c => c.UserId == userId, cancellationToken);
 
         if (cart == null)
@@ -39,12 +41,13 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, CartDto>
         var items = cart.Items.Select(i => new CartItemDto(
             i.Id,
             i.ProductId,
+            i.VariantId,
             i.Product.Name,
             i.Product.Images.FirstOrDefault() != null ? i.Product.Images.FirstOrDefault()!.Url : null,
             i.Product.Category != null ? i.Product.Category.Name : string.Empty,
-            i.Product.Price,
+            GetItemPrice(i),
             i.Quantity,
-            i.Product.StockQuantity,
+            i.Variant?.StockQuantity ?? i.Product.StockQuantity,
             i.Type,
             i.RentalStartDate,
             i.RentalEndDate,
@@ -53,5 +56,18 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, CartDto>
         )).ToList();
 
         return new CartDto(cart.Id, items);
+    }
+
+    private static decimal GetItemPrice(Domain.Entities.CartItem item)
+    {
+        var price = item.Variant?.Price ?? item.Product.Price;
+        if (item.Type == Domain.Enums.OrderItemType.Rental &&
+            item.RentalStartDate.HasValue && item.RentalEndDate.HasValue)
+        {
+            var days = item.RentalEndDate.Value.DayNumber - item.RentalStartDate.Value.DayNumber;
+            price = (item.Variant?.RentalPricePerDay ?? item.Product.RentalPricePerDay ?? price) * days;
+        }
+
+        return price;
     }
 }
