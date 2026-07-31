@@ -7,6 +7,9 @@ using Budgetha.Infrastructure.Persistence;
 using Budgetha.Api.Hubs;
 using Budgetha.API.Hubs;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,13 +25,25 @@ builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddRateLimiter(options =>
 {
-    options.AddFixedWindowLimiter("GlobalLimiter", opt =>
-    {
-        opt.PermitLimit = 100;
-        opt.Window = TimeSpan.FromMinutes(1);
-        opt.QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst;
-        opt.QueueLimit = 10;
-    });
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            GetRateLimitPartitionKey(context),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 100,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+    options.AddPolicy("AuthLimiter", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            GetRateLimitPartitionKey(context),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
 });
 builder.Services.AddSwaggerGen(options =>
 {
@@ -77,11 +92,11 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
-    await ApplicationDbInitializer.SeedRolesAsync(services);
-    await ApplicationDbInitializer.SeedSuperAdminAsync(services);
-    
     var dbContext = services.GetRequiredService<ApplicationDbContext>();
-    await ApplicationDbInitializer.SeedCatalogAsync(dbContext);
+    await dbContext.Database.MigrateAsync();
+    await ApplicationDbInitializer.SeedRolesAsync(services);
+    var bootstrapAdminId = await ApplicationDbInitializer.BootstrapSuperAdminAsync(services, builder.Configuration);
+    await ApplicationDbInitializer.SeedCatalogAsync(dbContext, bootstrapAdminId);
 }
 
 if (app.Environment.IsDevelopment())
@@ -94,13 +109,20 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
-app.UseRateLimiter();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
-app.MapControllers().RequireRateLimiting("GlobalLimiter");
+app.MapControllers();
 app.MapHub<ReviewHub>("/hubs/reviews");
 app.MapHub<NotificationHub>("/hubs/notifications");
 
 app.Run();
+
+static string GetRateLimitPartitionKey(HttpContext context)
+{
+    return context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+        ?? context.Connection.RemoteIpAddress?.ToString()
+        ?? "unknown";
+}

@@ -21,6 +21,9 @@ public class UpdateReviewCommandHandler : IRequestHandler<UpdateReviewCommand>
 
     public async Task Handle(UpdateReviewCommand request, CancellationToken cancellationToken)
     {
+        if (request.Rating is < 1 or > 5)
+            throw new InvalidOperationException("Rating must be between 1 and 5.");
+
         var userId = _currentUserService.UserId;
         if (string.IsNullOrEmpty(userId))
             throw new UnauthorizedAccessException();
@@ -34,6 +37,17 @@ public class UpdateReviewCommandHandler : IRequestHandler<UpdateReviewCommand>
         if (review.UserId != userId)
             throw new UnauthorizedAccessException("You can only update your own reviews.");
 
+        var product = await _context.Products.FindAsync(new object[] { review.ProductId }, cancellationToken)
+            ?? throw new NotFoundException(nameof(Product), review.ProductId);
+        var reviewCount = await _context.Reviews.CountAsync(r => r.ProductId == review.ProductId, cancellationToken);
+        var totalRating = await _context.Reviews
+            .Where(r => r.ProductId == review.ProductId)
+            .SumAsync(r => r.Rating, cancellationToken);
+
+        product.ReviewCount = reviewCount;
+        product.AverageRating = reviewCount == 0
+            ? 0
+            : (decimal)(totalRating - review.Rating + request.Rating) / reviewCount;
         review.Rating = request.Rating;
         review.Comment = request.Comment;
 

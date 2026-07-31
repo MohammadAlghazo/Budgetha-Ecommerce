@@ -1,6 +1,7 @@
 using Budgetha.Application.Common.Exceptions;
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -31,10 +32,17 @@ public class CreatePayPalOrderCommandHandler : IRequestHandler<CreatePayPalOrder
 
         if (order == null) throw new NotFoundException(nameof(Order), request.OrderId);
 
-        if (order.Payment == null || order.Payment.Status == Budgetha.Domain.Enums.PaymentStatus.Completed)
+        if (order.Payment == null || order.Payment.Provider != PaymentProvider.PayPal ||
+            order.Payment.Status != PaymentStatus.Pending || order.Status != OrderStatus.Pending)
             throw new InvalidOperationException("Order cannot be paid with PayPal at this time.");
 
-        var paypalOrderId = await _paymentService.CreatePayPalOrderAsync(order.TotalAmount);
+        if (order.ReservationExpiresAt <= DateTimeOffset.UtcNow)
+            throw new InvalidOperationException("The stock reservation has expired. Cancel this order and try again.");
+
+        if (!string.IsNullOrWhiteSpace(order.Payment.ExternalTransactionId))
+            return order.Payment.ExternalTransactionId;
+
+        var paypalOrderId = await _paymentService.CreatePayPalOrderAsync(order.Payment.Amount, order.Payment.Currency);
         
         order.Payment.ExternalTransactionId = paypalOrderId;
         await _context.SaveChangesAsync(cancellationToken);

@@ -1,4 +1,4 @@
-﻿import { Component, OnInit, computed, inject, signal } from '@angular/core';
+﻿import { Component, OnInit, effect, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -10,6 +10,7 @@ import { ToastService } from '../../core/services/toast.service';
 import { Address } from '../../core/models/shop.models';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
 import { NgxPayPalModule, IPayPalConfig, ICreateOrderRequest } from 'ngx-paypal';
+import { Observable, switchMap } from 'rxjs';
 
 type PaymentMethod = 'paypal' | 'cod';
 
@@ -88,16 +89,21 @@ type PaymentMethod = 'paypal' | 'cod';
                   <span class="h-7 w-7 rounded-lg bg-violet-100 text-violet-700 flex items-center justify-center text-sm font-bold">2</span>
                   Delivery Address
                 </h2>
-                @if (savedAddresses.length) {
+                @if (savedAddresses().length) {
                   <div class="flex gap-2">
-                    @for (address of savedAddresses; track address.id) {
+                    @for (address of savedAddresses(); track address.id) {
                       <button type="button" (click)="useAddress(address)"
-                              class="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600
-                                     hover:border-violet-300 hover:text-violet-700 transition-all duration-300">
+                              class="rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all duration-300"
+                              [class]="selectedAddressId() === address.id ? 'border-violet-500 bg-violet-50 text-violet-700' : 'border-slate-200 text-slate-600 hover:border-violet-300 hover:text-violet-700'">
                         Use “{{ address.label }}”
                       </button>
                     }
                   </div>
+                }
+                @if (account.addressesLoading()) {
+                  <span class="text-xs text-slate-400">Loading saved addresses...</span>
+                } @else if (account.addressesError()) {
+                  <button type="button" (click)="account.syncAddresses()" class="text-xs font-semibold text-rose-600 hover:text-rose-500">Saved addresses unavailable. Retry</button>
                 }
               </div>
 
@@ -244,7 +250,10 @@ type PaymentMethod = 'paypal' | 'cod';
                   </div>
                   <div class="flex-1 min-w-0">
                     <p class="text-sm font-semibold text-slate-900 truncate">{{ item.name }}</p>
-                    <p class="text-xs text-slate-400">{{ item.color }}{{ item.color && item.size ? ' · ' : '' }}{{ item.size }}</p>
+                    <p class="text-xs text-slate-400">{{ item.type ?? 'Purchase' }}{{ item.color ? ' · ' + item.color : '' }}{{ item.size ? ' · ' + item.size : '' }}</p>
+                    @if (item.type === 'Rental') {
+                      <p class="text-xs text-slate-400">{{ item.rentalStartDate }} to {{ item.rentalEndDate }}</p>
+                    }
                   </div>
                   <span class="text-sm font-bold text-slate-900 shrink-0">{{ item.price * item.quantity | currency }}</span>
                 </li>
@@ -262,21 +271,14 @@ type PaymentMethod = 'paypal' | 'cod';
                   <dd class="font-semibold text-emerald-600">-{{ cart.discount() | currency }}</dd>
                 </div>
               }
-              <div class="flex justify-between">
-                <dt class="text-slate-500">Shipping</dt>
-                <dd class="font-semibold" [class]="cart.shipping() === 0 ? 'text-emerald-600' : 'text-slate-900'">
-                  {{ cart.shipping() === 0 ? 'Free' : (cart.shipping() | currency) }}
-                </dd>
-              </div>
-              <div class="flex justify-between">
-                <dt class="text-slate-500">Tax</dt>
-                <dd class="font-semibold text-slate-900">{{ cart.tax() | currency }}</dd>
-              </div>
               <div class="flex justify-between border-t border-slate-100 pt-4 text-lg">
-                <dt class="font-bold text-slate-900">Total</dt>
+                <dt class="font-bold text-slate-900">{{ cart.hasRental() ? 'Estimated total' : 'Total' }}</dt>
                 <dd class="font-extrabold text-slate-900">{{ cart.total() | currency }}</dd>
               </div>
             </dl>
+            @if (cart.hasRental()) {
+              <p class="mt-3 text-xs leading-relaxed text-amber-700">Rental pricing is finalized by the server when the order is placed.</p>
+            }
 
             @if (submitted() && form.invalid) {
               <div class="mt-5 rounded-xl bg-red-50 ring-1 ring-red-100 px-4 py-3 flex items-start gap-2.5">
@@ -316,7 +318,7 @@ type PaymentMethod = 'paypal' | 'cod';
 export class CheckoutComponent implements OnInit {
   readonly cart = inject(CartService);
   private readonly orders = inject(OrderService);
-  private readonly account = inject(AccountService);
+  readonly account = inject(AccountService);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
@@ -327,8 +329,9 @@ export class CheckoutComponent implements OnInit {
   readonly paymentMethod = signal<PaymentMethod>('paypal');
   readonly placing = signal(false);
   readonly submitted = signal(false);
+  readonly selectedAddressId = signal<number | string | null>(null);
 
-  readonly savedAddresses = this.account.addresses();
+  readonly savedAddresses = this.account.addresses;
 
   readonly form = this.fb.group({
     email: [this.auth.user()?.email ?? '', [Validators.required, Validators.email]],
@@ -341,6 +344,15 @@ export class CheckoutComponent implements OnInit {
     zip: ['', [Validators.required, Validators.pattern(/^[0-9A-Za-z\- ]{3,10}$/)]],
     country: ['United States', Validators.required],
   });
+
+  constructor() {
+    effect(() => {
+      const defaultAddress = this.account.defaultAddress();
+      if (defaultAddress && !this.selectedAddressId() && !this.form.dirty) {
+        this.useAddress(defaultAddress, false);
+      }
+    });
+  }
 
   ngOnInit(): void {
     this.initConfig();
@@ -362,11 +374,9 @@ export class CheckoutComponent implements OnInit {
           }
 
           const v = this.form.getRawValue();
-          this.orders.placeOrder({
+          this.placeOrderRequest({
             items: this.cart.items(),
             subtotal: this.cart.subtotal(),
-            shipping: this.cart.shipping(),
-            tax: this.cart.tax(),
             discount: this.cart.discount(),
             total: this.cart.total(),
             address: {
@@ -441,7 +451,7 @@ export class CheckoutComponent implements OnInit {
     return !!c && c.invalid && (c.touched || this.submitted());
   }
 
-  useAddress(address: Address): void {
+  useAddress(address: Address, notify = true): void {
     this.form.patchValue({
       fullName: address.fullName,
       line1: address.line1,
@@ -450,9 +460,11 @@ export class CheckoutComponent implements OnInit {
       state: address.state,
       zip: address.zip,
       country: address.country,
-      phone: address.phone,
+      // The current address DTO has no phone field; keep the checkout contact phone.
+      phone: address.phone || this.form.controls.phone.value || '',
     });
-    this.toast.info(`Address “${address.label}” applied`);
+    this.selectedAddressId.set(address.id);
+    if (notify) this.toast.info(`Address “${address.label}” selected`);
   }
 
   placeOrder(): void {
@@ -477,11 +489,9 @@ export class CheckoutComponent implements OnInit {
 
   private completeOrder(paymentSummary: string): void {
     const v = this.form.getRawValue();
-    this.orders.placeOrder({
+    this.placeOrderRequest({
       items: this.cart.items(),
       subtotal: this.cart.subtotal(),
-      shipping: this.cart.shipping(),
-      tax: this.cart.tax(),
       discount: this.cart.discount(),
       total: this.cart.total(),
       address: {
@@ -512,6 +522,34 @@ export class CheckoutComponent implements OnInit {
         this.toast.error('Failed to place order. Please try again.');
       }
     });
+  }
+
+  private placeOrderRequest(input: Parameters<OrderService['placeOrder']>[0]): Observable<string> {
+    const selected = this.account.addresses().find(address =>
+      address.id === this.selectedAddressId() && this.matchesForm(address)
+    );
+    if (selected && typeof selected.id === 'string') {
+      return this.orders.placeOrder({ ...input, shippingAddressId: selected.id });
+    }
+
+    const v = this.form.getRawValue();
+    return this.account.createCheckoutAddress({
+      fullName: v.fullName!,
+      line1: v.line1!,
+      line2: v.line2 || undefined,
+      city: v.city!,
+      state: v.state!,
+      zip: v.zip!,
+      country: v.country!,
+      isDefault: this.account.addresses().length === 0
+    }).pipe(switchMap(shippingAddressId => this.orders.placeOrder({ ...input, shippingAddressId })));
+  }
+
+  private matchesForm(address: Address): boolean {
+    const v = this.form.getRawValue();
+    return address.fullName === v.fullName && address.line1 === v.line1 &&
+      (address.line2 ?? '') === (v.line2 ?? '') && address.city === v.city &&
+      address.state === v.state && address.zip === v.zip && address.country === v.country;
   }
 
   private defaultName(): string {

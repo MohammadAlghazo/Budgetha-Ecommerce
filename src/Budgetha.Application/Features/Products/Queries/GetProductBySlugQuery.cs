@@ -1,4 +1,5 @@
 using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -22,7 +23,10 @@ public class GetProductBySlugQueryHandler : IRequestHandler<GetProductBySlugQuer
             .Include(x => x.Images)
             .Include(x => x.Reviews)
             .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Slug == request.Slug, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Slug == request.Slug &&
+                                      x.IsActive &&
+                                      x.ApprovalStatus == ApprovalStatus.Approved,
+                cancellationToken);
 
         if (p == null) return null;
 

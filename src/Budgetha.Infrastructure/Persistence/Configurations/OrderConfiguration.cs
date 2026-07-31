@@ -13,6 +13,7 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.Status).HasConversion<string>().HasMaxLength(50);
 
         builder.HasIndex(o => o.Status);
+        builder.HasIndex(o => o.ReservationExpiresAt);
 
         builder.HasOne(o => o.User)
             .WithMany(u => u.Orders)

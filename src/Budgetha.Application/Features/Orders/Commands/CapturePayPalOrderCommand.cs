@@ -12,35 +12,86 @@ public record CapturePayPalOrderCommand(Guid OrderId, string PayPalOrderId) : IR
 public class CapturePayPalOrderCommandHandler : IRequestHandler<CapturePayPalOrderCommand, bool>
 {
     private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
     private readonly IPaymentService _paymentService;
 
-    public CapturePayPalOrderCommandHandler(IApplicationDbContext context, IPaymentService paymentService)
+    public CapturePayPalOrderCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUserService,
+        IPaymentService paymentService)
     {
         _context = context;
+        _currentUserService = currentUserService;
         _paymentService = paymentService;
     }
 
     public async Task<bool> Handle(CapturePayPalOrderCommand request, CancellationToken cancellationToken)
     {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new UnauthorizedAccessException();
+
         var order = await _context.Orders
-            .FirstOrDefaultAsync(o => o.Id == request.OrderId, cancellationToken);
+            .Include(o => o.Payment)
+            .Include(o => o.Items)
+            .FirstOrDefaultAsync(o => o.Id == request.OrderId && o.UserId == userId, cancellationToken);
+        if (order == null)
+            throw new NotFoundException(nameof(Order), request.OrderId);
 
-        if (order == null) throw new NotFoundException(nameof(Order), request.OrderId);
-        
-        if (order.Payment == null) throw new InvalidOperationException("No payment record found.");
-
-        var success = await _paymentService.CapturePayPalOrderAsync(request.PayPalOrderId);
-
-        if (success)
+        var payment = order.Payment ?? throw new InvalidOperationException("No payment record found.");
+        if (payment.Provider != PaymentProvider.PayPal ||
+            !string.Equals(payment.ExternalTransactionId, request.PayPalOrderId, StringComparison.Ordinal))
         {
-            order.Payment.Status = PaymentStatus.Completed;
-            
-            await _context.SaveChangesAsync(cancellationToken);
-            return true;
+            throw new InvalidOperationException("The PayPal order does not match this payment.");
         }
 
-        order.Payment.Status = PaymentStatus.Failed;
-        await _context.SaveChangesAsync(cancellationToken);
-        return false;
+        if (payment.Status == PaymentStatus.Completed)
+            return !string.IsNullOrWhiteSpace(payment.ExternalCaptureId);
+        if (payment.Status != PaymentStatus.Pending || order.Status != OrderStatus.Pending)
+            throw new InvalidOperationException("Order cannot be captured in its current state.");
+        if (order.ReservationExpiresAt <= DateTimeOffset.UtcNow)
+            throw new InvalidOperationException("The stock reservation has expired.");
+
+        var result = await _paymentService.CapturePayPalOrderAsync(
+            request.PayPalOrderId,
+            payment.Amount,
+            payment.Currency,
+            cancellationToken);
+        if (!result.IsValid || result.OrderId != payment.ExternalTransactionId || string.IsNullOrWhiteSpace(result.CaptureId))
+            return false;
+
+        payment.Status = PaymentStatus.Completed;
+        payment.ExternalCaptureId = result.CaptureId;
+        order.Status = OrderStatus.Processing;
+        order.ReservationExpiresAt = null;
+        RemoveUnchangedOrderItemsFromCart(order);
+
+        try
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException("The order changed while payment was being captured. PayPal payment may require reconciliation.");
+        }
+
+        return true;
+    }
+
+    private void RemoveUnchangedOrderItemsFromCart(Order order)
+    {
+        var cartItems = _context.CartItems.Where(item => item.Cart.UserId == order.UserId).ToList();
+        foreach (var orderItem in order.Items)
+        {
+            var cartItem = cartItems.FirstOrDefault(item =>
+                item.ProductId == orderItem.ProductId && item.Quantity == orderItem.Quantity &&
+                item.Type == orderItem.Type && item.RentalStartDate == orderItem.RentalStartDate &&
+                item.RentalEndDate == orderItem.RentalEndDate && item.Color == orderItem.Color && item.Size == orderItem.Size);
+            if (cartItem != null)
+            {
+                _context.CartItems.Remove(cartItem);
+                cartItems.Remove(cartItem);
+            }
+        }
     }
 }

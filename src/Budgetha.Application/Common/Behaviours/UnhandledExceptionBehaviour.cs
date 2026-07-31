@@ -19,7 +19,7 @@ public class UnhandledExceptionBehaviour<TRequest, TResponse>(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unhandled exception for request {Name} {@Request}", typeof(TRequest).Name, request);
+            logger.LogError(ex, "Unhandled exception for request {Name}", typeof(TRequest).Name);
             throw;
         }
     }

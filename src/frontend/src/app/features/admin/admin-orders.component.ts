@@ -79,14 +79,14 @@ import { ToastService } from '../../core/services/toast.service';
                       <span class="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider rounded-full"
                             [class.bg-amber-100]="order.status === 0"
                             [class.text-amber-700]="order.status === 0"
-                            [class.bg-blue-100]="order.status === 1 || order.status === 2"
-                            [class.text-blue-700]="order.status === 1 || order.status === 2"
-                            [class.bg-indigo-100]="order.status === 3"
-                            [class.text-indigo-700]="order.status === 3"
-                            [class.bg-emerald-100]="order.status === 4"
-                            [class.text-emerald-700]="order.status === 4"
-                            [class.bg-rose-100]="order.status === 5"
-                            [class.text-rose-700]="order.status === 5">
+                            [class.bg-blue-100]="order.status === 1"
+                            [class.text-blue-700]="order.status === 1"
+                            [class.bg-indigo-100]="order.status === 2"
+                            [class.text-indigo-700]="order.status === 2"
+                            [class.bg-emerald-100]="order.status === 3"
+                            [class.text-emerald-700]="order.status === 3"
+                            [class.bg-rose-100]="order.status === 4 || order.status === 6"
+                            [class.text-rose-700]="order.status === 4 || order.status === 6">
                         {{ getStatusText(order.status) }}
                       </span>
                     </td>
@@ -94,14 +94,20 @@ import { ToastService } from '../../core/services/toast.service';
                       {{ order.totalAmount | currency }}
                     </td>
                     <td class="px-6 py-4 text-center">
+                      <div class="flex items-center justify-center gap-2">
                       <select (change)="updateStatus(order.id, $event)" [value]="order.status" class="text-sm bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-500">
                         <option [value]="0">Pending</option>
                         <option [value]="1">Processing</option>
-                        <option [value]="2">Confirmed</option>
-                        <option [value]="3">Shipped</option>
-                        <option [value]="4">Delivered</option>
-                        <option [value]="5">Cancelled</option>
-                      </select>
+                         <option [value]="2">Shipped</option>
+                         <option [value]="3">Delivered</option>
+                         <option [value]="4">Cancelled</option>
+                         <option [value]="5">Refunded</option>
+                       <option [value]="6">Failed</option>
+                       </select>
+                       @if (order.status !== 3 && order.status !== 4) {
+                         <button type="button" (click)="cancelOrder(order.id)" class="text-xs font-semibold text-rose-600 hover:text-rose-500">Cancel</button>
+                       }
+                       </div>
                     </td>
                   </tr>
                 }
@@ -119,14 +125,14 @@ import { ToastService } from '../../core/services/toast.service';
                 <span class="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider rounded-full"
                       [class.bg-amber-100]="order.status === 0"
                       [class.text-amber-700]="order.status === 0"
-                      [class.bg-blue-100]="order.status === 1 || order.status === 2"
-                      [class.text-blue-700]="order.status === 1 || order.status === 2"
-                      [class.bg-indigo-100]="order.status === 3"
-                      [class.text-indigo-700]="order.status === 3"
-                      [class.bg-emerald-100]="order.status === 4"
-                      [class.text-emerald-700]="order.status === 4"
-                      [class.bg-rose-100]="order.status === 5"
-                      [class.text-rose-700]="order.status === 5">
+                       [class.bg-blue-100]="order.status === 1"
+                       [class.text-blue-700]="order.status === 1"
+                       [class.bg-indigo-100]="order.status === 2"
+                       [class.text-indigo-700]="order.status === 2"
+                       [class.bg-emerald-100]="order.status === 3"
+                       [class.text-emerald-700]="order.status === 3"
+                       [class.bg-rose-100]="order.status === 4 || order.status === 6"
+                       [class.text-rose-700]="order.status === 4 || order.status === 6">
                   {{ getStatusText(order.status) }}
                 </span>
               </div>
@@ -136,14 +142,20 @@ import { ToastService } from '../../core/services/toast.service';
               </div>
               <div class="flex items-center justify-between pt-3 border-t border-slate-100">
                 <span class="font-bold text-slate-900">{{ order.totalAmount | currency }}</span>
-                <select (change)="updateStatus(order.id, $event)" [value]="order.status" class="text-sm bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-500">
+                 <div class="flex items-center gap-2">
+                 <select (change)="updateStatus(order.id, $event)" [value]="order.status" class="text-sm bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-500">
                   <option [value]="0">Pending</option>
                   <option [value]="1">Processing</option>
-                  <option [value]="2">Confirmed</option>
-                  <option [value]="3">Shipped</option>
-                  <option [value]="4">Delivered</option>
-                  <option [value]="5">Cancelled</option>
-                </select>
+                   <option [value]="2">Shipped</option>
+                   <option [value]="3">Delivered</option>
+                   <option [value]="4">Cancelled</option>
+                   <option [value]="5">Refunded</option>
+                   <option [value]="6">Failed</option>
+                 </select>
+                 @if (order.status !== 3 && order.status !== 4) {
+                   <button type="button" (click)="cancelOrder(order.id)" class="text-xs font-semibold text-rose-600">Cancel</button>
+                 }
+                 </div>
               </div>
             </div>
           }
@@ -184,7 +196,7 @@ export class AdminOrdersComponent implements OnInit {
   orders = signal<any[]>([]);
   isLoading = signal(true);
   
-  statuses = ['All', 'Pending', 'Processing', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled'];
+  statuses = ['All', 'Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Refunded', 'Failed'];
   filterStatus = signal('All');
   currentPage = signal(1);
   pageSize = signal(10);
@@ -193,7 +205,7 @@ export class AdminOrdersComponent implements OnInit {
     const statusStr = this.filterStatus();
     if (statusStr === 'All') return this.orders();
     const statusMap: Record<string, number> = {
-      'Pending': 0, 'Processing': 1, 'Confirmed': 2, 'Shipped': 3, 'Delivered': 4, 'Cancelled': 5
+      'Pending': 0, 'Processing': 1, 'Shipped': 2, 'Delivered': 3, 'Cancelled': 4, 'Refunded': 5, 'Failed': 6
     };
     return this.orders().filter(o => o.status === statusMap[statusStr]);
   });
@@ -235,7 +247,7 @@ export class AdminOrdersComponent implements OnInit {
   }
 
   getStatusText(status: number): string {
-    const map = ['Pending', 'Processing', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled'];
+    const map = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Refunded', 'Failed'];
     return map[status] || 'Unknown';
   }
 
@@ -252,6 +264,16 @@ export class AdminOrdersComponent implements OnInit {
         this.toast.error('Failed to update order status.');
         this.loadOrders(); // reload to revert select
       }
+    });
+  }
+
+  cancelOrder(orderId: string): void {
+    this.http.post(`${environment.apiUrl}/orders/${orderId}/cancel`, {}).subscribe({
+      next: () => {
+        this.toast.success('Order cancelled.');
+        this.loadOrders();
+      },
+      error: () => this.toast.error('Order could not be cancelled.')
     });
   }
 }

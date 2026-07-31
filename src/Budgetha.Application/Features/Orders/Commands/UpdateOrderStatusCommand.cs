@@ -15,31 +15,56 @@ public class UpdateOrderStatusCommandHandler : IRequestHandler<UpdateOrderStatus
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUserService;
+    private readonly IIdentityService _identityService;
     private readonly INotificationService _notificationService;
     private readonly IEmailService _emailService;
 
     public UpdateOrderStatusCommandHandler(
         IApplicationDbContext context, 
         ICurrentUserService currentUserService,
+        IIdentityService identityService,
         INotificationService notificationService,
         IEmailService emailService)
     {
         _context = context;
         _currentUserService = currentUserService;
+        _identityService = identityService;
         _notificationService = notificationService;
         _emailService = emailService;
     }
 
     public async Task<bool> Handle(UpdateOrderStatusCommand request, CancellationToken cancellationToken)
     {
-        // Ideally verify if user is admin/seller here. For simplicity, we just process it.
-
         var order = await _context.Orders
             .Include(o => o.User)
+            .Include(o => o.Items)
+            .ThenInclude(i => i.Product)
             .FirstOrDefaultAsync(o => o.Id == request.OrderId, cancellationToken);
 
         if (order == null)
             throw new NotFoundException(nameof(Domain.Entities.Order), request.OrderId);
+
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new UnauthorizedAccessException();
+
+        var roles = await _identityService.GetRolesAsync(userId);
+        var isAdmin = roles.Contains("Admin") || roles.Contains("SuperAdmin");
+        if (!isAdmin && !order.Items.All(item => item.Product.SellerId == userId))
+            throw new ForbiddenAccessException();
+
+        var validTransition = (order.Status, request.Status) switch
+        {
+            (OrderStatus.Pending, OrderStatus.Processing) => true,
+            (OrderStatus.Processing, OrderStatus.Shipped) => true,
+            (OrderStatus.Shipped, OrderStatus.Delivered) => true,
+            (OrderStatus.Pending, OrderStatus.Failed) => true,
+            (OrderStatus.Processing, OrderStatus.Failed) => true,
+            _ when order.Status == request.Status => true,
+            _ => false
+        };
+        if (!validTransition)
+            throw new InvalidOperationException($"Order status cannot transition from {order.Status} to {request.Status}.");
 
         order.Status = request.Status;
         await _context.SaveChangesAsync(cancellationToken);
@@ -64,8 +89,15 @@ public class UpdateOrderStatusCommandHandler : IRequestHandler<UpdateOrderStatus
                     </div>
                 </div>";
 
-                await _emailService.SendEmailAsync(order.User.Email, $"Order Shipped #{order.Id.ToString().Substring(0, 8).ToUpper()}", emailHtml);
-                await _notificationService.SendNotificationAsync(order.UserId, "Order Shipped", $"Your order #{order.Id.ToString().Substring(0, 8).ToUpper()} has been shipped.", "Order", order.Id.ToString());
+                try
+                {
+                    await _emailService.SendEmailAsync(order.User.Email, $"Order Shipped #{order.Id.ToString().Substring(0, 8).ToUpper()}", emailHtml);
+                    await _notificationService.SendNotificationAsync(order.UserId, "Order Shipped", $"Your order #{order.Id.ToString().Substring(0, 8).ToUpper()} has been shipped.", "Order", order.Id.ToString());
+                }
+                catch
+                {
+                    // Post-commit delivery is best effort.
+                }
             }
         }
 

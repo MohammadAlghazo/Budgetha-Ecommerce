@@ -149,6 +149,24 @@ type Tab = 'description' | 'specs' | 'reviews';
             }
 
             <!-- Quantity + CTAs -->
+            @if (p.isAvailableForRent) {
+              <div class="mt-6 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+                <div class="flex flex-wrap gap-2" role="radiogroup" aria-label="Purchase type">
+                  <button type="button" (click)="purchaseType.set('Purchase')" [attr.aria-checked]="purchaseType() === 'Purchase'" role="radio"
+                          class="rounded-xl px-3 py-2 text-sm font-semibold" [class]="purchaseType() === 'Purchase' ? 'bg-violet-600 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200'">Buy</button>
+                  <button type="button" (click)="purchaseType.set('Rental')" [attr.aria-checked]="purchaseType() === 'Rental'" role="radio"
+                          class="rounded-xl px-3 py-2 text-sm font-semibold" [class]="purchaseType() === 'Rental' ? 'bg-violet-600 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200'">Rent</button>
+                </div>
+                @if (purchaseType() === 'Rental') {
+                  <div class="mt-3 grid grid-cols-2 gap-3">
+                    <label class="text-xs font-semibold text-slate-600">Start date<input type="date" [value]="rentalStartDate()" (change)="rentalStartDate.set($any($event.target).value)" class="input-field mt-1" /></label>
+                    <label class="text-xs font-semibold text-slate-600">End date<input type="date" [value]="rentalEndDate()" (change)="rentalEndDate.set($any($event.target).value)" class="input-field mt-1" /></label>
+                  </div>
+                }
+              </div>
+            }
+
+            <!-- Quantity + CTAs -->
             <div class="mt-8 flex flex-col sm:flex-row gap-3">
               <div class="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 p-1 w-fit">
                 <button type="button" (click)="decrement()" [disabled]="quantity() <= 1" aria-label="Decrease quantity" class="qty-btn">
@@ -440,6 +458,9 @@ export class ProductDetailComponent implements OnDestroy {
   readonly selectedColor = signal('');
   readonly selectedSize = signal('');
   readonly quantity = signal(1);
+  readonly purchaseType = signal<'Purchase' | 'Rental'>('Purchase');
+  readonly rentalStartDate = signal('');
+  readonly rentalEndDate = signal('');
   readonly activeTab = signal<Tab>('description');
   readonly categories = toSignal(this.productService.getCategories(), { initialValue: [] });
   readonly relatedProducts = signal<Product[]>([]);
@@ -520,7 +541,10 @@ export class ProductDetailComponent implements OnDestroy {
         this.productService.getBySlug(slug).subscribe(product => {
           this.product.set(product);
           this.activeIndex.set(0);
-          this.quantity.set(1);
+           this.quantity.set(1);
+           this.purchaseType.set('Purchase');
+           this.rentalStartDate.set('');
+           this.rentalEndDate.set('');
           this.activeTab.set('description');
           this.selectedColor.set(product?.colors?.[0]?.name ?? '');
           this.selectedSize.set(product?.sizes?.[0] ?? '');
@@ -589,7 +613,12 @@ export class ProductDetailComponent implements OnDestroy {
   addToCart(): void {
     const p = this.product();
     if (!p || p.stock === 0) return;
-    this.cart.add(p, this.quantity(), this.selectedColor() || undefined, this.selectedSize() || undefined);
+    if (this.purchaseType() === 'Rental' && (!this.rentalStartDate() || !this.rentalEndDate())) {
+      this.toastService.error('Select rental start and end dates first.');
+      return;
+    }
+    this.cart.add(p, this.quantity(), this.selectedColor() || undefined, this.selectedSize() || undefined,
+      this.purchaseType(), this.rentalStartDate() || undefined, this.rentalEndDate() || undefined);
   }
 
   toggleWishlist(): void {

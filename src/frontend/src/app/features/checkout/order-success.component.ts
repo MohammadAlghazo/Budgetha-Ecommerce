@@ -1,8 +1,8 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { CurrencyPipe, DatePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { map } from 'rxjs';
+import { map, of, switchMap } from 'rxjs';
 import { OrderService } from '../../core/services/order.service';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
 
@@ -104,5 +104,11 @@ export class OrderSuccessComponent {
     { initialValue: '' }
   );
 
-  readonly order = computed(() => this.orders.getByNumber(this.orderNumber()));
+  readonly order = toSignal(
+    this.route.paramMap.pipe(
+      map(params => params.get('number') ?? ''),
+      switchMap(number => number ? this.orders.getByNumberRemote(number) : of(undefined))
+    ),
+    { initialValue: undefined }
+  );
 }

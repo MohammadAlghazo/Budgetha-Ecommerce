@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Address, PaymentCard } from '../models/shop.models';
 import { AuthService } from './auth.service';
 import { environment } from '../../../environments/environment';
+import { Observable, tap } from 'rxjs';
 
 const ADDRESS_KEY = 'budgetha_addresses_v2';
 const CARDS_KEY = 'budgetha_cards_v2';
@@ -18,9 +19,13 @@ export class AccountService {
 
   private readonly _addresses = signal<Address[]>(this.load(ADDRESS_KEY, SEED_ADDRESSES));
   private readonly _cards = signal<PaymentCard[]>(this.load(CARDS_KEY, SEED_CARDS));
+  private readonly _addressesLoading = signal(false);
+  private readonly _addressesError = signal(false);
 
   readonly addresses = this._addresses.asReadonly();
   readonly cards = this._cards.asReadonly();
+  readonly addressesLoading = this._addressesLoading.asReadonly();
+  readonly addressesError = this._addressesError.asReadonly();
 
   constructor() {
     effect(() => {
@@ -35,7 +40,9 @@ export class AccountService {
     }, { allowSignalWrites: true });
   }
 
-  private syncAddresses() {
+  syncAddresses(): void {
+    this._addressesLoading.set(true);
+    this._addressesError.set(false);
     this.http.get<any[]>(this.apiUrl).subscribe({
       next: (addrs) => {
         if (addrs) {
@@ -54,8 +61,26 @@ export class AccountService {
           }));
           this._addresses.set(mapped);
         }
+        this._addressesLoading.set(false);
+      },
+      error: () => {
+        this._addressesLoading.set(false);
+        this._addressesError.set(true);
       }
     });
+  }
+
+  createCheckoutAddress(address: Omit<Address, 'id' | 'label' | 'phone'>): Observable<string> {
+    return this.http.post<string>(this.apiUrl, {
+      fullName: address.fullName,
+      line1: address.line1,
+      line2: address.line2,
+      city: address.city,
+      state: address.state,
+      postalCode: address.zip,
+      country: address.country,
+      isDefault: address.isDefault
+    }).pipe(tap(() => this.syncAddresses()));
   }
 
   defaultAddress(): Address | undefined {

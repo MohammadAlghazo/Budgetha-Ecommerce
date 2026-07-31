@@ -1,5 +1,6 @@
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -41,6 +42,8 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
 
     public async Task<bool> Handle(UpdateProductCommand request, CancellationToken cancellationToken)
     {
+        ProductRules.Validate(request.Price, request.StockQuantity, request.OriginalPrice, request.IsAvailableForRent, request.RentalPricePerDay);
+
         var product = await _context.Products
             .Include(p => p.Images)
             .Include(p => p.Colors)
@@ -50,17 +53,22 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
             .FirstOrDefaultAsync(p => p.Id == request.Id, cancellationToken);
         if (product == null) return false;
 
-        // Verify ownership or Admin rights
-        if (product.SellerId != request.UserId)
+        var roles = await _identityService.GetRolesAsync(request.UserId);
+        var isAdmin = roles.Contains("Admin") || roles.Contains("SuperAdmin");
+
+        if (product.SellerId != request.UserId && !isAdmin)
         {
-            var roles = await _identityService.GetRolesAsync(request.UserId);
-            if (!roles.Contains("Admin") && !roles.Contains("SuperAdmin"))
-            {
-                return false;
-            }
+            return false;
         }
 
+        var slug = ProductRules.GenerateSlug(request.Name);
+        var originalSlug = slug;
+        var counter = 1;
+        while (await _context.Products.AnyAsync(p => p.Id != product.Id && p.Slug == slug, cancellationToken))
+            slug = $"{originalSlug}-{counter++}";
+
         product.Name = request.Name;
+        product.Slug = slug;
         product.Description = request.Description;
         product.Price = request.Price;
         product.StockQuantity = request.StockQuantity;
@@ -76,6 +84,7 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
         product.RentalPricePerDay = request.RentalPricePerDay;
         product.Brand = request.Brand;
         product.OriginalPrice = request.OriginalPrice;
+        product.ApprovalStatus = isAdmin ? ApprovalStatus.Approved : ApprovalStatus.Pending;
 
         if (request.Colors != null)
         {

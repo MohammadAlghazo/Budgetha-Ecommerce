@@ -47,6 +47,7 @@ public class AdminController : ControllerBase
     }
 
     [HttpGet("recent-users")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> GetRecentUsers([FromQuery] int count = 5)
     {
         var users = await _adminService.GetRecentUsersAsync(count);
@@ -98,7 +99,9 @@ public class AdminController : ControllerBase
     [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> BanUser(string id)
     {
-        var success = await _adminService.BanUserAsync(id);
+        var actorId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(actorId)) return Unauthorized();
+        var success = await _adminService.BanUserAsync(actorId, User.IsInRole("SuperAdmin"), id);
         if (!success) return BadRequest("Could not ban user.");
         return Ok();
     }
@@ -107,7 +110,9 @@ public class AdminController : ControllerBase
     [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> UnbanUser(string id)
     {
-        var success = await _adminService.UnbanUserAsync(id);
+        var actorId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(actorId)) return Unauthorized();
+        var success = await _adminService.UnbanUserAsync(actorId, User.IsInRole("SuperAdmin"), id);
         if (!success) return BadRequest("Could not unban user.");
         return Ok();
     }
@@ -116,7 +121,9 @@ public class AdminController : ControllerBase
     [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> DeleteUser(string id)
     {
-        var success = await _adminService.DeleteUserAsync(id);
+        var actorId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(actorId)) return Unauthorized();
+        var success = await _adminService.DeleteUserAsync(actorId, User.IsInRole("SuperAdmin"), id);
         if (!success) return BadRequest("Could not delete user.");
         return Ok();
     }

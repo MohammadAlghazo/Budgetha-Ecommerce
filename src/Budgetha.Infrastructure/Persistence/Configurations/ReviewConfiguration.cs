@@ -11,6 +11,7 @@ public class ReviewConfiguration : IEntityTypeConfiguration<Review>
         builder.Property(r => r.Comment).HasMaxLength(2000);
 
         builder.HasIndex(r => new { r.ProductId, r.UserId }).IsUnique();
+        builder.ToTable(t => t.HasCheckConstraint("CK_Reviews_Rating_Range", "\"Rating\" >= 1 AND \"Rating\" <= 5"));
 
         builder.HasOne(r => r.Product)
             .WithMany(p => p.Reviews)

@@ -18,6 +18,14 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.HasIndex(p => p.Slug).IsUnique();
         builder.HasIndex(p => p.IsActive);
         builder.HasIndex(p => p.ApprovalStatus);
+        builder.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_Products_Price_Positive", "\"Price\" > 0");
+            t.HasCheckConstraint("CK_Products_OriginalPrice_Positive", "\"OriginalPrice\" IS NULL OR \"OriginalPrice\" > 0");
+            t.HasCheckConstraint("CK_Products_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+            t.HasCheckConstraint("CK_Products_Stock_NonNegative", "\"StockQuantity\" >= 0");
+            t.HasCheckConstraint("CK_Products_Slug_NotEmpty", "length(trim(\"Slug\")) > 0");
+        });
 
         builder.HasOne(p => p.Category)
             .WithMany(c => c.Products)

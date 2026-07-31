@@ -240,6 +240,7 @@ export class AdminCategoriesComponent implements OnInit {
         error: (err) => {
           console.error(err);
           this.toastService.error('Failed to update category');
+          this.isSubmitting.set(false);
         },
         complete: () => this.isSubmitting.set(false)
       });
@@ -258,6 +259,7 @@ export class AdminCategoriesComponent implements OnInit {
         error: (err) => {
           console.error(err);
           this.toastService.error('Failed to create category');
+          this.isSubmitting.set(false);
         },
         complete: () => this.isSubmitting.set(false)
       });

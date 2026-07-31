@@ -39,6 +39,13 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         if (string.IsNullOrEmpty(userId))
             throw new UnauthorizedAccessException();
 
+        if (request.ShippingAddressId.HasValue && !await _context.Addresses
+                .AnyAsync(a => a.Id == request.ShippingAddressId.Value && a.UserId == userId, cancellationToken))
+            throw new UnauthorizedAccessException("The shipping address does not belong to the current user.");
+
+        var isPayPal = request.PaymentMethod.Equals("CreditCard", StringComparison.OrdinalIgnoreCase) ||
+                       request.PaymentMethod.Equals("PayPal", StringComparison.OrdinalIgnoreCase);
+
         // 1. Get Cart
         var cart = await _context.Carts
             .Include(c => c.Items)
@@ -135,18 +142,19 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
             TotalAmount = totalAmount,
             Notes = request.Notes,
             ShippingAddressId = request.ShippingAddressId,
-            Items = orderItems
+            Items = orderItems,
+            ReservationExpiresAt = isPayPal ? DateTimeOffset.UtcNow.AddMinutes(30) : null
         };
 
         // 4. Create Payment if not COD
-        if (request.PaymentMethod.Equals("CreditCard", StringComparison.OrdinalIgnoreCase) || request.PaymentMethod.Equals("PayPal", StringComparison.OrdinalIgnoreCase))
+        if (isPayPal)
         {
             order.Payment = new Payment
             {
                 Amount = totalAmount,
+                Currency = "USD",
                 Status = PaymentStatus.Pending,
-                Provider = PaymentProvider.PayPal,
-                ExternalTransactionId = Guid.NewGuid().ToString() // Mock transaction ID
+                Provider = PaymentProvider.PayPal
             };
         }
         else
@@ -154,6 +162,7 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
             order.Payment = new Payment
             {
                 Amount = totalAmount,
+                Currency = "USD",
                 Status = PaymentStatus.Pending,
                 Provider = PaymentProvider.CashOnDelivery
             };
@@ -161,8 +170,9 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
 
         _context.Orders.Add(order);
 
-        // 5. Clear Cart
-        _context.CartItems.RemoveRange(cart.Items);
+        // Keep PayPal carts intact until capture so an abandoned checkout loses neither stock nor cart.
+        if (!isPayPal)
+            _context.CartItems.RemoveRange(cart.Items);
 
         try
         {
@@ -205,8 +215,15 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
                 </div>
             </div>";
 
-            await _emailService.SendEmailAsync(user.Email, $"Order Confirmation #{order.Id.ToString().Substring(0, 8).ToUpper()}", invoiceHtml);
-            await _notificationService.SendNotificationAsync(userId, "Order Placed Successfully", $"Your order #{order.Id.ToString().Substring(0, 8).ToUpper()} has been received.", "Order", order.Id.ToString());
+            try
+            {
+                await _emailService.SendEmailAsync(user.Email, $"Order Confirmation #{order.Id.ToString().Substring(0, 8).ToUpper()}", invoiceHtml);
+                await _notificationService.SendNotificationAsync(userId, "Order Placed Successfully", $"Your order #{order.Id.ToString().Substring(0, 8).ToUpper()} has been received.", "Order", order.Id.ToString());
+            }
+            catch
+            {
+                // The order is committed; delivery failures must not turn success into an API error.
+            }
         }
 
         // Notify sellers
@@ -215,7 +232,14 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         {
             if (sellerId != null)
             {
-                await _notificationService.SendNotificationAsync(sellerId, "New Sale!", "One or more of your products have been sold.", "Sale", order.Id.ToString());
+                try
+                {
+                    await _notificationService.SendNotificationAsync(sellerId, "New Sale!", "One or more of your products have been sold.", "Sale", order.Id.ToString());
+                }
+                catch
+                {
+                    // Notifications are post-commit best effort.
+                }
             }
         }
 

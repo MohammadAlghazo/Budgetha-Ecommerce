@@ -40,6 +40,17 @@ public class DeleteReviewCommandHandler : IRequestHandler<DeleteReviewCommand>
         if (!isAuthor && !isAdmin)
             throw new UnauthorizedAccessException("You are not authorized to delete this review.");
 
+        var product = await _context.Products.FindAsync(new object[] { review.ProductId }, cancellationToken)
+            ?? throw new NotFoundException(nameof(Product), review.ProductId);
+        var reviewCount = await _context.Reviews.CountAsync(r => r.ProductId == review.ProductId, cancellationToken);
+        var totalRating = await _context.Reviews
+            .Where(r => r.ProductId == review.ProductId)
+            .SumAsync(r => r.Rating, cancellationToken);
+
+        product.ReviewCount = Math.Max(0, reviewCount - 1);
+        product.AverageRating = product.ReviewCount == 0
+            ? 0
+            : (decimal)(totalRating - review.Rating) / product.ReviewCount;
         _context.Reviews.Remove(review);
         await _context.SaveChangesAsync(cancellationToken);
     }

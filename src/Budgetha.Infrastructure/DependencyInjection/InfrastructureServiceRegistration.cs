@@ -80,6 +80,7 @@ public static class InfrastructureServiceRegistration
         services.AddScoped<IImageService, ImageService>();
 
         services.AddHttpClient<IPaymentService, PaymentService>();
+        services.AddHostedService<ExpiredPayPalReservationService>();
 
         return services;
     }

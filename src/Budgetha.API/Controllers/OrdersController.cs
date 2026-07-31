@@ -43,6 +43,33 @@ public class OrdersController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("mine")]
+    public async Task<ActionResult<List<CustomerOrderDto>>> GetMyOrders()
+    {
+        return Ok(await _mediator.Send(new GetCustomerOrdersQuery()));
+    }
+
+    [HttpGet("mine/{id:guid}")]
+    public async Task<ActionResult<CustomerOrderDto>> GetMyOrder(Guid id)
+    {
+        var result = await _mediator.Send(new GetCustomerOrderQuery(id));
+        return result == null ? NotFound() : Ok(result);
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task<ActionResult<CustomerOrderDto>> GetOrder(Guid id)
+    {
+        var result = await _mediator.Send(new GetCustomerOrderQuery(id));
+        return result == null ? NotFound() : Ok(result);
+    }
+
+    [HttpGet("mine/by-number/{orderNumber}")]
+    public async Task<ActionResult<CustomerOrderDto>> GetMyOrderByNumber(string orderNumber)
+    {
+        var result = await _mediator.Send(new GetCustomerOrderByNumberQuery(orderNumber));
+        return result == null ? NotFound() : Ok(result);
+    }
+
     [HttpPost("{id:guid}/create-paypal-order")]
     public async Task<ActionResult<string>> CreatePayPalOrder(Guid id)
     {
@@ -74,6 +101,14 @@ public class OrdersController : ControllerBase
     {
         var success = await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.UpdateOrderStatusCommand(id, request.Status));
         if (!success) return BadRequest("Failed to update status.");
+        return Ok();
+    }
+
+    [HttpPost("{id:guid}/cancel")]
+    public async Task<ActionResult> Cancel(Guid id)
+    {
+        var success = await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.CancelOrderCommand(id));
+        if (!success) return BadRequest("Order cannot be cancelled.");
         return Ok();
     }
 }

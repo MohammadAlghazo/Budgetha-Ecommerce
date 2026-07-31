@@ -76,6 +76,7 @@ export interface CartItem {
   type?: 'Purchase' | 'Rental';
   rentalStartDate?: string;
   rentalEndDate?: string;
+  rentalPricePerDay?: number;
 }
 
 export interface PromoCode {
@@ -83,6 +84,7 @@ export interface PromoCode {
   type: 'percent' | 'shipping';
   value: number;
   description: string;
+  maxDiscountAmount?: number;
 }
 
 export interface Address {
@@ -109,7 +111,7 @@ export interface PaymentCard {
   isDefault: boolean;
 }
 
-export type OrderStatus = 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled';
+export type OrderStatus = 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled' | 'Refunded' | 'Failed';
 
 export interface OrderItem {
   productId: string;
@@ -119,10 +121,13 @@ export interface OrderItem {
   quantity: number;
   color?: string;
   size?: string;
+  type?: 'Purchase' | 'Rental';
+  rentalStartDate?: string;
+  rentalEndDate?: string;
 }
 
 export interface Order {
-  id: number;
+  id: string;
   number: string;
   date: string;
   status: OrderStatus;

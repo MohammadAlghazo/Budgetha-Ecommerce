@@ -226,7 +226,14 @@ const PAGE_SIZE = 9;
 
         <!-- ══ Results ══ -->
         <div class="flex-1 min-w-0">
-          @if (result().items.length === 0) {
+          @if (isLoading()) {
+            <div class="card p-12 text-center text-slate-500">Loading products...</div>
+          } @else if (loadError()) {
+            <div class="card p-12 text-center">
+              <p class="text-sm text-rose-600">Products could not be loaded.</p>
+              <button type="button" (click)="retry()" class="btn-secondary mt-4">Try again</button>
+            </div>
+          } @else if (result().items.length === 0) {
             <div class="card">
               <app-empty-state
                 [icon]="wishlistOnly() ? 'wishlist' : 'search'"
@@ -335,6 +342,8 @@ export class CatalogComponent {
   
   
   readonly result = signal<CatalogResult>({ items: [], total: 0, totalPages: 1 });
+  readonly isLoading = signal(true);
+  readonly loadError = signal(false);
 
   readonly pages = computed(() => Array.from({ length: this.result().totalPages }, (_, i) => i + 1));
 
@@ -407,6 +416,7 @@ export class CatalogComponent {
         page: this.wishlistOnly() || this.dealsOnly() ? 1 : this.page(),
         pageSize: this.wishlistOnly() || this.dealsOnly() ? 100 : PAGE_SIZE,
       };
+      this.isLoading.set(true);
       this.productService.query(q).subscribe(res => {
         let items = res?.items || [];
         if (this.dealsOnly()) {
@@ -429,8 +439,19 @@ export class CatalogComponent {
         }
         
         this.result.set({ items, total, totalPages });
+        this.isLoading.set(false);
+        this.loadError.set(false);
+      }, () => {
+        this.isLoading.set(false);
+        this.loadError.set(true);
       });
     });
+  }
+
+  retry(): void {
+    this.loadError.set(false);
+    this.isLoading.set(true);
+    this.page.update(page => page);
   }
 
   toggleCategory(slug: string): void {

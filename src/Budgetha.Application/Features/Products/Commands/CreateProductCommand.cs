@@ -3,7 +3,6 @@ using Budgetha.Domain.Entities;
 using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using System.Text.RegularExpressions;
 
 namespace Budgetha.Application.Features.Products.Commands;
 
@@ -28,15 +27,18 @@ public record CreateProductCommand(
 public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand, Guid>
 {
     private readonly IApplicationDbContext _context;
+    private readonly IIdentityService _identityService;
 
-    public CreateProductCommandHandler(IApplicationDbContext context)
+    public CreateProductCommandHandler(IApplicationDbContext context, IIdentityService identityService)
     {
         _context = context;
+        _identityService = identityService;
     }
 
     public async Task<Guid> Handle(CreateProductCommand request, CancellationToken cancellationToken)
     {
-        
+        ProductRules.Validate(request.Price, request.StockQuantity, request.OriginalPrice, request.IsAvailableForRent, request.RentalPricePerDay);
+
         var categoryExists = await _context.Categories.AnyAsync(c => c.Id == request.CategoryId, cancellationToken);
         if (!categoryExists)
         {
@@ -44,7 +46,7 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
         }
 
         
-        var slug = GenerateSlug(request.Name);
+        var slug = ProductRules.GenerateSlug(request.Name);
         var originalSlug = slug;
         var counter = 1;
 
@@ -54,6 +56,9 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             slug = $"{originalSlug}-{counter}";
             counter++;
         }
+
+        var roles = await _identityService.GetRolesAsync(request.SellerId);
+        var isAdmin = roles.Contains("Admin") || roles.Contains("SuperAdmin");
 
         var product = new Product
         {
@@ -70,7 +75,7 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             SellerId = request.SellerId,
             Slug = slug,
             IsActive = true,
-            ApprovalStatus = ApprovalStatus.Approved
+            ApprovalStatus = isAdmin ? ApprovalStatus.Approved : ApprovalStatus.Pending
         };
 
         if (request.ImageUrls != null && request.ImageUrls.Any())
@@ -114,19 +119,5 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
         await _context.SaveChangesAsync(cancellationToken);
 
         return product.Id;
-    }
-
-    private string GenerateSlug(string name)
-    {
-        string str = name.ToLower();
-        
-        // Allow Arabic characters using \p{IsArabic}
-        str = Regex.Replace(str, @"[^a-z0-9\p{IsArabic}\s-]", "");
-        
-        str = Regex.Replace(str, @"\s+", " ").Trim();
-        
-        str = str.Substring(0, str.Length <= 45 ? str.Length : 45).Trim();
-        str = Regex.Replace(str, @"\s", "-"); 
-        return str;
     }
 }

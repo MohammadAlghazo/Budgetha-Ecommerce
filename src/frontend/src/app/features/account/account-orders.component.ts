@@ -142,9 +142,13 @@ export class AccountOrdersComponent {
   private readonly orderService = inject(OrderService);
 
   readonly orders = this.orderService.orders;
-  readonly expandedId = signal<number | null>(null);
+  readonly expandedId = signal<string | null>(null);
 
-  toggleExpand(id: number): void {
+  constructor() {
+    this.orderService.refresh().subscribe();
+  }
+
+  toggleExpand(id: string): void {
     this.expandedId.update(current => (current === id ? null : id));
   }
 
@@ -158,6 +162,12 @@ export class AccountOrdersComponent {
         return 'bg-amber-50 text-amber-700 ring-1 ring-amber-100';
       case 'Cancelled':
         return 'bg-rose-50 text-rose-600 ring-1 ring-rose-100';
+      case 'Pending':
+        return 'bg-slate-100 text-slate-600 ring-1 ring-slate-200';
+      case 'Refunded':
+        return 'bg-violet-50 text-violet-700 ring-1 ring-violet-100';
+      case 'Failed':
+        return 'bg-rose-50 text-rose-600 ring-1 ring-rose-100';
     }
   }
 
@@ -170,6 +180,12 @@ export class AccountOrdersComponent {
       case 'Processing':
         return 'bg-amber-500 animate-pulse';
       case 'Cancelled':
+        return 'bg-rose-500';
+      case 'Pending':
+        return 'bg-slate-500';
+      case 'Refunded':
+        return 'bg-violet-500';
+      case 'Failed':
         return 'bg-rose-500';
     }
   }

@@ -52,27 +52,6 @@ import { CartItem } from '../../core/models/shop.models';
             <button type="button" (click)="goTo('/shop')" class="btn-primary mt-6">Start Shopping</button>
           </div>
         } @else {
-          <!-- Free shipping progress -->
-          @if (cart.amountToFreeShipping() > 0) {
-            <div class="px-5 pt-4">
-              <p class="text-xs text-slate-500 mb-2">
-                You're <span class="font-semibold text-violet-700">{{ cart.amountToFreeShipping() | currency }}</span> away from <span class="font-semibold">free shipping</span>
-              </p>
-              <div class="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                <div class="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all duration-500" [style.width.%]="shippingProgress()"></div>
-              </div>
-            </div>
-          } @else {
-            <div class="px-5 pt-4">
-              <p class="text-xs font-medium text-emerald-600 flex items-center gap-1.5">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Congratulations — your order ships free!
-              </p>
-            </div>
-          }
-
           <!-- Items -->
           <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4">
             @for (item of cart.items(); track trackItem(item)) {
@@ -85,6 +64,10 @@ import { CartItem } from '../../core/models/shop.models';
                       <p class="mt-0.5 text-xs text-slate-400">
                         {{ item.color }}{{ item.color && item.size ? ' · ' : '' }}{{ item.size }}
                       </p>
+                      <p class="mt-0.5 text-xs font-medium text-violet-600">{{ item.type ?? 'Purchase' }}</p>
+                      @if (item.type === 'Rental') {
+                        <p class="text-xs text-slate-400">{{ item.rentalStartDate }} to {{ item.rentalEndDate }}</p>
+                      }
                     </div>
                     <button
                       type="button"
@@ -125,17 +108,11 @@ import { CartItem } from '../../core/models/shop.models';
                 <span class="font-semibold text-emerald-600">-{{ cart.discount() | currency }}</span>
               </div>
             }
-            <div class="flex justify-between text-sm">
-              <span class="text-slate-500">Shipping</span>
-              <span class="font-semibold" [class]="cart.shipping() === 0 ? 'text-emerald-600' : 'text-slate-900'">
-                {{ cart.shipping() === 0 ? 'Free' : (cart.shipping() | currency) }}
-              </span>
-            </div>
             <div class="flex justify-between text-base font-bold text-slate-900 pt-2 border-t border-slate-200">
-              <span>Total</span>
+              <span>{{ cart.hasRental() ? 'Estimated total' : 'Total' }}</span>
               <span>{{ cart.total() | currency }}</span>
             </div>
-            <p class="text-[11px] text-slate-400">Tax included: {{ cart.tax() | currency }}. Shipping calculated at checkout.</p>
+            <p class="text-[11px] text-slate-400">Final pricing is calculated by the server when the order is placed.</p>
             <div class="grid grid-cols-2 gap-3 pt-1">
               <button type="button" (click)="goTo('/cart')" class="btn-secondary py-3">View Cart</button>
               <button type="button" (click)="goTo('/checkout')" class="btn-primary py-3">Checkout</button>
@@ -156,11 +133,6 @@ export class CartDrawerComponent {
 
   trackItem(item: CartItem): string {
     return `${item.productId}-${item.color ?? ''}-${item.size ?? ''}`;
-  }
-
-  shippingProgress(): number {
-    const subtotal = this.cart.subtotal() - this.cart.discount();
-    return Math.min(100, (subtotal / 75) * 100);
   }
 
   goTo(path: string): void {

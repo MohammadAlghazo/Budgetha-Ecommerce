@@ -89,25 +89,6 @@
         "maxSize": 250,
         "maxAge": "14d"
       }
-    },
-    {
-      "name": "api-account",
-      "urls": [
-        "/api/cart/**",
-        "/api/orders/**",
-        "/api/account/**",
-        "/api/wishlist/**",
-        "http://localhost:5272/api/cart/**",
-        "http://localhost:5272/api/orders/**",
-        "http://localhost:5272/api/account/**",
-        "http://localhost:5272/api/wishlist/**"
-      ],
-      "cacheConfig": {
-        "strategy": "freshness",
-        "maxSize": 60,
-        "maxAge": "1h",
-        "timeout": "5s"
-      }
     }
   ]
 }

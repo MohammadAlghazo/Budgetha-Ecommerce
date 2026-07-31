@@ -22,6 +22,8 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
 
     public async Task Handle(AddToCartCommand request, CancellationToken cancellationToken)
     {
+        CartRules.ValidateQuantity(request.Quantity);
+
         var userId = _currentUserService.UserId;
         if (string.IsNullOrEmpty(userId))
             throw new UnauthorizedAccessException();
@@ -37,37 +39,8 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
         }
 
         var product = await _context.Products.FindAsync(new object[] { request.ProductId }, cancellationToken);
-        if (product == null || !product.IsActive)
+        if (product == null || !product.IsActive || product.ApprovalStatus != ApprovalStatus.Approved)
             throw new NotFoundException(nameof(Product), request.ProductId);
-
-        if (request.Type == OrderItemType.Purchase && product.StockQuantity < request.Quantity)
-            throw new InvalidOperationException("Not enough stock available.");
-
-        if (request.Type == OrderItemType.Rental)
-        {
-            if (!request.RentalStartDate.HasValue || !request.RentalEndDate.HasValue)
-                throw new InvalidOperationException("Rental dates are required.");
-                
-            if (request.RentalStartDate > request.RentalEndDate)
-                throw new InvalidOperationException("End date must be after start date.");
-
-            // Check for overlap in existing non-cancelled orders
-            var overlappingOrders = await _context.OrderItems
-                .Include(oi => oi.Order)
-                .Where(oi => oi.ProductId == request.ProductId &&
-                             oi.Type == OrderItemType.Rental &&
-                             oi.Order != null && 
-                             oi.Order.Status != OrderStatus.Cancelled &&
-                             oi.Order.Status != OrderStatus.Failed &&
-                             oi.RentalStartDate <= request.RentalEndDate &&
-                             oi.RentalEndDate >= request.RentalStartDate)
-                .ToListAsync(cancellationToken);
-
-            var totalRented = overlappingOrders.Sum(oi => oi.Quantity);
-            
-            if (product.StockQuantity - totalRented < request.Quantity)
-                throw new InvalidOperationException("Not enough items available for the selected dates.");
-        }
 
         // Check if item already exists in cart with same type, variants, and dates
         var existingItem = cart.Items.FirstOrDefault(i => 
@@ -80,9 +53,9 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
 
         if (existingItem != null)
         {
-            existingItem.Quantity += request.Quantity;
-            if (request.Type == OrderItemType.Purchase && existingItem.Quantity > product.StockQuantity)
-                throw new InvalidOperationException("Cannot add more than available stock.");
+            var mergedQuantity = checked(existingItem.Quantity + request.Quantity);
+            CartRules.ValidateQuantity(mergedQuantity);
+            existingItem.Quantity = mergedQuantity;
         }
         else
         {
@@ -97,6 +70,37 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
                 Size = request.Size
             };
             cart.Items.Add(newItem);
+        }
+
+        var quantity = existingItem?.Quantity ?? request.Quantity;
+        if (request.Type == OrderItemType.Purchase)
+        {
+            if (quantity > product.StockQuantity)
+                throw new InvalidOperationException("Not enough stock available.");
+        }
+        else if (request.Type == OrderItemType.Rental)
+        {
+            if (!product.IsAvailableForRent)
+                throw new InvalidOperationException("This product is not available for rent.");
+
+            CartRules.ValidateRentalDates(request.RentalStartDate, request.RentalEndDate);
+
+            var totalRented = await _context.OrderItems
+                .Where(oi => oi.ProductId == request.ProductId &&
+                             oi.Type == OrderItemType.Rental &&
+                             oi.Order != null &&
+                             oi.Order.Status != OrderStatus.Cancelled &&
+                             oi.Order.Status != OrderStatus.Failed &&
+                             oi.RentalStartDate <= request.RentalEndDate &&
+                             oi.RentalEndDate >= request.RentalStartDate)
+                .SumAsync(oi => oi.Quantity, cancellationToken);
+
+            if (quantity > product.StockQuantity - totalRented)
+                throw new InvalidOperationException("Not enough items available for the selected dates.");
+        }
+        else
+        {
+            throw new InvalidOperationException("Invalid cart item type.");
         }
 
         await _context.SaveChangesAsync(cancellationToken);

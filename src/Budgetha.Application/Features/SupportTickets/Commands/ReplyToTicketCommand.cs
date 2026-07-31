@@ -14,11 +14,16 @@ public class ReplyToTicketCommandHandler : IRequestHandler<ReplyToTicketCommand,
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUserService;
+    private readonly IIdentityService _identityService;
 
-    public ReplyToTicketCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    public ReplyToTicketCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUserService,
+        IIdentityService identityService)
     {
         _context = context;
         _currentUserService = currentUserService;
+        _identityService = identityService;
     }
 
     public async Task<bool> Handle(ReplyToTicketCommand request, CancellationToken cancellationToken)
@@ -31,6 +36,10 @@ public class ReplyToTicketCommandHandler : IRequestHandler<ReplyToTicketCommand,
             .FirstOrDefaultAsync(t => t.Id == request.TicketId, cancellationToken);
 
         if (ticket == null) return false;
+
+        var roles = await _identityService.GetRolesAsync(userId);
+        if (ticket.UserId != userId && !roles.Contains("Admin") && !roles.Contains("SuperAdmin"))
+            return false;
 
         var message = new TicketMessage
         {

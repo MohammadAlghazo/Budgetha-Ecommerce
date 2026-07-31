@@ -110,10 +110,7 @@ export class ProductService {
     }
 
     return this.http.get<CatalogResult>(`${this.apiUrl}/products?${qs}`).pipe(
-      catchError(err => {
-        console.error('Failed to query products', err);
-        return of({ items: [], total: 0, totalPages: 1 } as CatalogResult);
-      })
+      map(result => result ?? { items: [], total: 0, totalPages: 1 })
     );
   }
 

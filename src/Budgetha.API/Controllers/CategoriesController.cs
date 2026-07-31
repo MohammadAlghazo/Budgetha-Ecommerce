@@ -1,6 +1,7 @@
 using Budgetha.Application.Features.Categories.Commands;
 using Budgetha.Application.Features.Categories.Queries;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Budgetha.API.Controllers;
@@ -24,6 +25,7 @@ public class CategoriesController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult<Guid>> CreateCategory([FromBody] CreateCategoryCommand command)
     {
         var result = await _mediator.Send(command);
@@ -31,10 +33,20 @@ public class CategoriesController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<ActionResult> UpdateCategory(Guid id, [FromBody] UpdateCategoryCommand command)
     {
         if (id != command.Id) return BadRequest();
         var result = await _mediator.Send(command);
+        if (!result) return NotFound();
+        return NoContent();
+    }
+
+    [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    public async Task<ActionResult> DeleteCategory(Guid id)
+    {
+        var result = await _mediator.Send(new DeleteCategoryCommand(id));
         if (!result) return NotFound();
         return NoContent();
     }

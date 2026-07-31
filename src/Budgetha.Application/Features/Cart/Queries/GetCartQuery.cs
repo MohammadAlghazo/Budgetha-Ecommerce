@@ -47,7 +47,9 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, CartDto>
             i.Product.StockQuantity,
             i.Type,
             i.RentalStartDate,
-            i.RentalEndDate
+            i.RentalEndDate,
+            i.Color,
+            i.Size
         )).ToList();
 
         return new CartDto(cart.Id, items);

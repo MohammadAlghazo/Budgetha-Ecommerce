@@ -13,7 +13,9 @@ public record CartItemDto(
     int Stock,
     OrderItemType Type,
     DateOnly? RentalStartDate,
-    DateOnly? RentalEndDate
+    DateOnly? RentalEndDate,
+    string? Color,
+    string? Size
 );
 
 public record CartDto(

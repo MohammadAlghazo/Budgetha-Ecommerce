@@ -1,6 +1,7 @@
 using Budgetha.Application.Common.Exceptions;
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -39,7 +40,28 @@ public class UpdateCartItemQuantityCommandHandler : IRequestHandler<UpdateCartIt
         }
         else
         {
-            if (cartItem.Product.StockQuantity < request.Quantity)
+            CartRules.ValidateQuantity(request.Quantity);
+
+            var availableStock = cartItem.Product.StockQuantity;
+            if (cartItem.Type == OrderItemType.Rental)
+            {
+                if (!cartItem.Product.IsAvailableForRent)
+                    throw new InvalidOperationException("This product is not available for rent.");
+
+                CartRules.ValidateRentalDates(cartItem.RentalStartDate, cartItem.RentalEndDate);
+                var totalRented = await _context.OrderItems
+                    .Where(oi => oi.ProductId == cartItem.ProductId &&
+                                 oi.Type == OrderItemType.Rental &&
+                                 oi.Order != null &&
+                                 oi.Order.Status != OrderStatus.Cancelled &&
+                                 oi.Order.Status != OrderStatus.Failed &&
+                                 oi.RentalStartDate <= cartItem.RentalEndDate &&
+                                 oi.RentalEndDate >= cartItem.RentalStartDate)
+                    .SumAsync(oi => oi.Quantity, cancellationToken);
+                availableStock -= totalRented;
+            }
+
+            if (availableStock < request.Quantity)
                 throw new InvalidOperationException("Not enough stock available.");
                 
             cartItem.Quantity = request.Quantity;

@@ -1,5 +1,6 @@
 using Budgetha.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Budgetha.Infrastructure.Persistence;
@@ -19,30 +20,63 @@ public static class ApplicationDbInitializer
         }
     }
 
-    public static async Task SeedSuperAdminAsync(IServiceProvider serviceProvider)
+    public static async Task<string?> BootstrapSuperAdminAsync(
+        IServiceProvider serviceProvider,
+        IConfiguration configuration)
     {
+        var section = configuration.GetSection("BootstrapAdmin");
+        if (!section.GetValue<bool>("Enabled")) return null;
+
+        var email = section["Email"]?.Trim();
+        var password = section["Password"];
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+            throw new InvalidOperationException("BootstrapAdmin requires Email and Password when enabled.");
+
         var userManager = serviceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-
-        const string email = "superadmin@budgetha.com";
-        var existing = await userManager.FindByEmailAsync(email);
-        if (existing is not null) return;
-
         var superAdmin = new ApplicationUser
         {
             UserName = email,
             Email = email,
-            FirstName = "Super",
-            LastName = "Admin",
+            FirstName = section["FirstName"]?.Trim() ?? "Development",
+            LastName = section["LastName"]?.Trim() ?? "Administrator",
             EmailConfirmed = true
         };
 
-        var result = await userManager.CreateAsync(superAdmin, "SuperAdmin@123!");
-        if (result.Succeeded)
-            await userManager.AddToRolesAsync(superAdmin, AllRoles);
+        var passwordErrors = new List<IdentityError>();
+        foreach (var validator in userManager.PasswordValidators)
+        {
+            var validation = await validator.ValidateAsync(userManager, superAdmin, password);
+            if (!validation.Succeeded) passwordErrors.AddRange(validation.Errors);
+        }
+        if (passwordErrors.Count > 0)
+            throw new InvalidOperationException($"BootstrapAdmin password is invalid: {string.Join("; ", passwordErrors.Select(e => e.Description))}");
+
+        var existing = await userManager.FindByEmailAsync(email);
+        if (existing is not null)
+        {
+            if (!await userManager.IsInRoleAsync(existing, "SuperAdmin"))
+                throw new InvalidOperationException("BootstrapAdmin email belongs to an existing non-SuperAdmin account.");
+
+            return existing.Id;
+        }
+
+        var result = await userManager.CreateAsync(superAdmin, password);
+        if (!result.Succeeded)
+            throw new InvalidOperationException($"BootstrapAdmin could not be created: {string.Join("; ", result.Errors.Select(e => e.Description))}");
+
+        var roleResult = await userManager.AddToRoleAsync(superAdmin, "SuperAdmin");
+        if (!roleResult.Succeeded)
+        {
+            await userManager.DeleteAsync(superAdmin);
+            throw new InvalidOperationException($"BootstrapAdmin role assignment failed: {string.Join("; ", roleResult.Errors.Select(e => e.Description))}");
+        }
+
+        return superAdmin.Id;
     }
 
-    public static async Task SeedCatalogAsync(ApplicationDbContext context)
+    public static async Task SeedCatalogAsync(ApplicationDbContext context, string? sellerId)
     {
+        if (sellerId is null) return;
         if (context.Categories.Any() || context.Products.Any()) return;
 
         var electronics = new Category { Name = "Electronics", Slug = "electronics" };
@@ -50,9 +84,6 @@ public static class ApplicationDbInitializer
         
         context.Categories.AddRange(electronics, clothing);
         await context.SaveChangesAsync();
-
-        var superAdmin = context.Users.FirstOrDefault(u => u.Email == "superadmin@budgetha.com");
-        var sellerId = superAdmin?.Id ?? Guid.NewGuid().ToString(); // Fallback if not found
 
         var products = new List<Product>
         {

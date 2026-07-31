@@ -53,8 +53,8 @@ public interface IAdminService
     Task<PagedResult<AdminUserDto>> GetAllUsersAsync(int page = 1, int pageSize = 50);
     Task<List<AdminUserDto>> GetUsersByIdsAsync(IEnumerable<string> userIds);
     Task<AdminUserProfileDto?> GetUserProfileAsync(string userId);
-    Task<bool> BanUserAsync(string userId);
-    Task<bool> UnbanUserAsync(string userId);
-    Task<bool> DeleteUserAsync(string userId);
+    Task<bool> BanUserAsync(string actorId, bool actorIsSuperAdmin, string userId);
+    Task<bool> UnbanUserAsync(string actorId, bool actorIsSuperAdmin, string userId);
+    Task<bool> DeleteUserAsync(string actorId, bool actorIsSuperAdmin, string userId);
     Task<bool> DeleteProductAsync(Guid productId);
 }

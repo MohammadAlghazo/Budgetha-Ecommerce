@@ -20,6 +20,9 @@ public class RolesController : ControllerBase
     [HttpPost("assign")]
     public async Task<IActionResult> AssignRole([FromBody] AssignRoleRequest request)
     {
+        if (IsSelfTarget(request.UserId))
+            return BadRequest(new { Message = "SuperAdmin accounts cannot modify their own roles." });
+
         var result = await _identityService.AssignRoleAsync(request.UserId, request.Role);
         if (!result)
             return BadRequest(new { Message = "Failed to assign role. Check user ID and role name." });
@@ -30,6 +33,9 @@ public class RolesController : ControllerBase
     [HttpPost("remove")]
     public async Task<IActionResult> RemoveRole([FromBody] AssignRoleRequest request)
     {
+        if (IsSelfTarget(request.UserId))
+            return BadRequest(new { Message = "SuperAdmin accounts cannot modify their own roles." });
+
         var result = await _identityService.RemoveRoleAsync(request.UserId, request.Role);
         if (!result)
             return BadRequest(new { Message = "Failed to remove role." });
@@ -42,5 +48,11 @@ public class RolesController : ControllerBase
     {
         var roles = await _identityService.GetRolesAsync(userId);
         return Ok(new { UserId = userId, Roles = roles });
+    }
+
+    private bool IsSelfTarget(string userId)
+    {
+        var actorId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        return string.Equals(actorId, userId, StringComparison.Ordinal);
     }
 }

@@ -21,6 +21,9 @@ public class AddReviewCommandHandler : IRequestHandler<AddReviewCommand, Guid>
 
     public async Task<Guid> Handle(AddReviewCommand request, CancellationToken cancellationToken)
     {
+        if (request.Rating is < 1 or > 5)
+            throw new InvalidOperationException("Rating must be between 1 and 5.");
+
         var userId = _currentUserService.UserId;
         if (string.IsNullOrEmpty(userId))
             throw new UnauthorizedAccessException();

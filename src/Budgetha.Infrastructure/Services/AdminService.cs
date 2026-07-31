@@ -226,10 +226,10 @@ public class AdminService : IAdminService
         };
     }
 
-    public async Task<bool> BanUserAsync(string userId)
+    public async Task<bool> BanUserAsync(string actorId, bool actorIsSuperAdmin, string userId)
     {
         var user = await _userManager.FindByIdAsync(userId);
-        if (user == null) return false;
+        if (user == null || !await CanManageUserAsync(actorId, actorIsSuperAdmin, user)) return false;
 
         
         if (!await _userManager.GetLockoutEnabledAsync(user))
@@ -244,10 +244,10 @@ public class AdminService : IAdminService
         return result.Succeeded;
     }
 
-    public async Task<bool> UnbanUserAsync(string userId)
+    public async Task<bool> UnbanUserAsync(string actorId, bool actorIsSuperAdmin, string userId)
     {
         var user = await _userManager.FindByIdAsync(userId);
-        if (user == null) return false;
+        if (user == null || !await CanManageUserAsync(actorId, actorIsSuperAdmin, user)) return false;
 
         var result = await _userManager.SetLockoutEndDateAsync(user, null);
         if (result.Succeeded)
@@ -255,10 +255,10 @@ public class AdminService : IAdminService
         return result.Succeeded;
     }
 
-    public async Task<bool> DeleteUserAsync(string userId)
+    public async Task<bool> DeleteUserAsync(string actorId, bool actorIsSuperAdmin, string userId)
     {
         var user = await _userManager.FindByIdAsync(userId);
-        if (user == null) return false;
+        if (user == null || !await CanManageUserAsync(actorId, actorIsSuperAdmin, user)) return false;
 
         
         
@@ -266,5 +266,14 @@ public class AdminService : IAdminService
         if (result.Succeeded)
             _cache.Remove(UsersCacheKey);
         return result.Succeeded;
+    }
+
+    private async Task<bool> CanManageUserAsync(string actorId, bool actorIsSuperAdmin, ApplicationUser target)
+    {
+        if (target.Id == actorId) return false;
+
+        var roles = await _userManager.GetRolesAsync(target);
+        if (roles.Contains("SuperAdmin")) return false;
+        return actorIsSuperAdmin || !roles.Contains("Admin");
     }
 }

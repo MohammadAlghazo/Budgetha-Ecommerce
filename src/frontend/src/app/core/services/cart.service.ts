@@ -12,12 +12,7 @@ const PROMO_KEY = 'budgetha_promo';
 export const PROMO_CODES: PromoCode[] = [
   { code: 'WELCOME10', type: 'percent', value: 10, description: '10% off your order' },
   { code: 'SAVE20', type: 'percent', value: 20, description: '20% off your order' },
-  { code: 'FREESHIP', type: 'shipping', value: 0, description: 'Free shipping' },
 ];
-
-export const FREE_SHIPPING_THRESHOLD = 75;
-export const FLAT_SHIPPING = 6.99;
-export const TAX_RATE = 0.08;
 
 @Injectable({ providedIn: 'root' })
 export class CartService {
@@ -39,18 +34,13 @@ export class CartService {
   readonly discount = computed(() => {
     const promo = this._promo();
     if (!promo || promo.type !== 'percent') return 0;
-    return (this.subtotal() * promo.value) / 100;
+    const percentageDiscount = (this.subtotal() * promo.value) / 100;
+    return promo.maxDiscountAmount == null
+      ? percentageDiscount
+      : Math.min(percentageDiscount, promo.maxDiscountAmount);
   });
-  readonly shipping = computed(() => {
-    if (this._items().length === 0) return 0;
-    if (this._promo()?.type === 'shipping') return 0;
-    return this.subtotal() - this.discount() >= FREE_SHIPPING_THRESHOLD ? 0 : FLAT_SHIPPING;
-  });
-  readonly tax = computed(() => (this.subtotal() - this.discount()) * TAX_RATE);
-  readonly total = computed(() => this.subtotal() - this.discount() + this.shipping() + this.tax());
-  readonly amountToFreeShipping = computed(() =>
-    Math.max(0, FREE_SHIPPING_THRESHOLD - (this.subtotal() - this.discount()))
-  );
+  readonly total = computed(() => Math.max(0, this.subtotal() - this.discount()));
+  readonly hasRental = computed(() => this._items().some(item => item.type === 'Rental'));
 
   constructor() {
     effect(() => {
@@ -99,7 +89,9 @@ export class CartService {
             stock: i.stock,
             type: i.type === 0 ? 'Purchase' : 'Rental',
             rentalStartDate: i.rentalStartDate,
-            rentalEndDate: i.rentalEndDate
+            rentalEndDate: i.rentalEndDate,
+            color: i.color,
+            size: i.size
           }));
           this._items.set(mappedItems);
         } else {
@@ -115,7 +107,10 @@ export class CartService {
       productId: item.productId,
       quantity: item.quantity,
       color: item.color,
-      size: item.size
+      size: item.size,
+      type: item.type === 'Rental' ? 1 : 0,
+      rentalStartDate: item.rentalStartDate ?? null,
+      rentalEndDate: item.rentalEndDate ?? null
     }));
 
     this.http.post(`${this.apiUrl}/sync`, { items }).subscribe({
@@ -124,14 +119,24 @@ export class CartService {
     });
   }
 
-  add(product: Product, quantity = 1, color?: string, size?: string): void {
+  add(
+    product: Product,
+    quantity = 1,
+    color?: string,
+    size?: string,
+    type: 'Purchase' | 'Rental' = 'Purchase',
+    rentalStartDate?: string,
+    rentalEndDate?: string
+  ): void {
     if (this.auth.isAuthenticated()) {
       this.http.post(`${this.apiUrl}/items`, {
         productId: product.id,
         quantity: quantity,
-        type: product.isAvailableForRent ? 1 : 0,
-        rentalStartDate: null,
-        rentalEndDate: null
+        type: type === 'Rental' ? 1 : 0,
+        rentalStartDate: rentalStartDate ?? null,
+        rentalEndDate: rentalEndDate ?? null,
+        color,
+        size
       }).subscribe({
         next: () => {
           this.syncWithBackend();
@@ -143,7 +148,8 @@ export class CartService {
       // Local logic
       this._items.update(items => {
         const existing = items.find(
-          i => i.productId === product.id && i.color === color && i.size === size
+          i => i.productId === product.id && i.color === color && i.size === size &&
+            i.type === type && i.rentalStartDate === rentalStartDate && i.rentalEndDate === rentalEndDate
         );
         if (existing) {
           return items.map(i =>
@@ -163,7 +169,10 @@ export class CartService {
             stock: product.stock,
             color,
             size,
-            type: product.isAvailableForRent ? 'Rental' : 'Purchase'
+            type,
+            rentalStartDate,
+            rentalEndDate,
+            rentalPricePerDay: product.rentalPricePerDay
           },
         ];
       });
@@ -238,7 +247,10 @@ export class CartService {
             code: promo.code,
             type: 'percent',
             value: promo.discountPercentage,
-            description: `${promo.discountPercentage}% off your order`
+            description: promo.maxDiscountAmount == null
+              ? `${promo.discountPercentage}% off your order`
+              : `${promo.discountPercentage}% off, up to $${Number(promo.maxDiscountAmount).toFixed(2)}`,
+            maxDiscountAmount: promo.maxDiscountAmount ?? undefined
           });
           this.toast.success(`Promo applied — ${promo.discountPercentage}% off`);
           subscriber.next(true);

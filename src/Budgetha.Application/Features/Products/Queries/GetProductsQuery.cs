@@ -38,7 +38,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
         var query = _context.Products
             .Include(p => p.Category)
             .Include(p => p.Images)
-            .Where(p => p.IsActive)
+            .Where(p => p.IsActive && p.ApprovalStatus == ApprovalStatus.Approved)
             .AsNoTracking();
 
         if (!string.IsNullOrEmpty(request.SellerId))

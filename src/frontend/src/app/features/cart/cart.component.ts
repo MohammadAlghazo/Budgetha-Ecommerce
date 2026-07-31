@@ -50,6 +50,10 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                         {{ item.color }}{{ item.color && item.size ? ' · Size ' : item.size ? 'Size ' : '' }}{{ item.size }}
                       </p>
                     }
+                    <p class="mt-1 text-xs font-medium text-violet-600">{{ item.type ?? 'Purchase' }}</p>
+                    @if (item.type === 'Rental') {
+                      <p class="mt-0.5 text-xs text-slate-400">{{ item.rentalStartDate }} to {{ item.rentalEndDate }}</p>
+                    }
                     <p class="mt-1 text-sm font-bold text-slate-700 sm:hidden">{{ item.price | currency }}</p>
                     <p class="hidden sm:block mt-1 text-sm text-slate-500">{{ item.price | currency }} each</p>
                   </div>
@@ -132,7 +136,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                   <button type="submit" class="btn-secondary px-4 py-2.5 whitespace-nowrap">Apply</button>
                 </form>
                 @if (promoError()) {
-                  <p class="mt-1.5 text-xs text-red-500">That code isn't valid. Try WELCOME10 or SAVE20.</p>
+                  <p class="mt-1.5 text-xs text-red-500">That promo code is invalid or expired.</p>
                 }
               }
             </div>
@@ -149,21 +153,12 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                   <dd class="font-semibold text-emerald-600">-{{ cart.discount() | currency }}</dd>
                 </div>
               }
-              <div class="flex justify-between">
-                <dt class="text-slate-500">Shipping</dt>
-                <dd class="font-semibold" [class]="cart.shipping() === 0 ? 'text-emerald-600' : 'text-slate-900'">
-                  {{ cart.shipping() === 0 ? 'Free' : (cart.shipping() | currency) }}
-                </dd>
-              </div>
-              <div class="flex justify-between">
-                <dt class="text-slate-500">Estimated tax</dt>
-                <dd class="font-semibold text-slate-900">{{ cart.tax() | currency }}</dd>
-              </div>
               <div class="flex justify-between border-t border-slate-100 pt-4 text-base">
-                <dt class="font-bold text-slate-900">Total</dt>
+                <dt class="font-bold text-slate-900">{{ cart.hasRental() ? 'Estimated total' : 'Total' }}</dt>
                 <dd class="font-extrabold text-slate-900">{{ cart.total() | currency }}</dd>
               </div>
             </dl>
+            <p class="mt-3 text-xs text-slate-400">Final pricing is calculated by the server when you place the order.</p>
 
             <a routerLink="/checkout" class="btn-primary w-full mt-6 py-4 text-base">
               Proceed to Checkout
