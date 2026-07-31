@@ -22,7 +22,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
           <div class="grid grid-cols-1 md:grid-cols-2">
             <!-- Image -->
             <div class="relative aspect-square bg-slate-100 md:rounded-l-2xl overflow-hidden flex items-center justify-center p-4">
-              <img [src]="activeImage()" [alt]="p.name" class="h-full w-full object-scale-down mix-blend-multiply p-6" />
+              <img [src]="activeImage()" [alt]="p.name" class="h-full w-full object-contain mix-blend-multiply p-6" />
               @if (p.images.length > 1) {
                 <div class="absolute bottom-3 inset-x-0 flex justify-center gap-1.5">
                   @for (image of p.images; track image; let i = $index) {
