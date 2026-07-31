@@ -56,7 +56,7 @@ export class AccountService {
             state: a.state,
             zip: a.postalCode,
             country: a.country,
-            phone: '', // API missing phone, just stub
+            phone: a.phone,
             isDefault: a.isDefault
           }));
           this._addresses.set(mapped);
@@ -70,9 +70,10 @@ export class AccountService {
     });
   }
 
-  createCheckoutAddress(address: Omit<Address, 'id' | 'label' | 'phone'>): Observable<string> {
+  createCheckoutAddress(address: Omit<Address, 'id' | 'label'>): Observable<string> {
     return this.http.post<string>(this.apiUrl, {
       fullName: address.fullName,
+      phone: address.phone,
       line1: address.line1,
       line2: address.line2,
       city: address.city,
@@ -93,6 +94,7 @@ export class AccountService {
         this.http.put(`${this.apiUrl}/${address.id}`, {
           id: address.id,
           fullName: address.fullName,
+          phone: address.phone,
           line1: address.line1,
           line2: address.line2,
           city: address.city,
@@ -104,6 +106,7 @@ export class AccountService {
       } else {
         this.http.post(this.apiUrl, {
           fullName: address.fullName,
+          phone: address.phone,
           line1: address.line1,
           line2: address.line2,
           city: address.city,

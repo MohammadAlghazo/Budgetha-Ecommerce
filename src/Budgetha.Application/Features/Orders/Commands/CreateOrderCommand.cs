@@ -22,19 +22,22 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
     private readonly INotificationService _notificationService;
     private readonly IEmailService _emailService;
     private readonly IInventoryLockService _inventoryLockService;
+    private readonly ICheckoutPricingService _pricingService;
 
     public CreateOrderCommandHandler(
         IApplicationDbContext context, 
         ICurrentUserService currentUserService,
         INotificationService notificationService,
         IEmailService emailService,
-        IInventoryLockService inventoryLockService)
+        IInventoryLockService inventoryLockService,
+        ICheckoutPricingService pricingService)
     {
         _context = context;
         _currentUserService = currentUserService;
         _notificationService = notificationService;
         _emailService = emailService;
         _inventoryLockService = inventoryLockService;
+        _pricingService = pricingService;
     }
 
     public async Task<Guid> Handle(CreateOrderCommand request, CancellationToken cancellationToken)
@@ -43,8 +46,12 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         if (string.IsNullOrEmpty(userId))
             throw new UnauthorizedAccessException();
 
-        if (request.ShippingAddressId.HasValue && !await _context.Addresses
-                .AnyAsync(a => a.Id == request.ShippingAddressId.Value && a.UserId == userId, cancellationToken))
+        if (!request.ShippingAddressId.HasValue)
+            throw new ValidationException(new[] { "A shipping address is required." });
+
+        var shippingAddress = await _context.Addresses
+            .SingleOrDefaultAsync(a => a.Id == request.ShippingAddressId.Value && a.UserId == userId, cancellationToken);
+        if (shippingAddress == null)
             throw new UnauthorizedAccessException("The shipping address does not belong to the current user.");
 
         var isPayPal = request.PaymentMethod.Equals("CreditCard", StringComparison.OrdinalIgnoreCase) ||
@@ -66,8 +73,10 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
             .ThenInclude(p => p.Variants)
             .FirstAsync(c => c.Id == cart.Id, cancellationToken);
 
+        var quote = await _pricingService.CalculateAsync(
+            userId, shippingAddress.Country, shippingAddress.State, request.PromoCode, cancellationToken);
+
         // 2. Validate Stock and Calculate Total
-        decimal totalAmount = 0;
         var orderItems = new List<OrderItem>();
         var pendingRentals = new Dictionary<Guid, List<InventoryRules.RentalReservation>>();
 
@@ -118,7 +127,9 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
                 itemPrice = (variant?.RentalPricePerDay ?? cartItem.Product.RentalPricePerDay ?? itemPrice) * days;
             }
 
-            totalAmount += itemPrice * cartItem.Quantity;
+            var quoteLine = quote.Lines.Single(line => line.CartItemId == cartItem.Id);
+            if (quoteLine.UnitPrice != itemPrice || quoteLine.Quantity != cartItem.Quantity)
+                throw new InvalidOperationException("The cart price changed while the order was being created. Please review your cart and try again.");
 
             orderItems.Add(new OrderItem
             {
@@ -126,6 +137,7 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
                 VariantId = variant?.Id,
                 Quantity = cartItem.Quantity,
                 UnitPrice = itemPrice,
+                DiscountAmount = quoteLine.DiscountAmount,
                 Type = cartItem.Type,
                 RentalStartDate = cartItem.RentalStartDate,
                 RentalEndDate = cartItem.RentalEndDate,
@@ -134,32 +146,34 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
             });
         }
 
-        // Apply Promo Code if exists
-        if (!string.IsNullOrWhiteSpace(request.PromoCode))
-        {
-            var promo = await _context.PromoCodes
-                .FirstOrDefaultAsync(p => p.Code.ToLower() == request.PromoCode.ToLower() && p.IsActive, cancellationToken);
-            
-            if (promo != null && (!promo.ExpiryDate.HasValue || promo.ExpiryDate.Value > DateTime.UtcNow))
-            {
-                var discountAmount = totalAmount * (promo.DiscountPercentage / 100);
-                if (promo.MaxDiscountAmount.HasValue && discountAmount > promo.MaxDiscountAmount.Value)
-                {
-                    discountAmount = promo.MaxDiscountAmount.Value;
-                }
-                totalAmount -= discountAmount;
-                if (totalAmount < 0) totalAmount = 0;
-            }
-        }
+        var user = await _context.Users.FindAsync(new object[] { userId }, cancellationToken);
 
         // 3. Create Order
         var order = new Order
         {
             UserId = userId,
             Status = OrderStatus.Pending,
-            TotalAmount = totalAmount,
+            Subtotal = quote.Subtotal,
+            DiscountAmount = quote.DiscountAmount,
+            ShippingAmount = quote.ShippingAmount,
+            TaxAmount = quote.TaxAmount,
+            TotalAmount = quote.TotalAmount,
+            Currency = quote.Currency,
+            PromoCode = quote.PromoCode,
+            PromoScope = quote.PromoScope,
+            PromoSellerId = quote.PromoSellerId,
             Notes = request.Notes,
             ShippingAddressId = request.ShippingAddressId,
+            ShippingFullName = shippingAddress.FullName,
+            ShippingLine1 = shippingAddress.Line1,
+            ShippingLine2 = shippingAddress.Line2,
+            ShippingCity = shippingAddress.City,
+            ShippingState = shippingAddress.State,
+            ShippingPostalCode = shippingAddress.PostalCode,
+            ShippingCountry = shippingAddress.Country,
+            ShippingPhone = shippingAddress.Phone,
+            ContactEmail = user?.Email,
+            ContactPhone = shippingAddress.Phone,
             Items = orderItems,
             ReservationExpiresAt = isPayPal ? DateTimeOffset.UtcNow.AddMinutes(30) : null
         };
@@ -169,8 +183,8 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         {
             order.Payment = new Payment
             {
-                Amount = totalAmount,
-                Currency = "USD",
+                Amount = quote.TotalAmount,
+                Currency = quote.Currency,
                 Status = PaymentStatus.Pending,
                 Provider = PaymentProvider.PayPal
             };
@@ -179,8 +193,8 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         {
             order.Payment = new Payment
             {
-                Amount = totalAmount,
-                Currency = "USD",
+                Amount = quote.TotalAmount,
+                Currency = quote.Currency,
                 Status = PaymentStatus.Pending,
                 Provider = PaymentProvider.CashOnDelivery
             };
@@ -203,7 +217,6 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         }
 
         // 6. Send Notifications & Emails
-        var user = await _context.Users.FindAsync(new object[] { userId }, cancellationToken);
         if (user != null && !string.IsNullOrEmpty(user.Email))
         {
             var invoiceHtml = $@"

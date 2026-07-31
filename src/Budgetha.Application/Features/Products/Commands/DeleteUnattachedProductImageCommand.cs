@@ -11,13 +11,16 @@ public class DeleteUnattachedProductImageCommandHandler
 {
     private readonly IApplicationDbContext _context;
     private readonly IImageService _imageService;
+    private readonly ICurrentUserService _currentUserService;
 
     public DeleteUnattachedProductImageCommandHandler(
         IApplicationDbContext context,
-        IImageService imageService)
+        IImageService imageService,
+        ICurrentUserService currentUserService)
     {
         _context = context;
         _imageService = imageService;
+        _currentUserService = currentUserService;
     }
 
     public async Task<bool> Handle(
@@ -26,11 +29,22 @@ public class DeleteUnattachedProductImageCommandHandler
     {
         if (string.IsNullOrWhiteSpace(request.PublicId)) return false;
 
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrWhiteSpace(userId)) throw new UnauthorizedAccessException();
+
+        var pending = await _context.PendingImageUploads
+            .SingleOrDefaultAsync(upload => upload.PublicId == request.PublicId && upload.UserId == userId, cancellationToken);
+        if (pending == null) return false;
+
         var isAttached = await _context.ProductImages
             .AnyAsync(image => image.PublicId == request.PublicId, cancellationToken)
             || await _context.Products
                 .AnyAsync(product => product.ThumbnailPublicId == request.PublicId, cancellationToken);
 
-        return !isAttached && await _imageService.DeleteImageAsync(request.PublicId);
+        if (isAttached || !await _imageService.DeleteImageAsync(request.PublicId)) return false;
+
+        _context.PendingImageUploads.Remove(pending);
+        await _context.SaveChangesAsync(cancellationToken);
+        return true;
     }
 }

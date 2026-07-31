@@ -44,18 +44,24 @@ public class GetCustomerOrdersQueryHandler : IRequestHandler<GetCustomerOrdersQu
         OrderNumber = GetOrderNumber(order),
         Date = order.Created.DateTime,
         Status = order.Status.ToString(),
+        Subtotal = order.Subtotal,
+        DiscountAmount = order.DiscountAmount,
+        ShippingAmount = order.ShippingAmount,
+        TaxAmount = order.TaxAmount,
         TotalAmount = order.TotalAmount,
+        Currency = order.Currency,
         PaymentProvider = order.Payment?.Provider.ToString(),
         PaymentStatus = order.Payment?.Status.ToString(),
-        ShippingAddress = order.ShippingAddress == null ? null : new CustomerShippingAddressDto
+        ShippingAddress = new CustomerShippingAddressDto
         {
-            FullName = order.ShippingAddress.FullName,
-            Line1 = order.ShippingAddress.Line1,
-            Line2 = order.ShippingAddress.Line2,
-            City = order.ShippingAddress.City,
-            State = order.ShippingAddress.State,
-            PostalCode = order.ShippingAddress.PostalCode,
-            Country = order.ShippingAddress.Country
+            FullName = order.ShippingFullName,
+            Phone = order.ShippingPhone,
+            Line1 = order.ShippingLine1,
+            Line2 = order.ShippingLine2,
+            City = order.ShippingCity,
+            State = order.ShippingState,
+            PostalCode = order.ShippingPostalCode,
+            Country = order.ShippingCountry
         },
         Items = order.Items.Select(item => new CustomerOrderItemDto
         {
@@ -65,6 +71,7 @@ public class GetCustomerOrdersQueryHandler : IRequestHandler<GetCustomerOrdersQu
             ProductImage = item.Product.ThumbnailUrl ?? string.Empty,
             Quantity = item.Quantity,
             UnitPrice = item.UnitPrice,
+            DiscountAmount = item.DiscountAmount,
             Type = item.Type.ToString(),
             RentalStartDate = item.RentalStartDate,
             RentalEndDate = item.RentalEndDate,

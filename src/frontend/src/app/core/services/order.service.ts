@@ -17,12 +17,29 @@ export interface PlaceOrderInput {
   promoCode?: string;
 }
 
+export interface CheckoutQuote {
+  subtotal: number;
+  discountAmount: number;
+  shippingAmount: number;
+  taxAmount: number;
+  totalAmount: number;
+  currency: string;
+  promoCode?: string;
+  promoScope?: string;
+  promoSellerId?: string;
+}
+
 interface CustomerOrderResponse {
   id: string;
   orderNumber: string;
   date: string;
   status: Order['status'];
+  subtotal: number;
+  discountAmount: number;
+  shippingAmount: number;
+  taxAmount: number;
   totalAmount: number;
+  currency: string;
   items: Array<{
     productId: string;
     productName: string;
@@ -35,7 +52,7 @@ interface CustomerOrderResponse {
     color?: string;
     size?: string;
   }>;
-  shippingAddress?: { fullName: string; line1: string; line2?: string; city: string; state: string; postalCode: string; country: string };
+  shippingAddress?: { fullName: string; phone: string; line1: string; line2?: string; city: string; state: string; postalCode: string; country: string };
   paymentProvider?: string;
   paymentStatus?: string;
 }
@@ -67,6 +84,10 @@ export class OrderService {
       map(order => this.toOrder(order)),
       tap(order => this._orders.update(orders => [...orders.filter(existing => existing.id !== order.id), order]))
     );
+  }
+
+  getQuote(country: string, state: string, promoCode?: string): Observable<CheckoutQuote> {
+    return this.http.post<CheckoutQuote>(`${this.apiUrl}/quote`, { country, state, promoCode: promoCode || null });
   }
 
   placeOrder(input: PlaceOrderInput): Observable<string> {
@@ -134,10 +155,10 @@ export class OrderService {
         color: item.color,
         size: item.size,
       })),
-      subtotal: response.totalAmount,
-      shipping: 0,
-      tax: 0,
-      discount: 0,
+      subtotal: response.subtotal,
+      shipping: response.shippingAmount,
+      tax: response.taxAmount,
+      discount: response.discountAmount,
       total: response.totalAmount,
       shippingAddress: address ? [address.line1, address.line2, `${address.city}, ${address.state} ${address.postalCode}`, address.country].filter(Boolean).join(', ') : 'Not provided',
       paymentSummary: response.paymentProvider ?? 'Not provided',

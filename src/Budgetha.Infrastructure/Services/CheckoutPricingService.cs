@@ -29,6 +29,8 @@ public sealed class CheckoutPricingService : ICheckoutPricingService
         var cart = await _context.Carts.AsNoTracking()
             .Include(c => c.Items)
             .ThenInclude(i => i.Product)
+            .Include(c => c.Items)
+            .ThenInclude(i => i.Variant)
             .SingleOrDefaultAsync(c => c.UserId == userId, cancellationToken);
         if (cart == null || cart.Items.Count == 0)
             throw new ValidationException(new[] { "Cart is empty." });
@@ -75,12 +77,14 @@ public sealed class CheckoutPricingService : ICheckoutPricingService
     private static decimal GetUnitPrice(CartItem item)
     {
         if (item.Type != OrderItemType.Rental)
-            return Round(item.Product.Price);
+            return Round(item.Variant?.Price ?? item.Product.Price);
         if (!item.RentalStartDate.HasValue || !item.RentalEndDate.HasValue)
             throw new ValidationException(new[] { $"Product {item.Product.Name} requires rental dates." });
 
         var days = item.RentalEndDate.Value.DayNumber - item.RentalStartDate.Value.DayNumber;
-        return Round((item.Product.RentalPricePerDay ?? item.Product.Price) * Math.Max(1, days));
+        var dailyPrice = item.Variant?.RentalPricePerDay ?? item.Product.RentalPricePerDay
+            ?? item.Variant?.Price ?? item.Product.Price;
+        return Round(dailyPrice * Math.Max(1, days));
     }
 
     private static void ValidatePromo(PromoCode promo)

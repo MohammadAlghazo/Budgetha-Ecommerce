@@ -1,16 +1,17 @@
-import { Component, OnInit, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, effect, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { CartService } from '../../core/services/cart.service';
-import { OrderService } from '../../core/services/order.service';
+import { CheckoutQuote, OrderService } from '../../core/services/order.service';
 import { AccountService } from '../../core/services/account.service';
 import { AuthService } from '../../core/services/auth.service';
 import { ToastService } from '../../core/services/toast.service';
 import { Address } from '../../core/models/shop.models';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
 import { NgxPayPalModule, IPayPalConfig, ICreateOrderRequest } from 'ngx-paypal';
-import { Observable, switchMap } from 'rxjs';
+import { debounceTime, Observable, switchMap } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 type PaymentMethod = 'paypal' | 'cod';
 
@@ -263,17 +264,27 @@ type PaymentMethod = 'paypal' | 'cod';
             <dl class="mt-6 space-y-3 text-sm border-t border-slate-100 pt-5">
               <div class="flex justify-between">
                 <dt class="text-slate-500">Subtotal</dt>
-                <dd class="font-semibold text-slate-900">{{ cart.subtotal() | currency }}</dd>
+                <dd class="font-semibold text-slate-900">{{ (quote()?.subtotal ?? cart.subtotal()) | currency }}</dd>
               </div>
-              @if (cart.discount() > 0) {
+              @if ((quote()?.discountAmount ?? cart.discount()) > 0) {
                 <div class="flex justify-between">
                   <dt class="text-emerald-600">Discount ({{ cart.promo()?.code }})</dt>
-                  <dd class="font-semibold text-emerald-600">-{{ cart.discount() | currency }}</dd>
+                  <dd class="font-semibold text-emerald-600">-{{ (quote()?.discountAmount ?? cart.discount()) | currency }}</dd>
+                </div>
+              }
+              @if (quote()) {
+                <div class="flex justify-between">
+                  <dt class="text-slate-500">Shipping</dt>
+                  <dd class="font-semibold text-slate-900">{{ quote()!.shippingAmount === 0 ? 'Free' : (quote()!.shippingAmount | currency) }}</dd>
+                </div>
+                <div class="flex justify-between">
+                  <dt class="text-slate-500">Tax</dt>
+                  <dd class="font-semibold text-slate-900">{{ quote()!.taxAmount | currency }}</dd>
                 </div>
               }
               <div class="flex justify-between border-t border-slate-100 pt-4 text-lg">
                 <dt class="font-bold text-slate-900">{{ cart.hasRental() ? 'Estimated total' : 'Total' }}</dt>
-                <dd class="font-extrabold text-slate-900">{{ cart.total() | currency }}</dd>
+                <dd class="font-extrabold text-slate-900">{{ (quote()?.totalAmount ?? cart.total()) | currency }}</dd>
               </div>
             </dl>
             @if (cart.hasRental()) {
@@ -298,7 +309,7 @@ type PaymentMethod = 'paypal' | 'cod';
                   </svg>
                   Placing order…
                 } @else {
-                  Place Order — {{ cart.total() | currency }}
+                  Place Order — {{ (quote()?.totalAmount ?? cart.total()) | currency }}
                 }
               </button>
             }
@@ -323,6 +334,7 @@ export class CheckoutComponent implements OnInit {
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
   private readonly fb = inject(FormBuilder);
+  private readonly destroyRef = inject(DestroyRef);
 
   public payPalConfig?: IPayPalConfig;
 
@@ -330,6 +342,7 @@ export class CheckoutComponent implements OnInit {
   readonly placing = signal(false);
   readonly submitted = signal(false);
   readonly selectedAddressId = signal<number | string | null>(null);
+  readonly quote = signal<CheckoutQuote | null>(null);
 
   readonly savedAddresses = this.account.addresses;
 
@@ -352,10 +365,36 @@ export class CheckoutComponent implements OnInit {
         this.useAddress(defaultAddress, false);
       }
     });
+
+    this.form.valueChanges.pipe(
+      debounceTime(300),
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(() => this.refreshQuote());
+
+    effect(() => {
+      this.cart.items();
+      this.cart.promo();
+      this.refreshQuote();
+    });
   }
 
   ngOnInit(): void {
     this.initConfig();
+    this.refreshQuote();
+  }
+
+  private refreshQuote(): void {
+    const country = this.form.controls.country.value?.trim();
+    const state = this.form.controls.state.value?.trim() ?? '';
+    if (!country || this.cart.items().length === 0) {
+      this.quote.set(null);
+      return;
+    }
+
+    this.orders.getQuote(country, state, this.cart.promo()?.code).subscribe({
+      next: quote => this.quote.set(quote),
+      error: () => this.quote.set(null)
+    });
   }
 
   private initConfig(): void {
@@ -460,7 +499,6 @@ export class CheckoutComponent implements OnInit {
       state: address.state,
       zip: address.zip,
       country: address.country,
-      // The current address DTO has no phone field; keep the checkout contact phone.
       phone: address.phone || this.form.controls.phone.value || '',
     });
     this.selectedAddressId.set(address.id);
@@ -535,6 +573,7 @@ export class CheckoutComponent implements OnInit {
     const v = this.form.getRawValue();
     return this.account.createCheckoutAddress({
       fullName: v.fullName!,
+      phone: v.phone!,
       line1: v.line1!,
       line2: v.line2 || undefined,
       city: v.city!,
@@ -549,7 +588,8 @@ export class CheckoutComponent implements OnInit {
     const v = this.form.getRawValue();
     return address.fullName === v.fullName && address.line1 === v.line1 &&
       (address.line2 ?? '') === (v.line2 ?? '') && address.city === v.city &&
-      address.state === v.state && address.zip === v.zip && address.country === v.country;
+      address.state === v.state && address.zip === v.zip && address.country === v.country &&
+      address.phone === v.phone;
   }
 
   private defaultName(): string {

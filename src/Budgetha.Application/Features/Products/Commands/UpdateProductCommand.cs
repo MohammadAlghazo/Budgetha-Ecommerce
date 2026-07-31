@@ -48,6 +48,7 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
 
     public async Task<bool> Handle(UpdateProductCommand request, CancellationToken cancellationToken)
     {
+        var images = request.Images ?? [];
         ProductRules.Validate(request.Price, request.StockQuantity, request.OriginalPrice, request.IsAvailableForRent, request.RentalPricePerDay, request.Variants);
 
         var requestedSkus = (request.Variants ?? []).Select(variant => variant.SKU.Trim()).ToList();
@@ -86,7 +87,7 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
             .Select(publicId => publicId!)
             .Distinct()
             .ToList();
-        var retainedPublicIds = request.Images
+        var retainedPublicIds = images
             .Select(image => image.PublicId)
             .Where(publicId => !string.IsNullOrWhiteSpace(publicId))
             .Select(publicId => publicId!)
@@ -98,12 +99,12 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
         product.Price = request.Price;
         product.StockQuantity = request.StockQuantity;
         product.CategoryId = request.CategoryId;
-        product.ThumbnailUrl = request.Images.FirstOrDefault()?.Url;
-        product.ThumbnailPublicId = request.Images.FirstOrDefault()?.PublicId;
+        product.ThumbnailUrl = images.FirstOrDefault()?.Url;
+        product.ThumbnailPublicId = images.FirstOrDefault()?.PublicId;
         
         product.Images.Clear();
         var displayOrder = 0;
-        foreach (var image in request.Images)
+        foreach (var image in images)
         {
             product.Images.Add(new ProductImage
             {
@@ -169,6 +170,11 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
             product.Specs.Clear();
             foreach (var spec in request.Specs) product.Specs.Add(new ProductSpec { Label = spec.Key, Value = spec.Value });
         }
+
+        var pendingUploads = await _context.PendingImageUploads
+            .Where(upload => upload.UserId == request.UserId && retainedPublicIds.Contains(upload.PublicId))
+            .ToListAsync(cancellationToken);
+        _context.PendingImageUploads.RemoveRange(pendingUploads);
 
         await _context.SaveChangesAsync(cancellationToken);
 

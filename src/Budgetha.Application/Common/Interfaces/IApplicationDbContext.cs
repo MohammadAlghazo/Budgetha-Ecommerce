@@ -29,6 +29,7 @@ public interface IApplicationDbContext
     DbSet<ProductSpec> ProductSpecs { get; }
     DbSet<ProductFeature> ProductFeatures { get; }
     DbSet<PromoCode> PromoCodes { get; }
+    DbSet<PendingImageUpload> PendingImageUploads { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }

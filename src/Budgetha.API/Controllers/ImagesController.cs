@@ -4,6 +4,8 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Budgetha.Domain.Entities;
+using System.Security.Claims;
 
 namespace Budgetha.API.Controllers;
 
@@ -14,11 +16,13 @@ public class ImagesController : ControllerBase
 {
     private readonly IImageService _imageService;
     private readonly IMediator _mediator;
+    private readonly IApplicationDbContext _context;
 
-    public ImagesController(IImageService imageService, IMediator mediator)
+    public ImagesController(IImageService imageService, IMediator mediator, IApplicationDbContext context)
     {
         _imageService = imageService;
         _mediator = mediator;
+        _context = context;
     }
 
     [HttpPost("upload")]
@@ -40,6 +44,17 @@ public class ImagesController : ControllerBase
 
         if (result == null || string.IsNullOrEmpty(result.Url))
             return StatusCode(500, "Image upload failed.");
+
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
+
+        _context.PendingImageUploads.Add(new PendingImageUpload
+        {
+            UserId = userId,
+            PublicId = result.PublicId,
+            Url = result.Url
+        });
+        await _context.SaveChangesAsync(HttpContext.RequestAborted);
 
         return Ok(new { url = result.Url, publicId = result.PublicId });
     }

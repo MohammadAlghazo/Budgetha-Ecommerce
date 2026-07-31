@@ -87,6 +87,8 @@ public static class InfrastructureServiceRegistration
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<IDateTimeService, DateTimeService>();
         services.AddScoped<IInventoryLockService, PostgresInventoryLockService>();
+        services.Configure<CheckoutPricingOptions>(configuration.GetSection(CheckoutPricingOptions.SectionName));
+        services.AddScoped<ICheckoutPricingService, CheckoutPricingService>();
         services.AddScoped<IEmailService, SmtpEmailService>();
         services.AddScoped<INotificationService, NotificationService>();
 
@@ -95,6 +97,7 @@ public static class InfrastructureServiceRegistration
 
         services.AddHttpClient<IPaymentService, PaymentService>();
         services.AddHostedService<ExpiredPayPalReservationService>();
+        services.AddHostedService<PendingImageCleanupService>();
 
         return services;
     }
