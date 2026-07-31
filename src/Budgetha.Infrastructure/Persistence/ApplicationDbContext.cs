@@ -37,6 +37,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<TicketMessage> TicketMessages => Set<TicketMessage>();
     public DbSet<Announcement> Announcements => Set<Announcement>();
     public DbSet<SellerRequest> SellerRequests => Set<SellerRequest>();
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

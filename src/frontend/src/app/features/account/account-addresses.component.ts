@@ -168,7 +168,7 @@ export class AccountAddressesComponent {
   }
 
   startEdit(address: Address): void {
-    this.editingId.set(address.id);
+    this.editingId.set(address.id as any);
     this.submitted.set(false);
     this.form.patchValue({ ...address, line2: address.line2 ?? '' });
     this.formVisible.set(true);

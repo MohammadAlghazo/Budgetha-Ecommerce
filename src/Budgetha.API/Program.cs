@@ -5,6 +5,7 @@ using Budgetha.Application.DependencyInjection;
 using Budgetha.Infrastructure.DependencyInjection;
 using Budgetha.Infrastructure.Persistence;
 using Budgetha.Api.Hubs;
+using Budgetha.API.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -87,5 +88,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<ReviewHub>("/hubs/reviews");
+app.MapHub<NotificationHub>("/hubs/notifications");
 
 app.Run();

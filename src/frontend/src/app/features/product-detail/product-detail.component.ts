@@ -103,7 +103,7 @@ type Tab = 'description' | 'specs' | 'reviews';
             </div>
 
             <!-- Color swatches -->
-            @if (p.colors?.length) {
+            @if (p.colors.length) {
               <div class="mt-6">
                 <span class="text-sm font-semibold text-slate-900">
                   Color: <span class="font-normal text-slate-500">{{ selectedColor() }}</span>

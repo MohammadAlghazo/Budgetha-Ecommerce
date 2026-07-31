@@ -74,6 +74,7 @@ public static class InfrastructureServiceRegistration
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<IDateTimeService, DateTimeService>();
         services.AddScoped<IEmailService, SmtpEmailService>();
+        services.AddScoped<INotificationService, NotificationService>();
 
         services.Configure<CloudinarySettings>(configuration.GetSection(CloudinarySettings.SectionName));
         services.AddScoped<IImageService, ImageService>();

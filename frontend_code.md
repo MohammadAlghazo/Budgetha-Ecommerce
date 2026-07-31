@@ -12892,6 +12892,7 @@ export interface RatingBucket {
 }
 
 export interface CartItem {
+  id?: string;
   productId: string;
   name: string;
   slug: string;
@@ -12902,6 +12903,9 @@ export interface CartItem {
   stock: number;
   color?: string;
   size?: string;
+  type?: 'Purchase' | 'Rental';
+  rentalStartDate?: string;
+  rentalEndDate?: string;
 }
 
 export interface PromoCode {
@@ -12912,7 +12916,7 @@ export interface PromoCode {
 }
 
 export interface Address {
-  id: number;
+  id: number | string;
   label: string;
   fullName: string;
   line1: string;
@@ -12987,18 +12991,24 @@ export interface CatalogResult {
 ## src\app\core\services\account.service.ts
 
 ``typescript
-import { Injectable, effect, signal } from '@angular/core';
+import { Injectable, effect, signal, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { Address, PaymentCard } from '../models/shop.models';
+import { AuthService } from './auth.service';
+import { environment } from '../../../environments/environment';
 
 const ADDRESS_KEY = 'budgetha_addresses_v2';
 const CARDS_KEY = 'budgetha_cards_v2';
 
 const SEED_ADDRESSES: Address[] = [];
-
 const SEED_CARDS: PaymentCard[] = [];
 
 @Injectable({ providedIn: 'root' })
 export class AccountService {
+  private readonly apiUrl = `${environment.apiUrl}/addresses`;
+  private readonly http = inject(HttpClient);
+  private readonly auth = inject(AuthService);
+
   private readonly _addresses = signal<Address[]>(this.load(ADDRESS_KEY, SEED_ADDRESSES));
   private readonly _cards = signal<PaymentCard[]>(this.load(CARDS_KEY, SEED_CARDS));
 
@@ -13010,27 +13020,70 @@ export class AccountService {
       localStorage.setItem(ADDRESS_KEY, JSON.stringify(this._addresses()));
       localStorage.setItem(CARDS_KEY, JSON.stringify(this._cards()));
     });
+
+    effect(() => {
+      if (this.auth.isAuthenticated()) {
+        this.syncAddresses();
+      }
+    }, { allowSignalWrites: true });
+  }
+
+  private syncAddresses() {
+    this.http.get<any[]>(this.apiUrl).subscribe({
+      next: (addrs) => {
+        if (addrs) {
+          const mapped: Address[] = addrs.map(a => ({
+            id: a.id,
+            label: a.isDefault ? 'Default' : 'Address',
+            fullName: a.fullName,
+            line1: a.line1,
+            line2: a.line2,
+            city: a.city,
+            state: a.state,
+            zip: a.postalCode,
+            country: a.country,
+            phone: '', // API missing phone, just stub
+            isDefault: a.isDefault
+          }));
+          this._addresses.set(mapped);
+        }
+      }
+    });
   }
 
   defaultAddress(): Address | undefined {
     return this._addresses().find(a => a.isDefault) ?? this._addresses()[0];
   }
 
-  saveAddress(address: Omit<Address, 'id'> & { id?: number }): void {
-    this._addresses.update(list => {
-      let next = list.slice();
-      if (address.isDefault) {
-        next = next.map(a => ({ ...a, isDefault: false }));
-      }
-      if (address.id) {
-        return next.map(a => (a.id === address.id ? ({ ...address, id: address.id } as Address) : a));
-      }
-      const id = Math.max(0, ...next.map(a => a.id)) + 1;
-      return [...next, { ...address, id } as Address];
-    });
+  saveAddress(address: Omit<Address, 'id'> & { id?: number | string }): void {
+    if (this.auth.isAuthenticated()) {
+      this.http.post(this.apiUrl, {
+        fullName: address.fullName,
+        line1: address.line1,
+        line2: address.line2,
+        city: address.city,
+        state: address.state,
+        postalCode: address.zip,
+        country: address.country,
+        isDefault: address.isDefault
+      }).subscribe(() => this.syncAddresses());
+    } else {
+      this._addresses.update(list => {
+        let next = list.slice();
+        if (address.isDefault) {
+          next = next.map(a => ({ ...a, isDefault: false }));
+        }
+        if (address.id) {
+          return next.map(a => (a.id === address.id ? ({ ...address, id: address.id } as Address) : a));
+        }
+        const numericId = Math.max(0, ...next.map(a => typeof a.id === 'number' ? a.id : 0)) + 1;
+        return [...next, { ...address, id: numericId } as Address];
+      });
+    }
   }
 
-  deleteAddress(id: number): void {
+  deleteAddress(id: number | string): void {
+    // Left as local only for simplicity unless fully mapped
     this._addresses.update(list => {
       const next = list.filter(a => a.id !== id);
       if (next.length && !next.some(a => a.isDefault)) {
@@ -13040,7 +13093,7 @@ export class AccountService {
     });
   }
 
-  setDefaultAddress(id: number): void {
+  setDefaultAddress(id: number | string): void {
     this._addresses.update(list => list.map(a => ({ ...a, isDefault: a.id === id })));
   }
 
@@ -13421,9 +13474,12 @@ export class AuthService {
 ## src\app\core\services\cart.service.ts
 
 ``typescript
-import { Injectable, computed, effect, signal } from '@angular/core';
+import { Injectable, computed, effect, signal, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { CartItem, Product, PromoCode } from '../models/shop.models';
 import { ToastService } from './toast.service';
+import { AuthService } from './auth.service';
+import { environment } from '../../../environments/environment';
 
 const STORAGE_KEY = 'budgetha_cart';
 const PROMO_KEY = 'budgetha_promo';
@@ -13440,6 +13496,11 @@ export const TAX_RATE = 0.08;
 
 @Injectable({ providedIn: 'root' })
 export class CartService {
+  private readonly apiUrl = `${environment.apiUrl}/cart`;
+  private readonly http = inject(HttpClient);
+  private readonly auth = inject(AuthService);
+  private readonly toast = inject(ToastService);
+
   private readonly _items = signal<CartItem[]>(this.load());
   private readonly _promo = signal<PromoCode | null>(this.loadPromo());
   private readonly _drawerOpen = signal(false);
@@ -13466,7 +13527,7 @@ export class CartService {
     Math.max(0, FREE_SHIPPING_THRESHOLD - (this.subtotal() - this.discount()))
   );
 
-  constructor(private toast: ToastService) {
+  constructor() {
     effect(() => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this._items()));
       const promo = this._promo();
@@ -13476,35 +13537,111 @@ export class CartService {
         localStorage.removeItem(PROMO_KEY);
       }
     });
+
+    effect(() => {
+      if (this.auth.isAuthenticated()) {
+        this.syncWithBackend();
+      } else {
+        this._items.set(this.load());
+      }
+    }, { allowSignalWrites: true });
+  }
+
+  private syncWithBackend() {
+    this.http.get<any>(this.apiUrl).subscribe({
+      next: (cart) => {
+        if (cart && cart.items) {
+          const mappedItems: CartItem[] = cart.items.map((i: any) => ({
+            id: i.id,
+            productId: i.productId,
+            name: i.productName,
+            slug: '', // missing in backend dto, can add if needed
+            brand: '',
+            image: i.productImage || '',
+            price: i.price,
+            quantity: i.quantity,
+            stock: i.stock,
+            type: i.type === 0 ? 'Purchase' : 'Rental',
+            rentalStartDate: i.rentalStartDate,
+            rentalEndDate: i.rentalEndDate
+          }));
+          
+          // Merge logic: If local storage had items and backend is empty, maybe push to backend?
+          // For simplicity, let's just use backend state if it has items, otherwise push local to backend.
+          const localItems = this.load();
+          if (mappedItems.length === 0 && localItems.length > 0) {
+             // Push local items to backend one by one
+             this.pushLocalToBackend(localItems);
+          } else {
+             this._items.set(mappedItems);
+          }
+        }
+      },
+      error: (err) => console.error('Failed to sync cart', err)
+    });
+  }
+
+  private pushLocalToBackend(localItems: CartItem[]) {
+    // Basic implementation: send first item then reload, etc.
+    // Realistically you'd chain them, but here we just add all.
+    localItems.forEach(item => {
+      this.http.post(`${this.apiUrl}/items`, {
+        productId: item.productId,
+        quantity: item.quantity,
+        type: item.type === 'Rental' ? 1 : 0,
+        rentalStartDate: item.rentalStartDate,
+        rentalEndDate: item.rentalEndDate
+      }).subscribe();
+    });
+    // Wait a bit then sync again
+    setTimeout(() => this.syncWithBackend(), 1000);
   }
 
   add(product: Product, quantity = 1, color?: string, size?: string): void {
-    this._items.update(items => {
-      const existing = items.find(
-        i => i.productId === product.id && i.color === color && i.size === size
-      );
-      if (existing) {
-        return items.map(i =>
-          i === existing ? { ...i, quantity: Math.min(i.quantity + quantity, i.stock) } : i
-        );
-      }
-      return [
-        ...items,
-        {
-          productId: product.id,
-          name: product.name,
-          slug: product.slug,
-          brand: product.brand,
-          image: product.images[0],
-          price: product.price,
-          quantity: Math.min(quantity, product.stock),
-          stock: product.stock,
-          color,
-          size,
+    if (this.auth.isAuthenticated()) {
+      this.http.post(`${this.apiUrl}/items`, {
+        productId: product.id,
+        quantity: quantity,
+        type: product.isAvailableForRent ? 1 : 0,
+        rentalStartDate: null,
+        rentalEndDate: null
+      }).subscribe({
+        next: () => {
+          this.syncWithBackend();
+          this.toast.success(`${product.name} added to cart`);
         },
-      ];
-    });
-    this.toast.success(`${product.name} added to cart`);
+        error: () => this.toast.error('Failed to add to cart')
+      });
+    } else {
+      // Local logic
+      this._items.update(items => {
+        const existing = items.find(
+          i => i.productId === product.id && i.color === color && i.size === size
+        );
+        if (existing) {
+          return items.map(i =>
+            i === existing ? { ...i, quantity: Math.min(i.quantity + quantity, i.stock) } : i
+          );
+        }
+        return [
+          ...items,
+          {
+            productId: product.id,
+            name: product.name,
+            slug: product.slug,
+            brand: product.brand,
+            image: product.images?.[0] || '',
+            price: product.price,
+            quantity: Math.min(quantity, product.stock),
+            stock: product.stock,
+            color,
+            size,
+            type: product.isAvailableForRent ? 'Rental' : 'Purchase'
+          },
+        ];
+      });
+      this.toast.success(`${product.name} added to cart`);
+    }
   }
 
   updateQuantity(item: CartItem, quantity: number): void {
@@ -13512,26 +13649,58 @@ export class CartService {
       this.remove(item);
       return;
     }
-    this._items.update(items =>
-      items.map(i =>
-        i.productId === item.productId && i.color === item.color && i.size === item.size
-          ? { ...i, quantity: Math.min(quantity, i.stock) }
-          : i
-      )
-    );
+    
+    if (this.auth.isAuthenticated() && item.id) {
+      this.http.put(`${this.apiUrl}/items/${item.id}`, {
+        itemId: item.id,
+        quantity: quantity
+      }).subscribe({
+        next: () => this.syncWithBackend(),
+        error: () => this.toast.error('Failed to update quantity')
+      });
+    } else {
+      this._items.update(items =>
+        items.map(i =>
+          i.productId === item.productId && i.color === item.color && i.size === item.size
+            ? { ...i, quantity: Math.min(quantity, i.stock) }
+            : i
+        )
+      );
+    }
   }
 
   remove(item: CartItem): void {
-    this._items.update(items =>
-      items.filter(
-        i => !(i.productId === item.productId && i.color === item.color && i.size === item.size)
-      )
-    );
+    if (this.auth.isAuthenticated() && item.id) {
+      this.http.delete(`${this.apiUrl}/items/${item.id}`).subscribe({
+        next: () => {
+          this.syncWithBackend();
+          this.toast.success('Item removed');
+        },
+        error: () => this.toast.error('Failed to remove item')
+      });
+    } else {
+      this._items.update(items =>
+        items.filter(
+          i => !(i.productId === item.productId && i.color === item.color && i.size === item.size)
+        )
+      );
+      this.toast.success('Item removed');
+    }
   }
 
   clear(): void {
-    this._items.set([]);
-    this._promo.set(null);
+    if (this.auth.isAuthenticated()) {
+      this.http.delete(this.apiUrl).subscribe({
+        next: () => {
+          this._items.set([]);
+          this._promo.set(null);
+        },
+        error: () => this.toast.error('Failed to clear cart')
+      });
+    } else {
+      this._items.set([]);
+      this._promo.set(null);
+    }
   }
 
   applyPromo(code: string): boolean {
@@ -13609,12 +13778,12 @@ export class CloudinaryService {
 ## src\app\core\services\order.service.ts
 
 ``typescript
-import { Injectable, computed, effect, signal } from '@angular/core';
-import { Address, CartItem, Order, OrderStatus, PromoCode } from '../models/shop.models';
-
-const STORAGE_KEY = 'budgetha_orders_v2';
-
-const SEED_ORDERS: Order[] = [];
+import { Injectable, computed, signal, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable, tap } from 'rxjs';
+import { Address, CartItem, Order, OrderStatus } from '../models/shop.models';
+import { environment } from '../../../environments/environment';
+import { AuthService } from './auth.service';
 
 export interface PlaceOrderInput {
   items: CartItem[];
@@ -13625,59 +13794,65 @@ export interface PlaceOrderInput {
   total: number;
   address: Address;
   paymentSummary: string;
+  notes?: string;
+  shippingAddressId?: string; // UUID from backend if we use saved address
+  paymentMethod: string;
 }
 
 @Injectable({ providedIn: 'root' })
 export class OrderService {
-  private readonly _orders = signal<Order[]>(this.load());
+  private readonly apiUrl = `${environment.apiUrl}/orders`;
+  private readonly http = inject(HttpClient);
+  private readonly auth = inject(AuthService);
+
+  private readonly _orders = signal<Order[]>([]);
 
   readonly orders = computed(() =>
     this._orders().slice().sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
   );
 
   constructor() {
-    effect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(this._orders())));
+    // Optionally fetch history on load if authenticated
   }
 
   getByNumber(orderNumber: string): Order | undefined {
     return this._orders().find(o => o.number === orderNumber);
   }
 
-  placeOrder(input: PlaceOrderInput): Order {
-    const id = Math.max(0, ...this._orders().map(o => o.id)) + 1;
-    const order: Order = {
-      id,
-      number: `BGT-2026-${String(600 + id * 7).padStart(4, '0')}`,
-      date: new Date().toISOString().slice(0, 10),
-      status: 'Processing' as OrderStatus,
-      items: input.items.map(i => ({
-        productId: i.productId,
-        name: i.name,
-        image: i.image,
-        price: i.price,
-        quantity: i.quantity,
-        color: i.color,
-        size: i.size,
-      })),
-      subtotal: input.subtotal,
-      shipping: input.shipping,
-      tax: input.tax,
-      discount: input.discount,
-      total: input.total,
-      shippingAddress: `${input.address.line1}${input.address.line2 ? ', ' + input.address.line2 : ''}, ${input.address.city}, ${input.address.state} ${input.address.zip}`,
-      paymentSummary: input.paymentSummary,
-    };
-    this._orders.update(orders => [...orders, order]);
-    return order;
-  }
-
-  private load(): Order[] {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? JSON.parse(stored) : SEED_ORDERS;
-    } catch {
-      return SEED_ORDERS;
-    }
+  placeOrder(input: PlaceOrderInput): Observable<string> {
+    return this.http.post<string>(this.apiUrl, {
+      shippingAddressId: input.shippingAddressId || null,
+      notes: input.notes || '',
+      paymentMethod: input.paymentMethod
+    }).pipe(
+      tap(orderId => {
+        // Construct a mock local order or refresh history
+        const id = Math.max(0, ...this._orders().map(o => o.id)) + 1;
+        const order: Order = {
+          id,
+          number: orderId.toString().substring(0, 8).toUpperCase(), // Using guid start as order number for now
+          date: new Date().toISOString().slice(0, 10),
+          status: 'Processing' as OrderStatus,
+          items: input.items.map(i => ({
+            productId: i.productId,
+            name: i.name,
+            image: i.image,
+            price: i.price,
+            quantity: i.quantity,
+            color: i.color,
+            size: i.size,
+          })),
+          subtotal: input.subtotal,
+          shipping: input.shipping,
+          tax: input.tax,
+          discount: input.discount,
+          total: input.total,
+          shippingAddress: `${input.address.line1}${input.address.line2 ? ', ' + input.address.line2 : ''}, ${input.address.city}, ${input.address.state} ${input.address.zip}`,
+          paymentSummary: input.paymentSummary,
+        };
+        this._orders.update(orders => [...orders, order]);
+      })
+    );
   }
 }
 
@@ -14159,20 +14334,62 @@ export class ToastService {
 ## src\app\core\services\wishlist.service.ts
 
 ``typescript
-import { Injectable, computed, effect, signal } from '@angular/core';
+import { Injectable, computed, effect, signal, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { ToastService } from './toast.service';
+import { AuthService } from './auth.service';
+import { environment } from '../../../environments/environment';
 
 const STORAGE_KEY = 'budgetha_wishlist';
 
 @Injectable({ providedIn: 'root' })
 export class WishlistService {
+  private readonly apiUrl = `${environment.apiUrl}/wishlists`;
+  private readonly http = inject(HttpClient);
+  private readonly auth = inject(AuthService);
+  private readonly toast = inject(ToastService);
+
   private readonly _ids = signal<string[]>(this.load());
 
   readonly ids = this._ids.asReadonly();
   readonly count = computed(() => this._ids().length);
 
-  constructor(private toast: ToastService) {
+  constructor() {
     effect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(this._ids())));
+
+    effect(() => {
+      if (this.auth.isAuthenticated()) {
+        this.syncWithBackend();
+      } else {
+        this._ids.set(this.load());
+      }
+    }, { allowSignalWrites: true });
+  }
+
+  private syncWithBackend() {
+    this.http.get<any[]>(this.apiUrl).subscribe({
+      next: (items) => {
+        if (items) {
+          const remoteIds = items.map(i => i.productId);
+          
+          // Merge logic: push local to backend if local has items and backend is empty
+          const localIds = this.load();
+          if (remoteIds.length === 0 && localIds.length > 0) {
+             this.pushLocalToBackend(localIds);
+          } else {
+             this._ids.set(remoteIds);
+          }
+        }
+      },
+      error: (err) => console.error('Failed to sync wishlist', err)
+    });
+  }
+
+  private pushLocalToBackend(localIds: string[]) {
+    localIds.forEach(id => {
+      this.http.post(this.apiUrl, { productId: id }).subscribe();
+    });
+    setTimeout(() => this.syncWithBackend(), 1000);
   }
 
   has(productId: string): boolean {
@@ -14180,12 +14397,34 @@ export class WishlistService {
   }
 
   toggle(productId: string, productName?: string): void {
-    if (this.has(productId)) {
-      this._ids.update(ids => ids.filter(id => id !== productId));
-      if (productName) this.toast.info(`${productName} removed from wishlist`);
+    const exists = this.has(productId);
+
+    if (this.auth.isAuthenticated()) {
+      if (exists) {
+        this.http.delete(`${this.apiUrl}/${productId}`).subscribe({
+          next: () => {
+            this._ids.update(ids => ids.filter(id => id !== productId));
+            if (productName) this.toast.info(`${productName} removed from wishlist`);
+          },
+          error: () => this.toast.error('Failed to remove from wishlist')
+        });
+      } else {
+        this.http.post(this.apiUrl, { productId }).subscribe({
+          next: () => {
+            this._ids.update(ids => [...ids, productId]);
+            if (productName) this.toast.success(`${productName} saved to wishlist`);
+          },
+          error: () => this.toast.error('Failed to add to wishlist')
+        });
+      }
     } else {
-      this._ids.update(ids => [...ids, productId]);
-      if (productName) this.toast.success(`${productName} saved to wishlist`);
+      if (exists) {
+        this._ids.update(ids => ids.filter(id => id !== productId));
+        if (productName) this.toast.info(`${productName} removed from wishlist`);
+      } else {
+        this._ids.update(ids => [...ids, productId]);
+        if (productName) this.toast.success(`${productName} saved to wishlist`);
+      }
     }
   }
 
@@ -20322,7 +20561,7 @@ export class CheckoutComponent implements OnInit {
 
   private completeOrder(paymentSummary: string): void {
     const v = this.form.getRawValue();
-    const order = this.orders.placeOrder({
+    this.orders.placeOrder({
       items: this.cart.items(),
       subtotal: this.cart.subtotal(),
       shipping: this.cart.shipping(),
@@ -20343,10 +20582,19 @@ export class CheckoutComponent implements OnInit {
         isDefault: false,
       },
       paymentSummary,
+      paymentMethod: paymentSummary.includes('PayPal') ? 'CreditCard' : 'CashOnDelivery'
+    }).subscribe({
+      next: (orderId) => {
+        this.cart.clear();
+        this.placing.set(false);
+        // Navigate using the first 8 characters of orderId as order number
+        this.router.navigate(['/checkout/success', orderId.substring(0, 8).toUpperCase()]);
+      },
+      error: () => {
+        this.placing.set(false);
+        this.toast.error('Failed to place order. Please try again.');
+      }
     });
-    this.cart.clear();
-    this.placing.set(false);
-    this.router.navigate(['/checkout/success', order.number]);
   }
 
   private defaultName(): string {
@@ -22579,7 +22827,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
               [src]="product().images[0]"
               [alt]="product().name"
               loading="lazy"
-              class="h-full w-full object-scale-down mix-blend-multiply group-hover:scale-105 transition-transform duration-500 p-2" />
+              class="h-full w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-500 p-2" />
           </a>
 
           <!-- Badges -->
@@ -22667,7 +22915,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
               [src]="product().images[0]"
               [alt]="product().name"
               loading="lazy"
-              class="h-full w-full object-scale-down mix-blend-multiply group-hover:scale-105 transition-transform duration-500 p-2" />
+              class="h-full w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-500 p-2" />
           </a>
           <div class="absolute top-3 left-3 flex flex-col gap-1.5">
             @if (discountPercent() > 0) {
@@ -22785,7 +23033,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
           <div class="grid grid-cols-1 md:grid-cols-2">
             <!-- Image -->
             <div class="relative aspect-square bg-slate-100 md:rounded-l-2xl overflow-hidden flex items-center justify-center p-4">
-              <img [src]="activeImage()" [alt]="p.name" class="h-full w-full object-scale-down mix-blend-multiply p-6" />
+              <img [src]="activeImage()" [alt]="p.name" class="h-full w-full object-contain mix-blend-multiply p-6" />
               @if (p.images.length > 1) {
                 <div class="absolute bottom-3 inset-x-0 flex justify-center gap-1.5">
                   @for (image of p.images; track image; let i = $index) {

@@ -272,6 +272,45 @@ public record GoogleLoginRequest(
 
 ``
 
+## Budgetha.API\Controllers\AddressesController.cs
+
+``csharp
+using Budgetha.Application.Features.Addresses.Commands;
+using Budgetha.Application.Features.Addresses.Queries;
+using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Budgetha.API.Controllers;
+
+[Authorize]
+[ApiController]
+[Route("api/[controller]")]
+public class AddressesController : ControllerBase
+{
+    private readonly IMediator _mediator;
+
+    public AddressesController(IMediator mediator)
+    {
+        _mediator = mediator;
+    }
+
+    [HttpGet]
+    public async Task<ActionResult<List<AddressDto>>> GetAddresses()
+    {
+        return await _mediator.Send(new GetAddressesQuery());
+    }
+
+    [HttpPost]
+    public async Task<ActionResult<Guid>> CreateAddress([FromBody] CreateAddressCommand command)
+    {
+        var id = await _mediator.Send(command);
+        return Ok(id);
+    }
+}
+
+``
+
 ## Budgetha.API\Controllers\AdminController.cs
 
 ``csharp
@@ -641,6 +680,67 @@ public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
 ``
 
+## Budgetha.API\Controllers\CartController.cs
+
+``csharp
+using Budgetha.Application.Features.Cart.Commands;
+using Budgetha.Application.Features.Cart.Queries;
+using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Budgetha.API.Controllers;
+
+[Authorize]
+[ApiController]
+[Route("api/[controller]")]
+public class CartController : ControllerBase
+{
+    private readonly IMediator _mediator;
+
+    public CartController(IMediator mediator)
+    {
+        _mediator = mediator;
+    }
+
+    [HttpGet]
+    public async Task<ActionResult<CartDto>> GetCart()
+    {
+        return await _mediator.Send(new GetCartQuery());
+    }
+
+    [HttpPost("items")]
+    public async Task<ActionResult> AddItem([FromBody] AddToCartCommand command)
+    {
+        await _mediator.Send(command);
+        return Ok();
+    }
+
+    [HttpPut("items/{itemId}")]
+    public async Task<ActionResult> UpdateItemQuantity(Guid itemId, [FromBody] UpdateCartItemQuantityCommand command)
+    {
+        if (itemId != command.ItemId) return BadRequest();
+        await _mediator.Send(command);
+        return NoContent();
+    }
+
+    [HttpDelete("items/{itemId}")]
+    public async Task<ActionResult> RemoveItem(Guid itemId)
+    {
+        await _mediator.Send(new RemoveFromCartCommand(itemId));
+        return NoContent();
+    }
+
+    [HttpDelete]
+    public async Task<ActionResult> ClearCart()
+    {
+        await _mediator.Send(new ClearCartCommand());
+        return NoContent();
+    }
+}
+
+``
+
 ## Budgetha.API\Controllers\CategoriesController.cs
 
 ``csharp
@@ -749,6 +849,13 @@ public class OrdersController : ControllerBase
     public OrdersController(IMediator mediator)
     {
         _mediator = mediator;
+    }
+
+    [HttpPost]
+    public async Task<ActionResult<Guid>> CreateOrder([FromBody] Budgetha.Application.Features.Orders.Commands.CreateOrderCommand command)
+    {
+        var orderId = await _mediator.Send(command);
+        return Ok(orderId);
     }
 
     [HttpGet("history")]
@@ -1089,6 +1196,52 @@ public class SellerRequestsController : ControllerBase
         var result = await _mediator.Send(new RejectSellerRequestCommand(id));
         if (!result) return BadRequest("Could not reject request.");
         return Ok();
+    }
+}
+
+``
+
+## Budgetha.API\Controllers\WishlistsController.cs
+
+``csharp
+using Budgetha.Application.Features.Wishlist.Commands;
+using Budgetha.Application.Features.Wishlist.Queries;
+using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Budgetha.API.Controllers;
+
+[Authorize]
+[ApiController]
+[Route("api/[controller]")]
+public class WishlistsController : ControllerBase
+{
+    private readonly IMediator _mediator;
+
+    public WishlistsController(IMediator mediator)
+    {
+        _mediator = mediator;
+    }
+
+    [HttpGet]
+    public async Task<ActionResult<List<WishlistItemDto>>> GetWishlist()
+    {
+        return await _mediator.Send(new GetWishlistQuery());
+    }
+
+    [HttpPost]
+    public async Task<ActionResult> AddItem([FromBody] AddToWishlistCommand command)
+    {
+        await _mediator.Send(command);
+        return Ok();
+    }
+
+    [HttpDelete("{productId}")]
+    public async Task<ActionResult> RemoveItem(Guid productId)
+    {
+        await _mediator.Send(new RemoveFromWishlistCommand(productId));
+        return NoContent();
     }
 }
 
@@ -1567,6 +1720,143 @@ public static class ApplicationServiceRegistration
 
 ``
 
+## Budgetha.Application\Features\Addresses\Commands\CreateAddressCommand.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Entities;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Addresses.Commands;
+
+public record CreateAddressCommand(
+    string FullName,
+    string Line1,
+    string? Line2,
+    string City,
+    string State,
+    string PostalCode,
+    string Country,
+    bool IsDefault
+) : IRequest<Guid>;
+
+public class CreateAddressCommandHandler : IRequestHandler<CreateAddressCommand, Guid>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public CreateAddressCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task<Guid> Handle(CreateAddressCommand request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        if (request.IsDefault)
+        {
+            var existingAddresses = await _context.Addresses.Where(a => a.UserId == userId).ToListAsync(cancellationToken);
+            foreach (var addr in existingAddresses)
+            {
+                addr.IsDefault = false;
+            }
+        }
+
+        var address = new Address
+        {
+            UserId = userId,
+            FullName = request.FullName,
+            Line1 = request.Line1,
+            Line2 = request.Line2,
+            City = request.City,
+            State = request.State,
+            PostalCode = request.PostalCode,
+            Country = request.Country,
+            IsDefault = request.IsDefault
+        };
+
+        _context.Addresses.Add(address);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return address.Id;
+    }
+}
+
+``
+
+## Budgetha.Application\Features\Addresses\Queries\AddressDto.cs
+
+``csharp
+namespace Budgetha.Application.Features.Addresses.Queries;
+
+public record AddressDto(
+    Guid Id,
+    string FullName,
+    string Line1,
+    string? Line2,
+    string City,
+    string State,
+    string PostalCode,
+    string Country,
+    bool IsDefault
+);
+
+``
+
+## Budgetha.Application\Features\Addresses\Queries\GetAddressesQuery.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Addresses.Queries;
+
+public record GetAddressesQuery : IRequest<List<AddressDto>>;
+
+public class GetAddressesQueryHandler : IRequestHandler<GetAddressesQuery, List<AddressDto>>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public GetAddressesQueryHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task<List<AddressDto>> Handle(GetAddressesQuery request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var addresses = await _context.Addresses
+            .Where(a => a.UserId == userId)
+            .Select(a => new AddressDto(
+                a.Id,
+                a.FullName,
+                a.Line1,
+                a.Line2,
+                a.City,
+                a.State,
+                a.PostalCode,
+                a.Country,
+                a.IsDefault
+            ))
+            .ToListAsync(cancellationToken);
+
+        return addresses;
+    }
+}
+
+``
+
 ## Budgetha.Application\Features\Announcements\Commands\CreateAnnouncementCommand.cs
 
 ``csharp
@@ -1800,6 +2090,317 @@ public class GetAllAnnouncementsQueryHandler : IRequestHandler<GetAllAnnouncemen
 
 ``
 
+## Budgetha.Application\Features\Cart\Commands\AddToCartCommand.cs
+
+``csharp
+using Budgetha.Application.Common.Exceptions;
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Cart.Commands;
+
+public record AddToCartCommand(Guid ProductId, int Quantity, OrderItemType Type, DateOnly? RentalStartDate, DateOnly? RentalEndDate) : IRequest;
+
+public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public AddToCartCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task Handle(AddToCartCommand request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var cart = await _context.Carts
+            .Include(c => c.Items)
+            .FirstOrDefaultAsync(c => c.UserId == userId, cancellationToken);
+
+        if (cart == null)
+        {
+            cart = new Domain.Entities.Cart { UserId = userId };
+            _context.Carts.Add(cart);
+        }
+
+        var product = await _context.Products.FindAsync(new object[] { request.ProductId }, cancellationToken);
+        if (product == null || !product.IsActive)
+            throw new NotFoundException(nameof(Product), request.ProductId);
+
+        if (product.StockQuantity < request.Quantity)
+            throw new InvalidOperationException("Not enough stock available.");
+
+        // Check if item already exists in cart with same type (and dates if rental)
+        var existingItem = cart.Items.FirstOrDefault(i => 
+            i.ProductId == request.ProductId && 
+            i.Type == request.Type && 
+            i.RentalStartDate == request.RentalStartDate && 
+            i.RentalEndDate == request.RentalEndDate);
+
+        if (existingItem != null)
+        {
+            existingItem.Quantity += request.Quantity;
+            if (existingItem.Quantity > product.StockQuantity)
+                throw new InvalidOperationException("Cannot add more than available stock.");
+        }
+        else
+        {
+            var newItem = new CartItem
+            {
+                ProductId = request.ProductId,
+                Quantity = request.Quantity,
+                Type = request.Type,
+                RentalStartDate = request.RentalStartDate,
+                RentalEndDate = request.RentalEndDate
+            };
+            cart.Items.Add(newItem);
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+}
+
+``
+
+## Budgetha.Application\Features\Cart\Commands\ClearCartCommand.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Cart.Commands;
+
+public record ClearCartCommand : IRequest;
+
+public class ClearCartCommandHandler : IRequestHandler<ClearCartCommand>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public ClearCartCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task Handle(ClearCartCommand request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var cart = await _context.Carts
+            .Include(c => c.Items)
+            .FirstOrDefaultAsync(c => c.UserId == userId, cancellationToken);
+
+        if (cart != null)
+        {
+            _context.CartItems.RemoveRange(cart.Items);
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+    }
+}
+
+``
+
+## Budgetha.Application\Features\Cart\Commands\RemoveFromCartCommand.cs
+
+``csharp
+using Budgetha.Application.Common.Exceptions;
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Entities;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Cart.Commands;
+
+public record RemoveFromCartCommand(Guid ItemId) : IRequest;
+
+public class RemoveFromCartCommandHandler : IRequestHandler<RemoveFromCartCommand>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public RemoveFromCartCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task Handle(RemoveFromCartCommand request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var cartItem = await _context.CartItems
+            .Include(i => i.Cart)
+            .FirstOrDefaultAsync(i => i.Id == request.ItemId && i.Cart.UserId == userId, cancellationToken);
+
+        if (cartItem == null)
+            throw new NotFoundException(nameof(CartItem), request.ItemId);
+
+        _context.CartItems.Remove(cartItem);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+}
+
+``
+
+## Budgetha.Application\Features\Cart\Commands\UpdateCartItemQuantityCommand.cs
+
+``csharp
+using Budgetha.Application.Common.Exceptions;
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Entities;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Cart.Commands;
+
+public record UpdateCartItemQuantityCommand(Guid ItemId, int Quantity) : IRequest;
+
+public class UpdateCartItemQuantityCommandHandler : IRequestHandler<UpdateCartItemQuantityCommand>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public UpdateCartItemQuantityCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task Handle(UpdateCartItemQuantityCommand request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var cartItem = await _context.CartItems
+            .Include(i => i.Cart)
+            .Include(i => i.Product)
+            .FirstOrDefaultAsync(i => i.Id == request.ItemId && i.Cart.UserId == userId, cancellationToken);
+
+        if (cartItem == null)
+            throw new NotFoundException(nameof(CartItem), request.ItemId);
+
+        if (request.Quantity <= 0)
+        {
+            _context.CartItems.Remove(cartItem);
+        }
+        else
+        {
+            if (cartItem.Product.StockQuantity < request.Quantity)
+                throw new InvalidOperationException("Not enough stock available.");
+                
+            cartItem.Quantity = request.Quantity;
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+}
+
+``
+
+## Budgetha.Application\Features\Cart\Queries\CartDto.cs
+
+``csharp
+using Budgetha.Domain.Enums;
+
+namespace Budgetha.Application.Features.Cart.Queries;
+
+public record CartItemDto(
+    Guid Id,
+    Guid ProductId,
+    string ProductName,
+    string? ProductImage,
+    string Category,
+    decimal Price,
+    int Quantity,
+    int Stock,
+    OrderItemType Type,
+    DateOnly? RentalStartDate,
+    DateOnly? RentalEndDate
+);
+
+public record CartDto(
+    Guid Id,
+    List<CartItemDto> Items
+);
+
+``
+
+## Budgetha.Application\Features\Cart\Queries\GetCartQuery.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Cart.Queries;
+
+public record GetCartQuery : IRequest<CartDto>;
+
+public class GetCartQueryHandler : IRequestHandler<GetCartQuery, CartDto>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public GetCartQueryHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task<CartDto> Handle(GetCartQuery request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var cart = await _context.Carts
+            .Include(c => c.Items)
+            .ThenInclude(i => i.Product)
+            .FirstOrDefaultAsync(c => c.UserId == userId, cancellationToken);
+
+        if (cart == null)
+        {
+            // Create cart for user if not exists
+            cart = new Domain.Entities.Cart { UserId = userId };
+            _context.Carts.Add(cart);
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
+        var items = cart.Items.Select(i => new CartItemDto(
+            i.Id,
+            i.ProductId,
+            i.Product.Name,
+            i.Product.Images.FirstOrDefault() != null ? i.Product.Images.FirstOrDefault()!.Url : null,
+            i.Product.Category != null ? i.Product.Category.Name : string.Empty,
+            i.Product.Price,
+            i.Quantity,
+            i.Product.StockQuantity,
+            i.Type,
+            i.RentalStartDate,
+            i.RentalEndDate
+        )).ToList();
+
+        return new CartDto(cart.Id, items);
+    }
+}
+
+``
+
 ## Budgetha.Application\Features\Categories\Commands\CreateCategoryCommand.cs
 
 ``csharp
@@ -1954,6 +2555,128 @@ public class GetCategoriesQueryHandler : IRequestHandler<GetCategoriesQuery, Lis
             .ToListAsync(cancellationToken);
 
         return categories;
+    }
+}
+
+``
+
+## Budgetha.Application\Features\Orders\Commands\CreateOrderCommand.cs
+
+``csharp
+using Budgetha.Application.Common.Exceptions;
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Orders.Commands;
+
+public record CreateOrderCommand(
+    Guid? ShippingAddressId,
+    string? Notes,
+    string PaymentMethod
+) : IRequest<Guid>;
+
+public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Guid>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public CreateOrderCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task<Guid> Handle(CreateOrderCommand request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        // 1. Get Cart
+        var cart = await _context.Carts
+            .Include(c => c.Items)
+            .ThenInclude(i => i.Product)
+            .FirstOrDefaultAsync(c => c.UserId == userId, cancellationToken);
+
+        if (cart == null || !cart.Items.Any())
+            throw new InvalidOperationException("Cart is empty.");
+
+        // 2. Validate Stock and Calculate Total
+        decimal totalAmount = 0;
+        var orderItems = new List<OrderItem>();
+
+        foreach (var cartItem in cart.Items)
+        {
+            if (cartItem.Product.StockQuantity < cartItem.Quantity)
+                throw new InvalidOperationException($"Not enough stock for product {cartItem.Product.Name}");
+
+            // Reduce Stock
+            cartItem.Product.StockQuantity -= cartItem.Quantity;
+
+            // Calculate Price (Assuming basic price for purchase, ignoring rental logic complexity for now)
+            decimal itemPrice = cartItem.Product.Price;
+            if (cartItem.Type == OrderItemType.Rental && cartItem.RentalStartDate.HasValue && cartItem.RentalEndDate.HasValue)
+            {
+                var days = cartItem.RentalEndDate.Value.DayNumber - cartItem.RentalStartDate.Value.DayNumber;
+                itemPrice = (cartItem.Product.RentalPricePerDay ?? cartItem.Product.Price) * Math.Max(1, days);
+            }
+
+            totalAmount += itemPrice * cartItem.Quantity;
+
+            orderItems.Add(new OrderItem
+            {
+                ProductId = cartItem.ProductId,
+                Quantity = cartItem.Quantity,
+                UnitPrice = itemPrice,
+                Type = cartItem.Type,
+                RentalStartDate = cartItem.RentalStartDate,
+                RentalEndDate = cartItem.RentalEndDate
+            });
+        }
+
+        // 3. Create Order
+        var order = new Order
+        {
+            UserId = userId,
+            Status = OrderStatus.Pending,
+            TotalAmount = totalAmount,
+            Notes = request.Notes,
+            ShippingAddressId = request.ShippingAddressId,
+            Items = orderItems
+        };
+
+        // 4. Create Payment if not COD
+        if (request.PaymentMethod.Equals("CreditCard", StringComparison.OrdinalIgnoreCase) || request.PaymentMethod.Equals("PayPal", StringComparison.OrdinalIgnoreCase))
+        {
+            order.Payment = new Payment
+            {
+                Amount = totalAmount,
+                Status = PaymentStatus.Pending,
+                Provider = PaymentProvider.PayPal,
+                ExternalTransactionId = Guid.NewGuid().ToString() // Mock transaction ID
+            };
+        }
+        else
+        {
+            order.Payment = new Payment
+            {
+                Amount = totalAmount,
+                Status = PaymentStatus.Pending,
+                Provider = PaymentProvider.CashOnDelivery
+            };
+        }
+
+        _context.Orders.Add(order);
+
+        // 5. Clear Cart
+        _context.CartItems.RemoveRange(cart.Items);
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return order.Id;
     }
 }
 
@@ -3077,6 +3800,166 @@ public class GetSellerRequestsQueryHandler : IRequestHandler<GetSellerRequestsQu
 
 ``
 
+## Budgetha.Application\Features\Wishlist\Commands\AddToWishlistCommand.cs
+
+``csharp
+using Budgetha.Application.Common.Exceptions;
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Entities;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Wishlist.Commands;
+
+public record AddToWishlistCommand(Guid ProductId) : IRequest;
+
+public class AddToWishlistCommandHandler : IRequestHandler<AddToWishlistCommand>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public AddToWishlistCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task Handle(AddToWishlistCommand request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var product = await _context.Products.FindAsync(new object[] { request.ProductId }, cancellationToken);
+        if (product == null || !product.IsActive)
+            throw new NotFoundException(nameof(Product), request.ProductId);
+
+        var exists = await _context.Wishlists.AnyAsync(w => w.UserId == userId && w.ProductId == request.ProductId, cancellationToken);
+        
+        if (!exists)
+        {
+            var wishlist = new Domain.Entities.Wishlist
+            {
+                UserId = userId,
+                ProductId = request.ProductId
+            };
+            _context.Wishlists.Add(wishlist);
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+    }
+}
+
+``
+
+## Budgetha.Application\Features\Wishlist\Commands\RemoveFromWishlistCommand.cs
+
+``csharp
+using Budgetha.Application.Common.Exceptions;
+using Budgetha.Application.Common.Interfaces;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Wishlist.Commands;
+
+public record RemoveFromWishlistCommand(Guid ProductId) : IRequest;
+
+public class RemoveFromWishlistCommandHandler : IRequestHandler<RemoveFromWishlistCommand>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public RemoveFromWishlistCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task Handle(RemoveFromWishlistCommand request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var wishlistItem = await _context.Wishlists
+            .FirstOrDefaultAsync(w => w.ProductId == request.ProductId && w.UserId == userId, cancellationToken);
+
+        if (wishlistItem == null)
+            throw new NotFoundException(nameof(Domain.Entities.Wishlist), request.ProductId);
+
+        _context.Wishlists.Remove(wishlistItem);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+}
+
+``
+
+## Budgetha.Application\Features\Wishlist\Queries\GetWishlistQuery.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Wishlist.Queries;
+
+public record GetWishlistQuery : IRequest<List<WishlistItemDto>>;
+
+public class GetWishlistQueryHandler : IRequestHandler<GetWishlistQuery, List<WishlistItemDto>>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public GetWishlistQueryHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task<List<WishlistItemDto>> Handle(GetWishlistQuery request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var wishlistItems = await _context.Wishlists
+            .Include(w => w.Product)
+            .Where(w => w.UserId == userId)
+            .Select(w => new WishlistItemDto(
+                w.Id,
+                w.ProductId,
+                w.Product.Name,
+                w.Product.Images.FirstOrDefault() != null ? w.Product.Images.FirstOrDefault()!.Url : null,
+                w.Product.Category != null ? w.Product.Category.Name : string.Empty,
+                w.Product.Price,
+                w.Product.StockQuantity,
+                w.Product.StockQuantity > 0
+            ))
+            .ToListAsync(cancellationToken);
+
+        return wishlistItems;
+    }
+}
+
+``
+
+## Budgetha.Application\Features\Wishlist\Queries\WishlistDto.cs
+
+``csharp
+namespace Budgetha.Application.Features.Wishlist.Queries;
+
+public record WishlistItemDto(
+    Guid Id,
+    Guid ProductId,
+    string ProductName,
+    string? ProductImage,
+    string Category,
+    decimal Price,
+    int Stock,
+    bool InStock
+);
+
+``
+
 ## Budgetha.Domain\Budgetha.Domain.csproj
 
 ``
@@ -3583,7 +4466,8 @@ namespace Budgetha.Domain.Enums;
 public enum PaymentProvider
 {
     Stripe,
-    PayPal
+    PayPal,
+    CashOnDelivery
 }
 
 ``

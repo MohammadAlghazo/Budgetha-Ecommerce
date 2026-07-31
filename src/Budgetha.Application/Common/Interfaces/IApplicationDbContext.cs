@@ -22,6 +22,7 @@ public interface IApplicationDbContext
     DbSet<Announcement> Announcements { get; }
     DbSet<SellerRequest> SellerRequests { get; }
     DbSet<ApplicationUser> Users { get; }
+    DbSet<Notification> Notifications { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }

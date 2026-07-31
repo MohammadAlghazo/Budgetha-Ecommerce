@@ -8,13 +8,14 @@ import { PwaService } from '../../core/services/pwa.service';
 import { ToastService } from '../../core/services/toast.service';
 import { InstallButtonComponent } from '../../shared/components/install-button/install-button.component';
 import { AnnouncementService, Announcement } from '../../core/services/announcement.service';
+import { NotificationService } from '../../core/services/notification.service';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
-
+import { DatePipe } from '@angular/common';
 
 @Component({
   selector: 'app-header',
-  imports: [RouterLink, RouterLinkActive, FormsModule, InstallButtonComponent],
+  imports: [RouterLink, RouterLinkActive, FormsModule, InstallButtonComponent, DatePipe],
   template: `
     <!-- Announcement bar -->
     @if (announcement()) {
@@ -114,6 +115,66 @@ import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
                 </span>
               }
             </button>
+
+            <!-- Notifications -->
+            @if (auth.isAuthenticated()) {
+              <div class="relative">
+                <button type="button" (click)="toggleNotificationMenu($event)" aria-label="Notifications" class="icon-btn h-10 w-10 relative">
+                  <svg class="w-[22px] h-[22px]" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+                  </svg>
+                  @if (notificationCount() > 0) {
+                    <span class="absolute top-0 right-0.5 h-3 min-w-3 px-1 rounded-full bg-red-500 border border-white text-white text-[9px] font-bold flex items-center justify-center">
+                    </span>
+                  }
+                </button>
+                
+                @if (notificationMenuOpen()) {
+                  <div class="absolute right-0 mt-2 w-80 card bg-white shadow-xl shadow-slate-200/80 animate-[menuIn_0.15s_ease-out] z-50 overflow-hidden" (click)="$event.stopPropagation()">
+                    <div class="px-4 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                      <span class="text-sm font-semibold text-slate-800">Notifications</span>
+                      @if (notificationCount() > 0) {
+                        <span class="text-xs bg-teal-100 text-teal-800 px-2 py-0.5 rounded-full font-medium">{{ notificationCount() }} New</span>
+                      }
+                    </div>
+                    <div class="max-h-80 overflow-y-auto">
+                      @if (notifications().length === 0) {
+                        <div class="p-6 text-center text-slate-500 text-sm">
+                          <p>You have no notifications yet.</p>
+                        </div>
+                      } @else {
+                        @for (notif of notifications(); track notif.id) {
+                          <div (click)="markNotificationAsRead(notif.id)" class="p-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors duration-150" [class.bg-teal-50]="!notif.isRead">
+                            <div class="flex gap-3">
+                              <div class="mt-0.5">
+                                @if (notif.type === 'Order') {
+                                  <div class="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path></svg>
+                                  </div>
+                                } @else if (notif.type === 'Sale') {
+                                  <div class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                  </div>
+                                } @else {
+                                  <div class="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                  </div>
+                                }
+                              </div>
+                              <div>
+                                <p class="text-sm font-medium text-slate-800" [class.font-bold]="!notif.isRead">{{ notif.title }}</p>
+                                <p class="text-xs text-slate-500 mt-0.5 line-clamp-2">{{ notif.message }}</p>
+                                <p class="text-[10px] text-slate-400 mt-1">{{ notif.createdAt | date:'short' }}</p>
+                              </div>
+                            </div>
+                          </div>
+                        }
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+            }
 
             <!-- User menu -->
             @if (auth.isAuthenticated()) {
@@ -246,11 +307,17 @@ export class HeaderComponent implements OnInit {
   readonly announcement = signal<Announcement | null>(null);
   readonly mobileMenuOpen = signal(false);
   readonly userMenuOpen = signal(false);
+  readonly notificationMenuOpen = signal(false);
   searchTerm = '';
   private searchSubject = new Subject<string>();
 
   readonly cartCount = this.cart.count;
   readonly wishlistCount = this.wishlist.count;
+  readonly notificationService = inject(NotificationService);
+  
+  // Use toSignal to convert Observables to signals (requires import from @angular/core/rxjs-interop if not present, but we'll use subscribe for simplicity or stick to standard)
+  notifications = signal<any[]>([]);
+  notificationCount = signal<number>(0);
 
   readonly navLinks = [
     { label: 'Home', path: '/', query: {}, exact: true },
@@ -283,16 +350,36 @@ export class HeaderComponent implements OnInit {
     ).subscribe(term => {
       this.router.navigate(['/shop'], { queryParams: { search: term || null } });
     });
+
+    this.notificationService.notifications$.subscribe(data => {
+      this.notifications.set(data);
+    });
+
+    this.notificationService.unreadCount$.subscribe(count => {
+      this.notificationCount.set(count);
+    });
   }
 
   @HostListener('document:click')
   closeMenus(): void {
     this.userMenuOpen.set(false);
+    this.notificationMenuOpen.set(false);
   }
 
   toggleUserMenu(event: Event): void {
     event.stopPropagation();
+    this.notificationMenuOpen.set(false);
     this.userMenuOpen.update(v => !v);
+  }
+
+  toggleNotificationMenu(event: Event): void {
+    event.stopPropagation();
+    this.userMenuOpen.set(false);
+    this.notificationMenuOpen.update(v => !v);
+  }
+
+  markNotificationAsRead(id: string): void {
+    this.notificationService.markAsRead(id);
   }
 
   onSearchChange(term: string): void {
