@@ -18,6 +18,13 @@ public class OrdersController : ControllerBase
         _mediator = mediator;
     }
 
+    [HttpPost]
+    public async Task<ActionResult<Guid>> CreateOrder([FromBody] Budgetha.Application.Features.Orders.Commands.CreateOrderCommand command)
+    {
+        var orderId = await _mediator.Send(command);
+        return Ok(orderId);
+    }
+
     [HttpGet("history")]
     [Authorize(Roles = "Seller,Admin,SuperAdmin")]
     public async Task<ActionResult<List<TransactionHistoryDto>>> GetHistory(

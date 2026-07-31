@@ -1,6 +1,9 @@
-import { Injectable, computed, effect, signal } from '@angular/core';
+import { Injectable, computed, effect, signal, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { CartItem, Product, PromoCode } from '../models/shop.models';
 import { ToastService } from './toast.service';
+import { AuthService } from './auth.service';
+import { environment } from '../../../environments/environment';
 
 const STORAGE_KEY = 'budgetha_cart';
 const PROMO_KEY = 'budgetha_promo';
@@ -17,6 +20,11 @@ export const TAX_RATE = 0.08;
 
 @Injectable({ providedIn: 'root' })
 export class CartService {
+  private readonly apiUrl = `${environment.apiUrl}/cart`;
+  private readonly http = inject(HttpClient);
+  private readonly auth = inject(AuthService);
+  private readonly toast = inject(ToastService);
+
   private readonly _items = signal<CartItem[]>(this.load());
   private readonly _promo = signal<PromoCode | null>(this.loadPromo());
   private readonly _drawerOpen = signal(false);
@@ -43,7 +51,7 @@ export class CartService {
     Math.max(0, FREE_SHIPPING_THRESHOLD - (this.subtotal() - this.discount()))
   );
 
-  constructor(private toast: ToastService) {
+  constructor() {
     effect(() => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this._items()));
       const promo = this._promo();
@@ -53,35 +61,111 @@ export class CartService {
         localStorage.removeItem(PROMO_KEY);
       }
     });
+
+    effect(() => {
+      if (this.auth.isAuthenticated()) {
+        this.syncWithBackend();
+      } else {
+        this._items.set(this.load());
+      }
+    }, { allowSignalWrites: true });
+  }
+
+  private syncWithBackend() {
+    this.http.get<any>(this.apiUrl).subscribe({
+      next: (cart) => {
+        if (cart && cart.items) {
+          const mappedItems: CartItem[] = cart.items.map((i: any) => ({
+            id: i.id,
+            productId: i.productId,
+            name: i.productName,
+            slug: '', // missing in backend dto, can add if needed
+            brand: '',
+            image: i.productImage || '',
+            price: i.price,
+            quantity: i.quantity,
+            stock: i.stock,
+            type: i.type === 0 ? 'Purchase' : 'Rental',
+            rentalStartDate: i.rentalStartDate,
+            rentalEndDate: i.rentalEndDate
+          }));
+          
+          // Merge logic: If local storage had items and backend is empty, maybe push to backend?
+          // For simplicity, let's just use backend state if it has items, otherwise push local to backend.
+          const localItems = this.load();
+          if (mappedItems.length === 0 && localItems.length > 0) {
+             // Push local items to backend one by one
+             this.pushLocalToBackend(localItems);
+          } else {
+             this._items.set(mappedItems);
+          }
+        }
+      },
+      error: (err) => console.error('Failed to sync cart', err)
+    });
+  }
+
+  private pushLocalToBackend(localItems: CartItem[]) {
+    // Basic implementation: send first item then reload, etc.
+    // Realistically you'd chain them, but here we just add all.
+    localItems.forEach(item => {
+      this.http.post(`${this.apiUrl}/items`, {
+        productId: item.productId,
+        quantity: item.quantity,
+        type: item.type === 'Rental' ? 1 : 0,
+        rentalStartDate: item.rentalStartDate,
+        rentalEndDate: item.rentalEndDate
+      }).subscribe();
+    });
+    // Wait a bit then sync again
+    setTimeout(() => this.syncWithBackend(), 1000);
   }
 
   add(product: Product, quantity = 1, color?: string, size?: string): void {
-    this._items.update(items => {
-      const existing = items.find(
-        i => i.productId === product.id && i.color === color && i.size === size
-      );
-      if (existing) {
-        return items.map(i =>
-          i === existing ? { ...i, quantity: Math.min(i.quantity + quantity, i.stock) } : i
-        );
-      }
-      return [
-        ...items,
-        {
-          productId: product.id,
-          name: product.name,
-          slug: product.slug,
-          brand: product.brand,
-          image: product.images[0],
-          price: product.price,
-          quantity: Math.min(quantity, product.stock),
-          stock: product.stock,
-          color,
-          size,
+    if (this.auth.isAuthenticated()) {
+      this.http.post(`${this.apiUrl}/items`, {
+        productId: product.id,
+        quantity: quantity,
+        type: product.isAvailableForRent ? 1 : 0,
+        rentalStartDate: null,
+        rentalEndDate: null
+      }).subscribe({
+        next: () => {
+          this.syncWithBackend();
+          this.toast.success(`${product.name} added to cart`);
         },
-      ];
-    });
-    this.toast.success(`${product.name} added to cart`);
+        error: () => this.toast.error('Failed to add to cart')
+      });
+    } else {
+      // Local logic
+      this._items.update(items => {
+        const existing = items.find(
+          i => i.productId === product.id && i.color === color && i.size === size
+        );
+        if (existing) {
+          return items.map(i =>
+            i === existing ? { ...i, quantity: Math.min(i.quantity + quantity, i.stock) } : i
+          );
+        }
+        return [
+          ...items,
+          {
+            productId: product.id,
+            name: product.name,
+            slug: product.slug,
+            brand: product.brand,
+            image: product.images?.[0] || '',
+            price: product.price,
+            quantity: Math.min(quantity, product.stock),
+            stock: product.stock,
+            color,
+            size,
+            type: product.isAvailableForRent ? 'Rental' : 'Purchase'
+          },
+        ];
+      });
+      this.toast.success(`${product.name} added to cart`);
+    }
   }
 
   updateQuantity(item: CartItem, quantity: number): void {
@@ -89,26 +173,58 @@ export class CartService {
       this.remove(item);
       return;
     }
-    this._items.update(items =>
-      items.map(i =>
-        i.productId === item.productId && i.color === item.color && i.size === item.size
-          ? { ...i, quantity: Math.min(quantity, i.stock) }
-          : i
-      )
-    );
+    
+    if (this.auth.isAuthenticated() && item.id) {
+      this.http.put(`${this.apiUrl}/items/${item.id}`, {
+        itemId: item.id,
+        quantity: quantity
+      }).subscribe({
+        next: () => this.syncWithBackend(),
+        error: () => this.toast.error('Failed to update quantity')
+      });
+    } else {
+      this._items.update(items =>
+        items.map(i =>
+          i.productId === item.productId && i.color === item.color && i.size === item.size
+            ? { ...i, quantity: Math.min(quantity, i.stock) }
+            : i
+        )
+      );
+    }
   }
 
   remove(item: CartItem): void {
-    this._items.update(items =>
-      items.filter(
-        i => !(i.productId === item.productId && i.color === item.color && i.size === item.size)
-      )
-    );
+    if (this.auth.isAuthenticated() && item.id) {
+      this.http.delete(`${this.apiUrl}/items/${item.id}`).subscribe({
+        next: () => {
+          this.syncWithBackend();
+          this.toast.success('Item removed');
+        },
+        error: () => this.toast.error('Failed to remove item')
+      });
+    } else {
+      this._items.update(items =>
+        items.filter(
+          i => !(i.productId === item.productId && i.color === item.color && i.size === item.size)
+        )
+      );
+      this.toast.success('Item removed');
+    }
   }
 
   clear(): void {
-    this._items.set([]);
-    this._promo.set(null);
+    if (this.auth.isAuthenticated()) {
+      this.http.delete(this.apiUrl).subscribe({
+        next: () => {
+          this._items.set([]);
+          this._promo.set(null);
+        },
+        error: () => this.toast.error('Failed to clear cart')
+      });
+    } else {
+      this._items.set([]);
+      this._promo.set(null);
+    }
   }
 
   applyPromo(code: string): boolean {

@@ -468,7 +468,7 @@ export class CheckoutComponent implements OnInit {
 
   private completeOrder(paymentSummary: string): void {
     const v = this.form.getRawValue();
-    const order = this.orders.placeOrder({
+    this.orders.placeOrder({
       items: this.cart.items(),
       subtotal: this.cart.subtotal(),
       shipping: this.cart.shipping(),
@@ -489,10 +489,19 @@ export class CheckoutComponent implements OnInit {
         isDefault: false,
       },
       paymentSummary,
+      paymentMethod: paymentSummary.includes('PayPal') ? 'CreditCard' : 'CashOnDelivery'
+    }).subscribe({
+      next: (orderId) => {
+        this.cart.clear();
+        this.placing.set(false);
+        // Navigate using the first 8 characters of orderId as order number
+        this.router.navigate(['/checkout/success', orderId.substring(0, 8).toUpperCase()]);
+      },
+      error: () => {
+        this.placing.set(false);
+        this.toast.error('Failed to place order. Please try again.');
+      }
     });
-    this.cart.clear();
-    this.placing.set(false);
-    this.router.navigate(['/checkout/success', order.number]);
   }
 
   private defaultName(): string {

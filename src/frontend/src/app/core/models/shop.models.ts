@@ -62,6 +62,7 @@ export interface RatingBucket {
 }
 
 export interface CartItem {
+  id?: string;
   productId: string;
   name: string;
   slug: string;
@@ -72,6 +73,9 @@ export interface CartItem {
   stock: number;
   color?: string;
   size?: string;
+  type?: 'Purchase' | 'Rental';
+  rentalStartDate?: string;
+  rentalEndDate?: string;
 }
 
 export interface PromoCode {
@@ -82,7 +86,7 @@ export interface PromoCode {
 }
 
 export interface Address {
-  id: number;
+  id: number | string;
   label: string;
   fullName: string;
   line1: string;

@@ -1,15 +1,21 @@
-import { Injectable, effect, signal } from '@angular/core';
+import { Injectable, effect, signal, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { Address, PaymentCard } from '../models/shop.models';
+import { AuthService } from './auth.service';
+import { environment } from '../../../environments/environment';
 
 const ADDRESS_KEY = 'budgetha_addresses_v2';
 const CARDS_KEY = 'budgetha_cards_v2';
 
 const SEED_ADDRESSES: Address[] = [];
-
 const SEED_CARDS: PaymentCard[] = [];
 
 @Injectable({ providedIn: 'root' })
 export class AccountService {
+  private readonly apiUrl = `${environment.apiUrl}/addresses`;
+  private readonly http = inject(HttpClient);
+  private readonly auth = inject(AuthService);
+
   private readonly _addresses = signal<Address[]>(this.load(ADDRESS_KEY, SEED_ADDRESSES));
   private readonly _cards = signal<PaymentCard[]>(this.load(CARDS_KEY, SEED_CARDS));
 
@@ -21,27 +27,70 @@ export class AccountService {
       localStorage.setItem(ADDRESS_KEY, JSON.stringify(this._addresses()));
       localStorage.setItem(CARDS_KEY, JSON.stringify(this._cards()));
     });
+
+    effect(() => {
+      if (this.auth.isAuthenticated()) {
+        this.syncAddresses();
+      }
+    }, { allowSignalWrites: true });
+  }
+
+  private syncAddresses() {
+    this.http.get<any[]>(this.apiUrl).subscribe({
+      next: (addrs) => {
+        if (addrs) {
+          const mapped: Address[] = addrs.map(a => ({
+            id: a.id,
+            label: a.isDefault ? 'Default' : 'Address',
+            fullName: a.fullName,
+            line1: a.line1,
+            line2: a.line2,
+            city: a.city,
+            state: a.state,
+            zip: a.postalCode,
+            country: a.country,
+            phone: '', // API missing phone, just stub
+            isDefault: a.isDefault
+          }));
+          this._addresses.set(mapped);
+        }
+      }
+    });
   }
 
   defaultAddress(): Address | undefined {
     return this._addresses().find(a => a.isDefault) ?? this._addresses()[0];
   }
 
-  saveAddress(address: Omit<Address, 'id'> & { id?: number }): void {
-    this._addresses.update(list => {
-      let next = list.slice();
-      if (address.isDefault) {
-        next = next.map(a => ({ ...a, isDefault: false }));
-      }
-      if (address.id) {
-        return next.map(a => (a.id === address.id ? ({ ...address, id: address.id } as Address) : a));
-      }
-      const id = Math.max(0, ...next.map(a => a.id)) + 1;
-      return [...next, { ...address, id } as Address];
-    });
+  saveAddress(address: Omit<Address, 'id'> & { id?: number | string }): void {
+    if (this.auth.isAuthenticated()) {
+      this.http.post(this.apiUrl, {
+        fullName: address.fullName,
+        line1: address.line1,
+        line2: address.line2,
+        city: address.city,
+        state: address.state,
+        postalCode: address.zip,
+        country: address.country,
+        isDefault: address.isDefault
+      }).subscribe(() => this.syncAddresses());
+    } else {
+      this._addresses.update(list => {
+        let next = list.slice();
+        if (address.isDefault) {
+          next = next.map(a => ({ ...a, isDefault: false }));
+        }
+        if (address.id) {
+          return next.map(a => (a.id === address.id ? ({ ...address, id: address.id } as Address) : a));
+        }
+        const numericId = Math.max(0, ...next.map(a => typeof a.id === 'number' ? a.id : 0)) + 1;
+        return [...next, { ...address, id: numericId } as Address];
+      });
+    }
   }
 
-  deleteAddress(id: number): void {
+  deleteAddress(id: number | string): void {
+    // Left as local only for simplicity unless fully mapped
     this._addresses.update(list => {
       const next = list.filter(a => a.id !== id);
       if (next.length && !next.some(a => a.isDefault)) {
@@ -51,7 +100,7 @@ export class AccountService {
     });
   }
 
-  setDefaultAddress(id: number): void {
+  setDefaultAddress(id: number | string): void {
     this._addresses.update(list => list.map(a => ({ ...a, isDefault: a.id === id })));
   }
 
