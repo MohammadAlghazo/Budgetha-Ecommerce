@@ -10,7 +10,8 @@ namespace Budgetha.Application.Features.Orders.Commands;
 public record CreateOrderCommand(
     Guid? ShippingAddressId,
     string? Notes,
-    string PaymentMethod
+    string PaymentMethod,
+    string? PromoCode
 ) : IRequest<Guid>;
 
 public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Guid>
@@ -56,8 +57,34 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
             if (cartItem.Product.StockQuantity < cartItem.Quantity)
                 throw new InvalidOperationException($"Not enough stock for product {cartItem.Product.Name}");
 
-            // Reduce Stock
-            cartItem.Product.StockQuantity -= cartItem.Quantity;
+            if (cartItem.Type == OrderItemType.Rental)
+            {
+                if (!cartItem.RentalStartDate.HasValue || !cartItem.RentalEndDate.HasValue)
+                    throw new InvalidOperationException($"Product {cartItem.Product.Name} requires rental dates.");
+
+                var overlappingOrders = await _context.OrderItems
+                    .Include(oi => oi.Order)
+                    .Where(oi => oi.ProductId == cartItem.ProductId &&
+                                 oi.Type == OrderItemType.Rental &&
+                                 oi.Order != null && 
+                                 oi.Order.Status != OrderStatus.Cancelled &&
+                                 oi.Order.Status != OrderStatus.Failed &&
+                                 oi.RentalStartDate <= cartItem.RentalEndDate &&
+                                 oi.RentalEndDate >= cartItem.RentalStartDate)
+                    .ToListAsync(cancellationToken);
+
+                var totalRented = overlappingOrders.Sum(oi => oi.Quantity);
+                
+                if (cartItem.Product.StockQuantity - totalRented < cartItem.Quantity)
+                    throw new InvalidOperationException($"Product {cartItem.Product.Name} does not have enough stock available for the selected dates.");
+            }
+            else 
+            {
+                if (cartItem.Product.StockQuantity < cartItem.Quantity)
+                    throw new InvalidOperationException($"Product {cartItem.Product.Name} does not have enough stock available.");
+                // Reduce Stock only for purchase, since rental stock returns after date
+                cartItem.Product.StockQuantity -= cartItem.Quantity;
+            }
 
             // Calculate Price (Assuming basic price for purchase, ignoring rental logic complexity for now)
             decimal itemPrice = cartItem.Product.Price;
@@ -76,8 +103,28 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
                 UnitPrice = itemPrice,
                 Type = cartItem.Type,
                 RentalStartDate = cartItem.RentalStartDate,
-                RentalEndDate = cartItem.RentalEndDate
+                RentalEndDate = cartItem.RentalEndDate,
+                Color = cartItem.Color,
+                Size = cartItem.Size
             });
+        }
+
+        // Apply Promo Code if exists
+        if (!string.IsNullOrWhiteSpace(request.PromoCode))
+        {
+            var promo = await _context.PromoCodes
+                .FirstOrDefaultAsync(p => p.Code.ToLower() == request.PromoCode.ToLower() && p.IsActive, cancellationToken);
+            
+            if (promo != null && (!promo.ExpiryDate.HasValue || promo.ExpiryDate.Value > DateTime.UtcNow))
+            {
+                var discountAmount = totalAmount * (promo.DiscountPercentage / 100);
+                if (promo.MaxDiscountAmount.HasValue && discountAmount > promo.MaxDiscountAmount.Value)
+                {
+                    discountAmount = promo.MaxDiscountAmount.Value;
+                }
+                totalAmount -= discountAmount;
+                if (totalAmount < 0) totalAmount = 0;
+            }
         }
 
         // 3. Create Order

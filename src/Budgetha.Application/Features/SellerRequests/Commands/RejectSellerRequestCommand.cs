@@ -9,10 +9,12 @@ public record RejectSellerRequestCommand(Guid RequestId) : IRequest<bool>;
 public class RejectSellerRequestCommandHandler : IRequestHandler<RejectSellerRequestCommand, bool>
 {
     private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
 
-    public RejectSellerRequestCommandHandler(IApplicationDbContext context)
+    public RejectSellerRequestCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
     {
         _context = context;
+        _currentUserService = currentUserService;
     }
 
     public async Task<bool> Handle(RejectSellerRequestCommand request, CancellationToken cancellationToken)
@@ -24,6 +26,16 @@ public class RejectSellerRequestCommandHandler : IRequestHandler<RejectSellerReq
             return false;
 
         sellerRequest.Status = "Rejected";
+
+        var verification = await _context.SellerVerifications
+            .FirstOrDefaultAsync(v => v.UserId == sellerRequest.UserId && v.Status == Budgetha.Domain.Enums.VerificationStatus.Pending, cancellationToken);
+            
+        if (verification != null)
+        {
+            verification.Status = Budgetha.Domain.Enums.VerificationStatus.Rejected;
+            verification.ReviewedBy = _currentUserService.UserId;
+            verification.RejectionReason = "Seller request was rejected by admin.";
+        }
 
         await _context.SaveChangesAsync(cancellationToken);
         return true;

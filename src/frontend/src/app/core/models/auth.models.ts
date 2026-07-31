@@ -31,4 +31,5 @@ export interface AuthResponse {
   firstName: string;
   lastName: string;
   roles: string[];
+  refreshToken?: string;
 }

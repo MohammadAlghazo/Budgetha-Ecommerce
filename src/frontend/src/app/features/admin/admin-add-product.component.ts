@@ -124,6 +124,37 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
             }
           </div>
 
+          <!-- Variants & Features -->
+          <div class="space-y-6">
+            <h3 class="text-base font-semibold text-slate-900 border-b border-slate-100 pb-2">Variants & Specifications</h3>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div class="space-y-2">
+                <label for="colors" class="block text-sm font-semibold text-slate-700">Colors <span class="text-xs text-slate-500 font-normal">(Comma separated)</span></label>
+                <input type="text" id="colors" formControlName="colors" placeholder="e.g. Red, Blue, Black"
+                       class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400">
+              </div>
+
+              <div class="space-y-2">
+                <label for="sizes" class="block text-sm font-semibold text-slate-700">Sizes <span class="text-xs text-slate-500 font-normal">(Comma separated)</span></label>
+                <input type="text" id="sizes" formControlName="sizes" placeholder="e.g. S, M, L, XL"
+                       class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400">
+              </div>
+
+              <div class="space-y-2">
+                <label for="features" class="block text-sm font-semibold text-slate-700">Key Features <span class="text-xs text-slate-500 font-normal">(One per line)</span></label>
+                <textarea id="features" formControlName="features" rows="4" placeholder="e.g. Noise Cancelling&#10;Waterproof IP68"
+                          class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 resize-none"></textarea>
+              </div>
+
+              <div class="space-y-2">
+                <label for="specs" class="block text-sm font-semibold text-slate-700">Specifications <span class="text-xs text-slate-500 font-normal">(Key: Value per line)</span></label>
+                <textarea id="specs" formControlName="specs" rows="4" placeholder="e.g. Weight: 200g&#10;Battery Life: 24h"
+                          class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 resize-none"></textarea>
+              </div>
+            </div>
+          </div>
+
           <!-- Product Images -->
           <div class="space-y-6">
             <div class="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -251,7 +282,11 @@ export class AdminAddProductComponent implements OnInit {
     stockQuantity: [null as number | null, [Validators.required, Validators.min(0)]],
     categoryId: ['', [Validators.required]],
     isAvailableForRent: [false],
-    rentalPricePerDay: [null as number | null]
+    rentalPricePerDay: [null as number | null],
+    colors: [''],
+    sizes: [''],
+    features: [''],
+    specs: ['']
   });
 
   ngOnInit() {
@@ -281,7 +316,11 @@ export class AdminAddProductComponent implements OnInit {
           stockQuantity: product.stock,
           categoryId: product.categoryId,
           isAvailableForRent: product.isAvailableForRent,
-          rentalPricePerDay: product.rentalPricePerDay
+          rentalPricePerDay: product.rentalPricePerDay,
+          colors: product.colors ? product.colors.map((c: any) => c.name).join(', ') : '',
+          sizes: product.sizes ? product.sizes.map((s: any) => s.name).join(', ') : '',
+          features: product.features ? product.features.map((f: any) => f.value).join('\n') : '',
+          specs: product.specs ? product.specs.map((s: any) => `${s.key}: ${s.value}`).join('\n') : ''
         });
         if (product.images) {
           this.uploadedImages.set(product.images);
@@ -436,6 +475,20 @@ export class AdminAddProductComponent implements OnInit {
 
     const categoryId = val.categoryId || '00000000-0000-0000-0000-000000000001';
 
+    // Parse Variants
+    const colors = val.colors ? val.colors.split(',').map((c: string) => c.trim()).filter((c: string) => c.length > 0) : [];
+    const sizes = val.sizes ? val.sizes.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0) : [];
+    const features = val.features ? val.features.split('\n').map((f: string) => f.trim()).filter((f: string) => f.length > 0) : [];
+    const specsDict: { [key: string]: string } = {};
+    if (val.specs) {
+      val.specs.split('\n').forEach((line: string) => {
+        const parts = line.split(':');
+        if (parts.length === 2) {
+          specsDict[parts[0].trim()] = parts[1].trim();
+        }
+      });
+    }
+
     const payload = {
       name: val.name,
       brand: val.brand,
@@ -446,7 +499,11 @@ export class AdminAddProductComponent implements OnInit {
       categoryId: categoryId,
       imageUrls: this.uploadedImages(),
       isAvailableForRent: val.isAvailableForRent,
-      rentalPricePerDay: val.rentalPricePerDay
+      rentalPricePerDay: val.rentalPricePerDay,
+      colors: colors.length > 0 ? colors : null,
+      sizes: sizes.length > 0 ? sizes : null,
+      features: features.length > 0 ? features : null,
+      specs: Object.keys(specsDict).length > 0 ? specsDict : null
     };
 
     if (this.isEditMode() && this.editProductId()) {

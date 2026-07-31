@@ -1,5 +1,6 @@
 import { Injectable, computed, effect, signal, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
 import { CartItem, Product, PromoCode } from '../models/shop.models';
 import { ToastService } from './toast.service';
 import { AuthService } from './auth.service';
@@ -225,14 +226,27 @@ export class CartService {
     }
   }
 
-  applyPromo(code: string): boolean {
-    const promo = PROMO_CODES.find(p => p.code === code.trim().toUpperCase());
-    if (promo) {
-      this._promo.set(promo);
-      this.toast.success(`Promo applied — ${promo.description}`);
-      return true;
-    }
-    return false;
+  applyPromo(code: string): Observable<boolean> {
+    return new Observable<boolean>(subscriber => {
+      this.http.get<any>(`${environment.apiUrl}/PromoCodes/${code}`).subscribe({
+        next: (promo) => {
+          this._promo.set({
+            code: promo.code,
+            type: 'percent',
+            value: promo.discountPercentage,
+            description: `${promo.discountPercentage}% off your order`
+          });
+          this.toast.success(`Promo applied — ${promo.discountPercentage}% off`);
+          subscriber.next(true);
+          subscriber.complete();
+        },
+        error: () => {
+          this.toast.error('Invalid or expired promo code');
+          subscriber.next(false);
+          subscriber.complete();
+        }
+      });
+    });
   }
 
   removePromo(): void {

@@ -42,6 +42,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<ProductSize> ProductSizes => Set<ProductSize>();
     public DbSet<ProductSpec> ProductSpecs => Set<ProductSpec>();
     public DbSet<ProductFeature> ProductFeatures => Set<ProductFeature>();
+    public DbSet<PromoCode> PromoCodes => Set<PromoCode>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

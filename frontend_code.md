@@ -13582,19 +13582,17 @@ export class CartService {
   }
 
   private pushLocalToBackend(localItems: CartItem[]) {
-    // Basic implementation: send first item then reload, etc.
-    // Realistically you'd chain them, but here we just add all.
-    localItems.forEach(item => {
-      this.http.post(`${this.apiUrl}/items`, {
-        productId: item.productId,
-        quantity: item.quantity,
-        type: item.type === 'Rental' ? 1 : 0,
-        rentalStartDate: item.rentalStartDate,
-        rentalEndDate: item.rentalEndDate
-      }).subscribe();
+    const items = localItems.map(item => ({
+      productId: item.productId,
+      quantity: item.quantity,
+      color: item.color,
+      size: item.size
+    }));
+
+    this.http.post(`${this.apiUrl}/sync`, { items }).subscribe({
+      next: () => this.syncWithBackend(),
+      error: (err) => console.error('Failed to bulk sync cart', err)
     });
-    // Wait a bit then sync again
-    setTimeout(() => this.syncWithBackend(), 1000);
   }
 
   add(product: Product, quantity = 1, color?: string, size?: string): void {
@@ -13775,6 +13773,116 @@ export class CloudinaryService {
 
 ``
 
+## src\app\core\services\notification.service.ts
+
+``typescript
+import { Injectable, effect } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { BehaviorSubject, Observable } from 'rxjs';
+import * as signalR from '@microsoft/signalr';
+import { environment } from '../../../environments/environment';
+import { AuthService } from './auth.service';
+
+export interface Notification {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  isRead: boolean;
+  relatedEntityId?: string;
+  createdAt: Date;
+}
+
+@Injectable({
+  providedIn: 'root'
+})
+export class NotificationService {
+  private hubConnection: signalR.HubConnection | undefined;
+  
+  private notificationsSubject = new BehaviorSubject<Notification[]>([]);
+  public notifications$ = this.notificationsSubject.asObservable();
+  
+  private unreadCountSubject = new BehaviorSubject<number>(0);
+  public unreadCount$ = this.unreadCountSubject.asObservable();
+
+  private readonly apiUrl = `${environment.apiUrl}/api/notifications`;
+
+  constructor(private http: HttpClient, private authService: AuthService) {
+    effect(() => {
+      const user = this.authService.user();
+      if (user) {
+        this.loadInitialData();
+        this.startConnection();
+      } else {
+        this.stopConnection();
+        this.notificationsSubject.next([]);
+        this.unreadCountSubject.next(0);
+      }
+    });
+  }
+
+  private loadInitialData() {
+    this.http.get<Notification[]>(`${this.apiUrl}?limit=20`).subscribe(notifications => {
+      this.notificationsSubject.next(notifications);
+    });
+
+    this.http.get<{ count: number }>(`${this.apiUrl}/unread-count`).subscribe(res => {
+      this.unreadCountSubject.next(res.count);
+    });
+  }
+
+  private startConnection() {
+    const token = this.authService.getToken();
+    if (!token) return;
+
+    this.hubConnection = new signalR.HubConnectionBuilder()
+      .withUrl(`${environment.apiUrl}/hubs/notifications`, {
+        accessTokenFactory: () => token
+      })
+      .withAutomaticReconnect()
+      .build();
+
+    this.hubConnection
+      .start()
+      .then(() => console.log('Notification Hub Connection started'))
+      .catch(err => console.error('Error while starting connection: ' + err));
+
+    this.hubConnection.on('ReceiveNotification', (notification: Notification) => {
+      // Add new notification to the top of the list
+      const current = this.notificationsSubject.value;
+      this.notificationsSubject.next([notification, ...current]);
+      
+      // Increment unread count
+      this.unreadCountSubject.next(this.unreadCountSubject.value + 1);
+      
+      // You can also add Toastr or Snack-bar notification here
+    });
+  }
+
+  private stopConnection() {
+    if (this.hubConnection) {
+      this.hubConnection.stop();
+      this.hubConnection = undefined;
+    }
+  }
+
+  public markAsRead(id: string) {
+    return this.http.put(`${this.apiUrl}/${id}/read`, {}).subscribe(() => {
+      const current = this.notificationsSubject.value;
+      const updated = current.map(n => {
+        if (n.id === id && !n.isRead) {
+          n.isRead = true;
+          this.unreadCountSubject.next(Math.max(0, this.unreadCountSubject.value - 1));
+        }
+        return n;
+      });
+      this.notificationsSubject.next(updated);
+    });
+  }
+}
+
+``
+
 ## src\app\core\services\order.service.ts
 
 ``typescript
@@ -13853,6 +13961,14 @@ export class OrderService {
         this._orders.update(orders => [...orders, order]);
       })
     );
+  }
+
+  createPayPalOrder(orderId: string): Observable<{ id: string }> {
+    return this.http.post<{ id: string }>(`${this.apiUrl}/${orderId}/create-paypal-order`, {});
+  }
+
+  capturePayPalOrder(orderId: string, paypalOrderId: string): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/${orderId}/capture-paypal-order`, { paypalOrderId });
   }
 }
 
@@ -13939,14 +14055,16 @@ export class ProductService {
     );
   }
 
-  priceBounds(): Observable<{ min: number; max: number }> {
-    return this.getAll().pipe(
-      map(items => {
-        if (!items || items.length === 0) {
-          return { min: 0, max: 1000 };
-        }
-        const prices = items.map(p => p.price);
-        return { min: Math.floor(Math.min(...prices)), max: Math.ceil(Math.max(...prices)) };
+  priceBounds(categoryId?: string, searchTerm?: string): Observable<{ min: number; max: number }> {
+    let qs = new URLSearchParams();
+    if (categoryId) qs.set('categoryId', categoryId);
+    if (searchTerm) qs.set('searchTerm', searchTerm);
+    
+    return this.http.get<{minPrice: number, maxPrice: number}>(`${this.apiUrl}/products/price-bounds?${qs.toString()}`).pipe(
+      map(res => ({ min: Math.floor(res.minPrice), max: Math.ceil(res.maxPrice) })),
+      catchError(err => {
+        console.error('Failed to fetch price bounds', err);
+        return of({ min: 0, max: 1000 });
       })
     );
   }
@@ -14614,7 +14732,7 @@ export class AccountAddressesComponent {
   }
 
   startEdit(address: Address): void {
-    this.editingId.set(address.id);
+    this.editingId.set(address.id as any);
     this.submitted.set(false);
     this.form.patchValue({ ...address, line2: address.line2 ?? '' });
     this.formVisible.set(true);
@@ -20443,42 +20561,54 @@ export class CheckoutComponent implements OnInit {
     this.payPalConfig = {
       currency: 'USD',
       clientId: 'sb', 
-      createOrderOnClient: (data) => <ICreateOrderRequest>{
-        intent: 'CAPTURE',
-        purchase_units: [
-          {
-            amount: {
-              currency_code: 'USD',
-              value: this.cart.total().toFixed(2),
-              breakdown: {
-                item_total: {
-                  currency_code: 'USD',
-                  value: this.cart.subtotal().toFixed(2)
-                },
-                tax_total: {
-                  currency_code: 'USD',
-                  value: this.cart.tax().toFixed(2)
-                },
-                shipping: {
-                  currency_code: 'USD',
-                  value: this.cart.shipping().toFixed(2)
-                },
-                discount: {
-                  currency_code: 'USD',
-                  value: this.cart.discount().toFixed(2)
-                }
-              }
-            },
-            items: this.cart.items().map(i => ({
-              name: i.name,
-              quantity: i.quantity.toString(),
-              unit_amount: {
-                currency_code: 'USD',
-                value: i.price.toFixed(2),
-              },
-            }))
+      createOrderOnServer: (data) => {
+        // Place the Budgetha order first
+        return new Promise<string>((resolve, reject) => {
+          this.submitted.set(true);
+          if (this.form.invalid) {
+            this.form.markAllAsTouched();
+            this.toast.error('Please complete your delivery address first.');
+            reject('Invalid form');
+            return;
           }
-        ]
+
+          const v = this.form.getRawValue();
+          this.orders.placeOrder({
+            items: this.cart.items(),
+            subtotal: this.cart.subtotal(),
+            shipping: this.cart.shipping(),
+            tax: this.cart.tax(),
+            discount: this.cart.discount(),
+            total: this.cart.total(),
+            address: {
+              id: 0,
+              label: 'Shipping',
+              fullName: v.fullName!,
+              line1: v.line1!,
+              line2: v.line2 || undefined,
+              city: v.city!,
+              state: v.state!,
+              zip: v.zip!,
+              country: v.country!,
+              phone: v.phone!,
+              isDefault: false,
+            },
+            paymentSummary: 'PayPal',
+            paymentMethod: 'CreditCard'
+          }).subscribe({
+            next: (orderId) => {
+              // Now create the PayPal order on backend
+              this.orders.createPayPalOrder(orderId).subscribe({
+                next: (res) => {
+                  (window as any)._currentBudgethaOrderId = orderId; // Store temporarily for capture
+                  resolve(res.id);
+                },
+                error: (err) => reject(err)
+              });
+            },
+            error: (err) => reject(err)
+          });
+        });
       },
       advanced: {
         commit: 'true'
@@ -20488,15 +20618,21 @@ export class CheckoutComponent implements OnInit {
         layout: 'vertical'
       },
       onApprove: (data, actions) => {
-        
         this.placing.set(true);
-        actions.order.get().then((details: any) => {
-          
-        });
-      },
-      onClientAuthorization: (data) => {
-        
-        this.completeOrder('PayPal Transaction ID: ' + data.id);
+        const orderId = (window as any)._currentBudgethaOrderId;
+        if (orderId) {
+          this.orders.capturePayPalOrder(orderId, data.orderID).subscribe({
+            next: () => {
+              this.cart.clear();
+              this.placing.set(false);
+              this.router.navigate(['/checkout/success', orderId.substring(0, 8).toUpperCase()]);
+            },
+            error: () => {
+              this.placing.set(false);
+              this.toast.error('Failed to capture PayPal payment.');
+            }
+          });
+        }
       },
       onCancel: (data, actions) => {
         this.placing.set(false);
@@ -20506,17 +20642,7 @@ export class CheckoutComponent implements OnInit {
         this.placing.set(false);
         this.toast.error('An error occurred during PayPal payment');
         console.log('PayPal Error', err);
-      },
-      onClick: (data, actions) => {
-        
-        this.submitted.set(true);
-        if (this.form.invalid) {
-          this.form.markAllAsTouched();
-          this.toast.error('Please complete your delivery address first.');
-          
-          
-        }
-      },
+      }
     };
   }
 
@@ -21178,7 +21304,7 @@ type Tab = 'description' | 'specs' | 'reviews';
             </div>
 
             <!-- Color swatches -->
-            @if (p.colors?.length) {
+            @if (p.colors.length) {
               <div class="mt-6">
                 <span class="text-sm font-semibold text-slate-900">
                   Color: <span class="font-normal text-slate-500">{{ selectedColor() }}</span>
@@ -22099,13 +22225,14 @@ import { PwaService } from '../../core/services/pwa.service';
 import { ToastService } from '../../core/services/toast.service';
 import { InstallButtonComponent } from '../../shared/components/install-button/install-button.component';
 import { AnnouncementService, Announcement } from '../../core/services/announcement.service';
+import { NotificationService } from '../../core/services/notification.service';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
-
+import { DatePipe } from '@angular/common';
 
 @Component({
   selector: 'app-header',
-  imports: [RouterLink, RouterLinkActive, FormsModule, InstallButtonComponent],
+  imports: [RouterLink, RouterLinkActive, FormsModule, InstallButtonComponent, DatePipe],
   template: `
     <!-- Announcement bar -->
     @if (announcement()) {
@@ -22205,6 +22332,66 @@ import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
                 </span>
               }
             </button>
+
+            <!-- Notifications -->
+            @if (auth.isAuthenticated()) {
+              <div class="relative">
+                <button type="button" (click)="toggleNotificationMenu($event)" aria-label="Notifications" class="icon-btn h-10 w-10 relative">
+                  <svg class="w-[22px] h-[22px]" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+                  </svg>
+                  @if (notificationCount() > 0) {
+                    <span class="absolute top-0 right-0.5 h-3 min-w-3 px-1 rounded-full bg-red-500 border border-white text-white text-[9px] font-bold flex items-center justify-center">
+                    </span>
+                  }
+                </button>
+                
+                @if (notificationMenuOpen()) {
+                  <div class="absolute right-0 mt-2 w-80 card bg-white shadow-xl shadow-slate-200/80 animate-[menuIn_0.15s_ease-out] z-50 overflow-hidden" (click)="$event.stopPropagation()">
+                    <div class="px-4 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                      <span class="text-sm font-semibold text-slate-800">Notifications</span>
+                      @if (notificationCount() > 0) {
+                        <span class="text-xs bg-teal-100 text-teal-800 px-2 py-0.5 rounded-full font-medium">{{ notificationCount() }} New</span>
+                      }
+                    </div>
+                    <div class="max-h-80 overflow-y-auto">
+                      @if (notifications().length === 0) {
+                        <div class="p-6 text-center text-slate-500 text-sm">
+                          <p>You have no notifications yet.</p>
+                        </div>
+                      } @else {
+                        @for (notif of notifications(); track notif.id) {
+                          <div (click)="markNotificationAsRead(notif.id)" class="p-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors duration-150" [class.bg-teal-50]="!notif.isRead">
+                            <div class="flex gap-3">
+                              <div class="mt-0.5">
+                                @if (notif.type === 'Order') {
+                                  <div class="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path></svg>
+                                  </div>
+                                } @else if (notif.type === 'Sale') {
+                                  <div class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                  </div>
+                                } @else {
+                                  <div class="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                  </div>
+                                }
+                              </div>
+                              <div>
+                                <p class="text-sm font-medium text-slate-800" [class.font-bold]="!notif.isRead">{{ notif.title }}</p>
+                                <p class="text-xs text-slate-500 mt-0.5 line-clamp-2">{{ notif.message }}</p>
+                                <p class="text-[10px] text-slate-400 mt-1">{{ notif.createdAt | date:'short' }}</p>
+                              </div>
+                            </div>
+                          </div>
+                        }
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+            }
 
             <!-- User menu -->
             @if (auth.isAuthenticated()) {
@@ -22337,11 +22524,17 @@ export class HeaderComponent implements OnInit {
   readonly announcement = signal<Announcement | null>(null);
   readonly mobileMenuOpen = signal(false);
   readonly userMenuOpen = signal(false);
+  readonly notificationMenuOpen = signal(false);
   searchTerm = '';
   private searchSubject = new Subject<string>();
 
   readonly cartCount = this.cart.count;
   readonly wishlistCount = this.wishlist.count;
+  readonly notificationService = inject(NotificationService);
+  
+  // Use toSignal to convert Observables to signals (requires import from @angular/core/rxjs-interop if not present, but we'll use subscribe for simplicity or stick to standard)
+  notifications = signal<any[]>([]);
+  notificationCount = signal<number>(0);
 
   readonly navLinks = [
     { label: 'Home', path: '/', query: {}, exact: true },
@@ -22374,16 +22567,36 @@ export class HeaderComponent implements OnInit {
     ).subscribe(term => {
       this.router.navigate(['/shop'], { queryParams: { search: term || null } });
     });
+
+    this.notificationService.notifications$.subscribe(data => {
+      this.notifications.set(data);
+    });
+
+    this.notificationService.unreadCount$.subscribe(count => {
+      this.notificationCount.set(count);
+    });
   }
 
   @HostListener('document:click')
   closeMenus(): void {
     this.userMenuOpen.set(false);
+    this.notificationMenuOpen.set(false);
   }
 
   toggleUserMenu(event: Event): void {
     event.stopPropagation();
+    this.notificationMenuOpen.set(false);
     this.userMenuOpen.update(v => !v);
+  }
+
+  toggleNotificationMenu(event: Event): void {
+    event.stopPropagation();
+    this.userMenuOpen.set(false);
+    this.notificationMenuOpen.update(v => !v);
+  }
+
+  markNotificationAsRead(id: string): void {
+    this.notificationService.markAsRead(id);
   }
 
   onSearchChange(term: string): void {

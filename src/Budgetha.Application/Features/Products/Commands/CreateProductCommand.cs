@@ -18,7 +18,11 @@ public record CreateProductCommand(
     decimal? RentalPricePerDay,
     string SellerId,
     string Brand,
-    decimal? OriginalPrice
+    decimal? OriginalPrice,
+    List<string>? Colors = null,
+    List<string>? Sizes = null,
+    Dictionary<string, string>? Specs = null,
+    List<string>? Features = null
 ) : IRequest<Guid>;
 
 public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand, Guid>
@@ -79,6 +83,30 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
                     Url = url,
                     DisplayOrder = order++
                 });
+            }
+        }
+
+        if (request.Colors != null)
+        {
+            foreach (var color in request.Colors) product.Colors.Add(new ProductColor { Name = color });
+        }
+        if (request.Sizes != null)
+        {
+            foreach (var size in request.Sizes) product.Sizes.Add(new ProductSize { Name = size });
+        }
+        if (request.Features != null && request.Features.Any())
+        {
+            foreach (var feature in request.Features)
+            {
+                product.Features.Add(new ProductFeature { Description = feature });
+            }
+        }
+
+        if (request.Specs != null && request.Specs.Any())
+        {
+            foreach (var spec in request.Specs)
+            {
+                product.Specs.Add(new ProductSpec { Label = spec.Key, Value = spec.Value });
             }
         }
 

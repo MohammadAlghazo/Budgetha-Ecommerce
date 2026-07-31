@@ -35,23 +35,28 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
             _context.Carts.Add(cart);
         }
 
-        // Clear existing items
-        if (cart.Items.Any())
-        {
-            _context.CartItems.RemoveRange(cart.Items);
-            cart.Items.Clear();
-        }
-
-        // Add new items
+        // Merge items instead of clearing
         foreach (var itemDto in request.Items)
         {
-            cart.Items.Add(new CartItem
+            var existingItem = cart.Items.FirstOrDefault(i => 
+                i.ProductId == itemDto.ProductId && 
+                i.Color == itemDto.Color && 
+                i.Size == itemDto.Size);
+
+            if (existingItem != null)
             {
-                ProductId = itemDto.ProductId,
-                Quantity = itemDto.Quantity,
-                Color = itemDto.Color,
-                Size = itemDto.Size
-            });
+                existingItem.Quantity += itemDto.Quantity;
+            }
+            else
+            {
+                cart.Items.Add(new CartItem
+                {
+                    ProductId = itemDto.ProductId,
+                    Quantity = itemDto.Quantity,
+                    Color = itemDto.Color,
+                    Size = itemDto.Size
+                });
+            }
         }
 
         await _context.SaveChangesAsync(cancellationToken);

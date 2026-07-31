@@ -116,12 +116,30 @@ import { ToastService } from '../../core/services/toast.service';
               <p class="text-sm text-slate-500 mt-1">Want to sell your own products? Apply for a seller account today and reach thousands of customers.</p>
               
               @if (isRequestingSeller()) {
-                <div class="mt-4 space-y-3">
-                  <textarea [(ngModel)]="sellerRequestReason" rows="3" placeholder="Tell us briefly about what you plan to sell..."
-                            class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 resize-none text-sm"></textarea>
-                  <div class="flex items-center gap-3">
-                    <button type="button" (click)="submitSellerRequest()" [disabled]="submittingSellerRequest()"
-                            class="btn-primary py-2 px-5 text-sm">
+                <div class="mt-4 space-y-4">
+                  <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Business Name *</label>
+                    <input type="text" [(ngModel)]="sellerBusinessName" placeholder="Enter your business name"
+                           class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 text-sm">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Business Description</label>
+                    <textarea [(ngModel)]="sellerRequestReason" rows="3" placeholder="Tell us briefly about what you plan to sell..."
+                              class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 resize-none text-sm"></textarea>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Commercial Register / Identity Document</label>
+                    <input type="file" (change)="onSellerDocumentSelected($event)" accept="image/jpeg,image/png,application/pdf"
+                           class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-all">
+                    @if (sellerDocumentUrl()) {
+                      <p class="text-xs text-emerald-600 mt-2 font-medium">Document uploaded successfully!</p>
+                    } @else if (uploadingDocument()) {
+                      <p class="text-xs text-slate-500 mt-2">Uploading...</p>
+                    }
+                  </div>
+                  <div class="flex items-center gap-3 pt-2">
+                    <button type="button" (click)="submitSellerRequest()" [disabled]="submittingSellerRequest() || !sellerBusinessName"
+                            class="btn-primary py-2 px-5 text-sm disabled:opacity-50">
                       {{ submittingSellerRequest() ? 'Submitting...' : 'Submit Request' }}
                     </button>
                     <button type="button" (click)="isRequestingSeller.set(false)" class="text-sm font-medium text-slate-500 hover:text-slate-700">Cancel</button>
@@ -182,7 +200,12 @@ export class AccountSettingsComponent implements OnInit {
   readonly isSeller = signal(false);
   readonly sellerRequestStatus = signal<'None' | 'Pending' | 'Rejected'>('None');
   readonly isRequestingSeller = signal(false);
+  
+  sellerBusinessName = '';
   sellerRequestReason = '';
+  readonly sellerDocumentUrl = signal<string | null>(null);
+  readonly uploadingDocument = signal(false);
+  
   readonly submittingSellerRequest = signal(false);
 
   ngOnInit() {
@@ -194,9 +217,36 @@ export class AccountSettingsComponent implements OnInit {
     this.isSeller.set(roles.includes('Seller'));
   }
 
+  onSellerDocumentSelected(event: any) {
+    const file = event.target.files[0];
+    if (file) {
+      this.uploadingDocument.set(true);
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      this.http.post<{ url: string }>(`${environment.apiUrl}/images`, formData).subscribe({
+        next: (res) => {
+          this.sellerDocumentUrl.set(res.url);
+          this.uploadingDocument.set(false);
+        },
+        error: () => {
+          this.toast.error('Failed to upload document.');
+          this.uploadingDocument.set(false);
+        }
+      });
+    }
+  }
+
   submitSellerRequest() {
     this.submittingSellerRequest.set(true);
-    this.http.post(`${environment.apiUrl}/sellerrequests`, { reason: this.sellerRequestReason }).subscribe({
+    const payload = {
+      reason: this.sellerRequestReason,
+      businessName: this.sellerBusinessName,
+      businessDescription: this.sellerRequestReason,
+      documentUrl: this.sellerDocumentUrl()
+    };
+    
+    this.http.post(`${environment.apiUrl}/sellerrequests`, payload).subscribe({
       next: () => {
         this.toast.success('Your request to become a seller has been submitted!');
         this.sellerRequestStatus.set('Pending');

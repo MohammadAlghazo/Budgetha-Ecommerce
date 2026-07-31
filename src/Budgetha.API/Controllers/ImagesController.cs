@@ -22,6 +22,14 @@ public class ImagesController : ControllerBase
     {
         if (file == null || file.Length == 0)
             return BadRequest("No file was uploaded.");
+            
+        // Max size 5MB
+        if (file.Length > 5 * 1024 * 1024)
+            return BadRequest("File size exceeds 5MB limit.");
+            
+        var allowedMimeTypes = new[] { "image/jpeg", "image/png", "image/webp", "application/pdf" };
+        if (!allowedMimeTypes.Contains(file.ContentType.ToLowerInvariant()))
+            return BadRequest("Invalid file type.");
 
         using var stream = file.OpenReadStream();
         var result = await _imageService.UploadImageAsync(stream, file.FileName);

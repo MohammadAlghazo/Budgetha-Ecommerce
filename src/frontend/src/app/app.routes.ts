@@ -21,6 +21,7 @@ export const routes: Routes = [
       { path: 'categories', loadComponent: () => import('./features/admin/admin-categories.component').then(m => m.AdminCategoriesComponent) },
       { path: 'seller-requests', loadComponent: () => import('./features/admin/admin-seller-requests.component').then(m => m.AdminSellerRequestsComponent) },
       { path: 'announcements', loadComponent: () => import('./features/admin/admin-announcements.component').then(m => m.AdminAnnouncementsComponent) },
+      { path: 'orders', loadComponent: () => import('./features/admin/admin-orders.component').then(m => m.AdminOrdersComponent) },
       { path: 'logs', loadComponent: () => import('./features/admin/admin-logs.component').then(m => m.AdminLogsComponent) }
     ]
   },
@@ -125,6 +126,11 @@ export const routes: Routes = [
             path: 'settings',
             title: 'Account settings · Budgetha',
             loadComponent: () => import('./features/account/account-settings.component').then(m => m.AccountSettingsComponent),
+          },
+          {
+            path: 'support',
+            title: 'Support Tickets · Budgetha',
+            loadComponent: () => import('./features/account/account-support.component').then(m => m.AccountSupportComponent),
           },
           
           

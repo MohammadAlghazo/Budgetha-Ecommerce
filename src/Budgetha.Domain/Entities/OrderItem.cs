@@ -16,4 +16,6 @@ public class OrderItem : BaseEntity
     public OrderItemType Type { get; set; } = OrderItemType.Purchase;
     public DateOnly? RentalStartDate { get; set; }
     public DateOnly? RentalEndDate { get; set; }
+    public string? Color { get; set; }
+    public string? Size { get; set; }
 }

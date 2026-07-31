@@ -43,11 +43,23 @@ public class AdminService : IAdminService
                 FirstName = u.FirstName,
                 LastName = u.LastName,
                 CreatedAt = u.Created,
-                IsBanned = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow,
-                Roles = _context.UserRoles.Where(ur => ur.UserId == u.Id)
-                    .Join(_context.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => r.Name).ToList()
+                IsBanned = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow
             })
             .ToListAsync();
+
+        var userIds = users.Select(u => u.Id).ToList();
+        var userRoles = await _context.UserRoles
+            .Where(ur => userIds.Contains(ur.UserId))
+            .Join(_context.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => new { ur.UserId, RoleName = r.Name })
+            .ToListAsync();
+
+        var roleLookup = userRoles.GroupBy(ur => ur.UserId)
+            .ToDictionary(g => g.Key, g => g.Select(ur => ur.RoleName).ToList());
+
+        foreach (var user in users)
+        {
+            user.Roles = roleLookup.ContainsKey(user.Id) ? roleLookup[user.Id]! : new List<string>();
+        }
 
         return new PagedResult<AdminUserDto>
         {
@@ -90,11 +102,23 @@ public class AdminService : IAdminService
                 FirstName = u.FirstName,
                 LastName = u.LastName,
                 CreatedAt = u.Created,
-                IsBanned = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow,
-                Roles = _context.UserRoles.Where(ur => ur.UserId == u.Id)
-                    .Join(_context.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => r.Name).ToList()
+                IsBanned = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow
             })
             .ToListAsync();
+
+        var userIds = users.Select(u => u.Id).ToList();
+        var userRoles = await _context.UserRoles
+            .Where(ur => userIds.Contains(ur.UserId))
+            .Join(_context.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => new { ur.UserId, RoleName = r.Name })
+            .ToListAsync();
+
+        var roleLookup = userRoles.GroupBy(ur => ur.UserId)
+            .ToDictionary(g => g.Key, g => g.Select(ur => ur.RoleName).ToList());
+
+        foreach (var user in users)
+        {
+            user.Roles = roleLookup.ContainsKey(user.Id) ? roleLookup[user.Id]! : new List<string>();
+        }
 
         return users;
     }

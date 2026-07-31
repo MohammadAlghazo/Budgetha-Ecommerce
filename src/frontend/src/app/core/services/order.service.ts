@@ -17,6 +17,7 @@ export interface PlaceOrderInput {
   notes?: string;
   shippingAddressId?: string; // UUID from backend if we use saved address
   paymentMethod: string;
+  promoCode?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -43,7 +44,8 @@ export class OrderService {
     return this.http.post<string>(this.apiUrl, {
       shippingAddressId: input.shippingAddressId || null,
       notes: input.notes || '',
-      paymentMethod: input.paymentMethod
+      paymentMethod: input.paymentMethod,
+      promoCode: input.promoCode || null
     }).pipe(
       tap(orderId => {
         // Construct a mock local order or refresh history

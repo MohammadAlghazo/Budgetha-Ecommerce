@@ -383,7 +383,8 @@ export class CheckoutComponent implements OnInit {
               isDefault: false,
             },
             paymentSummary: 'PayPal',
-            paymentMethod: 'CreditCard'
+            paymentMethod: 'CreditCard',
+            promoCode: this.cart.promo()?.code
           }).subscribe({
             next: (orderId) => {
               // Now create the PayPal order on backend
@@ -497,7 +498,8 @@ export class CheckoutComponent implements OnInit {
         isDefault: false,
       },
       paymentSummary,
-      paymentMethod: paymentSummary.includes('PayPal') ? 'CreditCard' : 'CashOnDelivery'
+      paymentMethod: paymentSummary.includes('PayPal') ? 'CreditCard' : 'CashOnDelivery',
+      promoCode: this.cart.promo()?.code
     }).subscribe({
       next: (orderId) => {
         this.cart.clear();

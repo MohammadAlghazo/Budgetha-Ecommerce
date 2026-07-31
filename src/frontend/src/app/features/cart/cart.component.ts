@@ -197,8 +197,9 @@ export class CartComponent {
   applyPromo(event: Event): void {
     event.preventDefault();
     if (!this.promoInput.trim()) return;
-    const ok = this.cart.applyPromo(this.promoInput);
-    this.promoError.set(!ok);
-    if (ok) this.promoInput = '';
+    this.cart.applyPromo(this.promoInput).subscribe(ok => {
+      this.promoError.set(!ok);
+      if (ok) this.promoInput = '';
+    });
   }
 }

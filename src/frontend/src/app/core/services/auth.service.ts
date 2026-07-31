@@ -74,6 +74,12 @@ export class AuthService {
     this.router.navigate(['/auth/login']);
   }
 
+  refreshToken(token: string, refreshToken: string): Observable<AuthResponse> {
+    return this.http.post<AuthResponse>(`${this.apiUrl}/refresh`, { token, refreshToken }).pipe(
+      tap(response => this.handleAuth(response))
+    );
+  }
+
   
   clearSession(): void {
     try {

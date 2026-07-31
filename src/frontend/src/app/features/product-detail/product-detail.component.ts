@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal, OnDestroy } from '@angular/core';
 import { CurrencyPipe, DatePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Title, Meta } from '@angular/platform-browser';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../core/services/product.service';
 import { CartService } from '../../core/services/cart.service';
@@ -430,6 +431,8 @@ export class ProductDetailComponent implements OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly toastService = inject(ToastService);
+  private readonly titleService = inject(Title);
+  private readonly metaService = inject(Meta);
 
   readonly product = signal<Product | undefined>(undefined);
   readonly confirmDeleteReviewId = signal<string | number | null>(null);
@@ -524,6 +527,14 @@ export class ProductDetailComponent implements OnDestroy {
           window.scrollTo({ top: 0 });
 
           if (product) {
+            this.titleService.setTitle(`${product.name} - Budgetha`);
+            this.metaService.updateTag({ name: 'description', content: product.shortDescription || product.description.substring(0, 160) });
+            this.metaService.updateTag({ property: 'og:title', content: product.name });
+            this.metaService.updateTag({ property: 'og:description', content: product.shortDescription || product.description.substring(0, 160) });
+            if (product.images?.length > 0) {
+              this.metaService.updateTag({ property: 'og:image', content: product.images[0] });
+            }
+
             this.productService.getRelated(product).subscribe(related => {
               this.relatedProducts.set(related);
             });

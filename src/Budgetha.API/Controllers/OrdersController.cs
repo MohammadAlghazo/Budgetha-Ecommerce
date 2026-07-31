@@ -59,6 +59,28 @@ public class OrdersController : ControllerBase
             
         return Ok();
     }
+
+    [HttpGet("all")]
+    [Authorize(Roles = "Seller,Admin,SuperAdmin")]
+    public async Task<ActionResult<List<Budgetha.Application.Features.Orders.Queries.AdminOrderDto>>> GetAllOrders()
+    {
+        var result = await _mediator.Send(new Budgetha.Application.Features.Orders.Queries.GetAdminOrdersQuery());
+        return Ok(result);
+    }
+
+    [HttpPut("{id:guid}/status")]
+    [Authorize(Roles = "Seller,Admin,SuperAdmin")]
+    public async Task<ActionResult> UpdateStatus(Guid id, [FromBody] UpdateOrderStatusRequest request)
+    {
+        var success = await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.UpdateOrderStatusCommand(id, request.Status));
+        if (!success) return BadRequest("Failed to update status.");
+        return Ok();
+    }
+}
+
+public class UpdateOrderStatusRequest
+{
+    public Budgetha.Domain.Enums.OrderStatus Status { get; set; }
 }
 
 public class CapturePayPalOrderRequest

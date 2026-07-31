@@ -10,11 +10,13 @@ public class ApproveSellerRequestCommandHandler : IRequestHandler<ApproveSellerR
 {
     private readonly IApplicationDbContext _context;
     private readonly IIdentityService _identityService;
+    private readonly ICurrentUserService _currentUserService;
 
-    public ApproveSellerRequestCommandHandler(IApplicationDbContext context, IIdentityService identityService)
+    public ApproveSellerRequestCommandHandler(IApplicationDbContext context, IIdentityService identityService, ICurrentUserService currentUserService)
     {
         _context = context;
         _identityService = identityService;
+        _currentUserService = currentUserService;
     }
 
     public async Task<bool> Handle(ApproveSellerRequestCommand request, CancellationToken cancellationToken)
@@ -26,6 +28,15 @@ public class ApproveSellerRequestCommandHandler : IRequestHandler<ApproveSellerR
             return false;
 
         sellerRequest.Status = "Approved";
+        
+        var verification = await _context.SellerVerifications
+            .FirstOrDefaultAsync(v => v.UserId == sellerRequest.UserId && v.Status == Budgetha.Domain.Enums.VerificationStatus.Pending, cancellationToken);
+            
+        if (verification != null)
+        {
+            verification.Status = Budgetha.Domain.Enums.VerificationStatus.Approved;
+            verification.ReviewedBy = _currentUserService.UserId;
+        }
         
         await _identityService.AssignRoleAsync(sellerRequest.UserId, "Seller");
 

@@ -27,6 +27,7 @@ public interface IApplicationDbContext
     DbSet<ProductSize> ProductSizes { get; }
     DbSet<ProductSpec> ProductSpecs { get; }
     DbSet<ProductFeature> ProductFeatures { get; }
+    DbSet<PromoCode> PromoCodes { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }

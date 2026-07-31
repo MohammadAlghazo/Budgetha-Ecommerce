@@ -8,6 +8,9 @@ namespace Budgetha.Application.Features.SellerRequests.Commands;
 public record SubmitSellerRequestCommand : IRequest<Guid>
 {
     public string Reason { get; init; } = string.Empty;
+    public string BusinessName { get; init; } = string.Empty;
+    public string BusinessDescription { get; init; } = string.Empty;
+    public string? DocumentUrl { get; init; }
 }
 
 public class SubmitSellerRequestCommandHandler : IRequestHandler<SubmitSellerRequestCommand, Guid>
@@ -40,8 +43,18 @@ public class SubmitSellerRequestCommandHandler : IRequestHandler<SubmitSellerReq
             Status = "Pending",
             Reason = request.Reason
         };
-
         _context.SellerRequests.Add(sellerRequest);
+
+        var verification = new SellerVerification
+        {
+            UserId = userId,
+            BusinessName = string.IsNullOrWhiteSpace(request.BusinessName) ? "Unknown" : request.BusinessName,
+            BusinessDescription = request.BusinessDescription,
+            DocumentUrl = request.DocumentUrl,
+            Status = Budgetha.Domain.Enums.VerificationStatus.Pending
+        };
+        _context.SellerVerifications.Add(verification);
+
         await _context.SaveChangesAsync(cancellationToken);
 
         return sellerRequest.Id;
