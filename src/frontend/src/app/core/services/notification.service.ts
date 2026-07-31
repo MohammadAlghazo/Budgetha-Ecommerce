@@ -57,9 +57,10 @@ export class NotificationService {
     const token = this.authService.getToken();
     if (!token) return;
 
+    this.stopConnection();
     this.hubConnection = new signalR.HubConnectionBuilder()
       .withUrl(`${environment.hubUrl}/notifications`, {
-        accessTokenFactory: () => token
+        accessTokenFactory: () => this.authService.getToken() ?? ''
       })
       .withAutomaticReconnect()
       .build();

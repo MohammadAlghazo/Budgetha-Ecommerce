@@ -70,7 +70,7 @@ public class GetProductBySlugQueryHandler : IRequestHandler<GetProductBySlugQuer
             Images = imageUrls.Distinct().ToList(),
             ImageDetails = p.Images
                 .OrderBy(image => image.DisplayOrder)
-                .Select(image => new ProductImageDto { Url = image.Url, PublicId = image.PublicId })
+                .Select(image => new ProductImageDto { Url = image.Url })
                 .ToList(),
             Colors = p.Variants.Where(v => v.IsActive && v.Color != null)
                 .Select(v => v.Color!).Distinct()

@@ -1,5 +1,6 @@
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Application.Features.Orders.DTOs;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -84,6 +85,7 @@ public class GetTransactionHistoryQueryHandler : IRequestHandler<GetTransactionH
                 .ThenInclude(o => o.User)
                 .Include(i => i.Product)
                 .Where(i => i.Product.SellerId == currentUserId)
+                .Where(i => i.Order.Status != OrderStatus.Cancelled && i.Order.Status != OrderStatus.Failed)
                 .Where(i => !request.StartDate.HasValue || i.Order.Created >= request.StartDate.Value)
                 .Where(i => !request.EndDate.HasValue || i.Order.Created <= request.EndDate.Value)
                 .ToListAsync(cancellationToken);
@@ -93,7 +95,7 @@ public class GetTransactionHistoryQueryHandler : IRequestHandler<GetTransactionH
             foreach (var group in groupedSales)
             {
                 var order = group.Key;
-                var sellerTotalAmount = group.Sum(i => i.UnitPrice * i.Quantity);
+                var sellerTotalAmount = group.Sum(i => i.UnitPrice * i.Quantity - i.DiscountAmount);
 
                 var dto = new TransactionHistoryDto
                 {

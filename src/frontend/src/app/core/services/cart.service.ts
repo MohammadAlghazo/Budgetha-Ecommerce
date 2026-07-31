@@ -24,6 +24,7 @@ export class CartService {
   private readonly _items = signal<CartItem[]>(this.load());
   private readonly _promo = signal<PromoCode | null>(this.loadPromo());
   private readonly _drawerOpen = signal(false);
+  private authenticatedCartLoaded = false;
 
   readonly items = this._items.asReadonly();
   readonly promo = this._promo.asReadonly();
@@ -33,7 +34,7 @@ export class CartService {
   readonly subtotal = computed(() => this._items().reduce((sum, i) => sum + i.price * i.quantity, 0));
   readonly discount = computed(() => {
     const promo = this._promo();
-    if (!promo || promo.type !== 'percent') return 0;
+    if (!promo || promo.type !== 'percent' || promo.scope === 'Seller') return 0;
     const percentageDiscount = (this.subtotal() * promo.value) / 100;
     return promo.maxDiscountAmount == null
       ? percentageDiscount
@@ -44,7 +45,9 @@ export class CartService {
 
   constructor() {
     effect(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this._items()));
+      if (!this.auth.isAuthenticated() && !this.authenticatedCartLoaded) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(this._items()));
+      }
       const promo = this._promo();
       if (promo) {
         localStorage.setItem(PROMO_KEY, JSON.stringify(promo));
@@ -55,14 +58,22 @@ export class CartService {
 
     effect(() => {
       if (this.auth.isAuthenticated()) {
-        this.syncWithBackend();
+        if (!this.authenticatedCartLoaded) {
+          this.authenticatedCartLoaded = true;
+          this.mergeGuestCartIntoBackend();
+        }
       } else {
+        this.authenticatedCartLoaded = false;
         this._items.set(this.load());
       }
     }, { allowSignalWrites: true });
   }
 
   private syncWithBackend() {
+    this.fetchFromBackend();
+  }
+
+  private mergeGuestCartIntoBackend() {
     const localItems = this.load();
     if (localItems.length > 0) {
       this.pushLocalToBackend(localItems);
@@ -118,7 +129,10 @@ export class CartService {
         localStorage.removeItem(STORAGE_KEY);
         this.fetchFromBackend();
       },
-      error: (err) => console.error('Failed to bulk sync cart', err)
+      error: (err) => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(localItems));
+        console.error('Failed to bulk sync cart', err);
+      }
     });
   }
 
@@ -160,7 +174,7 @@ export class CartService {
         size
       }).subscribe({
         next: () => {
-          this.syncWithBackend();
+          this.fetchFromBackend();
           this.toast.success(`${product.name} added to cart`);
         },
         error: () => this.toast.error('Failed to add to cart')
@@ -213,7 +227,7 @@ export class CartService {
         itemId: item.id,
         quantity: quantity
       }).subscribe({
-        next: () => this.syncWithBackend(),
+        next: () => this.fetchFromBackend(),
         error: () => this.toast.error('Failed to update quantity')
       });
     } else {
@@ -232,7 +246,7 @@ export class CartService {
     if (this.auth.isAuthenticated() && item.id) {
       this.http.delete(`${this.apiUrl}/items/${item.id}`).subscribe({
         next: () => {
-          this.syncWithBackend();
+          this.fetchFromBackend();
           this.toast.success('Item removed');
         },
         error: () => this.toast.error('Failed to remove item')
@@ -274,7 +288,9 @@ export class CartService {
             description: promo.maxDiscountAmount == null
               ? `${promo.discountPercentage}% off your order`
               : `${promo.discountPercentage}% off, up to $${Number(promo.maxDiscountAmount).toFixed(2)}`,
-            maxDiscountAmount: promo.maxDiscountAmount ?? undefined
+            maxDiscountAmount: promo.maxDiscountAmount ?? undefined,
+            scope: promo.scope ?? 'Platform',
+            sellerId: promo.sellerId ?? undefined
           });
           this.toast.success(`Promo applied — ${promo.discountPercentage}% off`);
           subscriber.next(true);

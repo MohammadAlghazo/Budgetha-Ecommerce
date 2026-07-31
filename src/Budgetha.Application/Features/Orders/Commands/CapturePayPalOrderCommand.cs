@@ -52,19 +52,34 @@ public class CapturePayPalOrderCommandHandler : IRequestHandler<CapturePayPalOrd
         if (order.ReservationExpiresAt <= DateTimeOffset.UtcNow)
             throw new InvalidOperationException("The stock reservation has expired.");
 
-        var result = await _paymentService.CapturePayPalOrderAsync(
-            request.PayPalOrderId,
-            payment.Amount,
-            payment.Currency,
-            cancellationToken);
+        payment.Status = PaymentStatus.Processing;
+        await _context.SaveChangesAsync(cancellationToken);
+
+        PayPalCaptureResult result;
+        try
+        {
+            result = await _paymentService.CapturePayPalOrderAsync(
+                request.PayPalOrderId,
+                payment.Amount,
+                payment.Currency,
+                cancellationToken);
+        }
+        catch
+        {
+            throw new InvalidOperationException(
+                "PayPal capture status is being reconciled. Do not retry or cancel this order until its status is updated.");
+        }
         if (!result.IsValid || result.OrderId != payment.ExternalTransactionId || string.IsNullOrWhiteSpace(result.CaptureId))
-            return false;
+        {
+            throw new InvalidOperationException(
+                "PayPal capture status is being reconciled. Do not retry or cancel this order until its status is updated.");
+        }
 
         payment.Status = PaymentStatus.Completed;
-        payment.ExternalCaptureId = result.CaptureId;
-        order.Status = OrderStatus.Processing;
-        order.ReservationExpiresAt = null;
-        RemoveUnchangedOrderItemsFromCart(order);
+            payment.ExternalCaptureId = result.CaptureId;
+            order.Status = OrderStatus.Processing;
+            order.ReservationExpiresAt = null;
+            RemoveUnchangedOrderItemsFromCart(order);
 
         try
         {
@@ -72,6 +87,11 @@ public class CapturePayPalOrderCommandHandler : IRequestHandler<CapturePayPalOrd
         }
         catch (DbUpdateConcurrencyException)
         {
+            var completedByWebhook = await _context.Payments.AsNoTracking()
+                .AnyAsync(candidate => candidate.Id == payment.Id && candidate.Status == PaymentStatus.Completed &&
+                                       candidate.ExternalCaptureId == result.CaptureId, cancellationToken);
+            if (completedByWebhook) return true;
+
             throw new InvalidOperationException("The order changed while payment was being captured. PayPal payment may require reconciliation.");
         }
 

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Domain.Enums;
+using Budgetha.Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -49,11 +50,13 @@ public class WebhooksController : ControllerBase
 
             var payment = await _context.Payments
                 .Include(p => p.Order)
+                .ThenInclude(o => o.Items)
                 .FirstOrDefaultAsync(p => p.ExternalTransactionId == paypalOrderId, cancellationToken);
             if (payment == null)
                 return Ok();
 
-            if (payment.Provider != PaymentProvider.PayPal || payment.Status != PaymentStatus.Pending ||
+            if (payment.Provider != PaymentProvider.PayPal ||
+                payment.Status is not (PaymentStatus.Pending or PaymentStatus.Processing) ||
                 payment.Order?.Status != OrderStatus.Pending)
                 return Ok();
 
@@ -77,6 +80,7 @@ public class WebhooksController : ControllerBase
             {
                 payment.Order.Status = OrderStatus.Processing;
                 payment.Order.ReservationExpiresAt = null;
+                RemoveUnchangedOrderItemsFromCart(payment.Order);
             }
 
             await _context.SaveChangesAsync(cancellationToken);
@@ -91,6 +95,27 @@ public class WebhooksController : ControllerBase
             // A duplicate delivery racing the first delivery is already safe to acknowledge.
             _logger.LogInformation("Concurrent PayPal webhook delivery acknowledged.");
             return Ok();
+        }
+    }
+
+    private void RemoveUnchangedOrderItemsFromCart(Order order)
+    {
+        var cartItems = _context.CartItems
+            .Where(item => item.Cart.UserId == order.UserId)
+            .ToList();
+
+        foreach (var orderItem in order.Items)
+        {
+            var cartItem = cartItems.FirstOrDefault(item =>
+                item.ProductId == orderItem.ProductId && item.VariantId == orderItem.VariantId &&
+                item.Quantity == orderItem.Quantity && item.Type == orderItem.Type &&
+                item.RentalStartDate == orderItem.RentalStartDate && item.RentalEndDate == orderItem.RentalEndDate &&
+                item.Color == orderItem.Color && item.Size == orderItem.Size);
+            if (cartItem != null)
+            {
+                _context.CartItems.Remove(cartItem);
+                cartItems.Remove(cartItem);
+            }
         }
     }
 }

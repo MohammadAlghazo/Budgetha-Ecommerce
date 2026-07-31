@@ -51,10 +51,12 @@ public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, boo
             order.Status == OrderStatus.Failed)
             return false;
 
-        if (order.Payment?.Status == PaymentStatus.Completed)
+        if (order.Payment?.Status is PaymentStatus.Completed or PaymentStatus.Processing)
             throw new InvalidOperationException("A paid order cannot be cancelled until a refund has been processed.");
 
         order.Status = OrderStatus.Cancelled;
+        if (order.Payment != null)
+            order.Payment.Status = PaymentStatus.Failed;
 
         // Purchase stock was reserved at order creation; rental stock was never decremented.
         foreach (var item in order.Items)

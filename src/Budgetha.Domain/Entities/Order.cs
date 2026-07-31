@@ -39,6 +39,6 @@ public class Order : BaseAuditableEntity
     public ICollection<OrderItem> Items { get; set; } = new List<OrderItem>();
     public Payment? Payment { get; set; }
 
-    [System.ComponentModel.DataAnnotations.Timestamp]
+    [System.ComponentModel.DataAnnotations.ConcurrencyCheck]
     public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 }

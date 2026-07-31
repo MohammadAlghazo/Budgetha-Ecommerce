@@ -76,4 +76,39 @@ internal static class InventoryRules
 
         return maximum;
     }
+
+    internal static async Task<int> GetMaximumFutureReservedQuantityAsync(
+        IApplicationDbContext context,
+        Guid productId,
+        Guid? variantId,
+        CancellationToken cancellationToken)
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var reservations = await context.OrderItems
+            .Where(item => item.ProductId == productId && item.VariantId == variantId &&
+                           item.Type == OrderItemType.Rental && item.RentalEndDate > today &&
+                           item.Order.Status != OrderStatus.Cancelled && item.Order.Status != OrderStatus.Failed &&
+                           (item.Order.ReservationExpiresAt == null || item.Order.ReservationExpiresAt > DateTimeOffset.UtcNow))
+            .Select(item => new { item.RentalStartDate, item.RentalEndDate, item.Quantity })
+            .ToListAsync(cancellationToken);
+
+        var current = 0;
+        var maximum = 0;
+        var events = reservations.SelectMany(item => new[]
+            {
+                new { Date = item.RentalStartDate!.Value < today ? today : item.RentalStartDate.Value, Delta = item.Quantity },
+                new { Date = item.RentalEndDate!.Value, Delta = -item.Quantity }
+            })
+            .GroupBy(entry => entry.Date)
+            .OrderBy(group => group.Key)
+            .Select(group => group.Sum(entry => entry.Delta));
+
+        foreach (var delta in events)
+        {
+            current += delta;
+            maximum = Math.Max(maximum, current);
+        }
+
+        return maximum;
+    }
 }

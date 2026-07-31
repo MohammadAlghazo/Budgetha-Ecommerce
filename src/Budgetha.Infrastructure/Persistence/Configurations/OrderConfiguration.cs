@@ -29,6 +29,7 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.ContactPhone).HasMaxLength(50).IsRequired();
         builder.Property(o => o.Notes).HasMaxLength(1000);
         builder.Property(o => o.Status).HasConversion<string>().HasMaxLength(50);
+        builder.Property(o => o.RowVersion).IsConcurrencyToken().ValueGeneratedNever();
 
         builder.HasIndex(o => o.Status);
         builder.HasIndex(o => o.ReservationExpiresAt);

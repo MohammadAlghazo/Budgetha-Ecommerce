@@ -30,6 +30,7 @@ public interface IApplicationDbContext
     DbSet<ProductFeature> ProductFeatures { get; }
     DbSet<PromoCode> PromoCodes { get; }
     DbSet<PendingImageUpload> PendingImageUploads { get; }
+    DbSet<PendingImageDeletion> PendingImageDeletions { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }

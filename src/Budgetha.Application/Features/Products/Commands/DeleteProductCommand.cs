@@ -1,4 +1,5 @@
 using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Entities;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,12 +10,9 @@ public record DeleteProductCommand(Guid Id, string UserId, bool IsSuperAdmin) : 
 public class DeleteProductCommandHandler : IRequestHandler<DeleteProductCommand, bool>
 {
     private readonly IApplicationDbContext _context;
-    private readonly IImageService _imageService;
-
-    public DeleteProductCommandHandler(IApplicationDbContext context, IImageService imageService)
+    public DeleteProductCommandHandler(IApplicationDbContext context)
     {
         _context = context;
-        _imageService = imageService;
     }
 
     public async Task<bool> Handle(DeleteProductCommand request, CancellationToken cancellationToken)
@@ -57,19 +55,10 @@ public class DeleteProductCommandHandler : IRequestHandler<DeleteProductCommand,
             _context.Products.Remove(product);
         }
 
-        await _context.SaveChangesAsync(cancellationToken);
-
         foreach (var publicId in publicIds)
-        {
-            try
-            {
-                await _imageService.DeleteImageAsync(publicId);
-            }
-            catch
-            {
-                // A cleanup failure must not invalidate the completed database transition.
-            }
-        }
+            _context.PendingImageDeletions.Add(new PendingImageDeletion { PublicId = publicId });
+
+        await _context.SaveChangesAsync(cancellationToken);
 
         return true;
     }

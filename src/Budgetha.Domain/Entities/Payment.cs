@@ -16,6 +16,6 @@ public class Payment : BaseAuditableEntity
     public string? ExternalCaptureId { get; set; }
     public string? LastWebhookEventId { get; set; }
 
-    [System.ComponentModel.DataAnnotations.Timestamp]
+    [System.ComponentModel.DataAnnotations.ConcurrencyCheck]
     public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 }

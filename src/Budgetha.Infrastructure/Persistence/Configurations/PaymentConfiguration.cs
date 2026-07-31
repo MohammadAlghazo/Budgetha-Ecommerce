@@ -15,6 +15,7 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         builder.Property(p => p.ExternalTransactionId).HasMaxLength(250);
         builder.Property(p => p.ExternalCaptureId).HasMaxLength(250);
         builder.Property(p => p.LastWebhookEventId).HasMaxLength(250);
+        builder.Property(p => p.RowVersion).IsConcurrencyToken().ValueGeneratedNever();
 
         builder.HasIndex(p => p.OrderId).IsUnique();
         builder.HasIndex(p => p.ExternalTransactionId).IsUnique();

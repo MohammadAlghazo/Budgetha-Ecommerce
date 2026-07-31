@@ -1,6 +1,7 @@
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Application.Features.Products.Queries;
 using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
 using Budgetha.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -143,11 +144,13 @@ public class AdminService : IAdminService
         
         var orderItems = await _context.OrderItems
             .Include(oi => oi.Product)
-            .Where(oi => oi.Product.SellerId == sellerId)
+            .Include(oi => oi.Order)
+            .Where(oi => oi.Product.SellerId == sellerId &&
+                         oi.Order.Status != OrderStatus.Cancelled && oi.Order.Status != OrderStatus.Failed)
             .ToListAsync();
 
         var totalSales = orderItems.Sum(oi => oi.Quantity);
-        var totalRevenue = orderItems.Sum(oi => oi.Quantity * oi.UnitPrice);
+        var totalRevenue = orderItems.Sum(oi => oi.Quantity * oi.UnitPrice - oi.DiscountAmount);
         var totalOrders = orderItems.Select(oi => oi.OrderId).Distinct().Count();
 
         return new SellerStatsDto

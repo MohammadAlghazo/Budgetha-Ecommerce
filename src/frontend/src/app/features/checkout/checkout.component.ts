@@ -12,6 +12,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
 import { NgxPayPalModule, IPayPalConfig, ICreateOrderRequest } from 'ngx-paypal';
 import { debounceTime, Observable, switchMap } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { environment } from '../../../environments/environment';
 
 type PaymentMethod = 'paypal' | 'cod';
 
@@ -400,7 +401,7 @@ export class CheckoutComponent implements OnInit {
   private initConfig(): void {
     this.payPalConfig = {
       currency: 'USD',
-      clientId: 'Adhr3wKyo-vITBWdrUb94-pNgeWVsSeVc9lsjlTP9nISPfq057uwt5ZACGZxot9nNbZzcpb7jxYNc2AQ', 
+      clientId: environment.payPalClientId,
       createOrderOnServer: (data) => {
         // Place the Budgetha order first
         return new Promise<string>((resolve, reject) => {
@@ -475,10 +476,19 @@ export class CheckoutComponent implements OnInit {
       },
       onCancel: (data, actions) => {
         this.placing.set(false);
+        const orderId = (window as any)._currentBudgethaOrderId as string | undefined;
+        if (orderId) {
+          this.orders.cancelOrder(orderId).subscribe({
+            next: () => delete (window as any)._currentBudgethaOrderId,
+            error: () => this.toast.error('Payment was cancelled, but the pending order could not be released yet.')
+          });
+        }
         this.toast.info('PayPal payment cancelled');
       },
       onError: err => {
         this.placing.set(false);
+        const orderId = (window as any)._currentBudgethaOrderId as string | undefined;
+        if (orderId) this.orders.cancelOrder(orderId).subscribe();
         this.toast.error('An error occurred during PayPal payment');
         console.log('PayPal Error', err);
       }

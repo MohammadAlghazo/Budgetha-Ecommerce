@@ -219,8 +219,12 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                 UPDATE "Orders" AS orders
                 SET "Subtotal" = orders."TotalAmount",
                     "Currency" = 'USD',
-                    "ContactEmail" = users."Email",
-                    "ContactPhone" = COALESCE(addresses."Phone", ''),
+                    "ContactEmail" = users."Email"
+                FROM "AspNetUsers" AS users
+                WHERE users."Id" = orders."UserId";
+
+                UPDATE "Orders" AS orders
+                SET "ContactPhone" = COALESCE(addresses."Phone", ''),
                     "ShippingFullName" = COALESCE(addresses."FullName", ''),
                     "ShippingPhone" = COALESCE(addresses."Phone", ''),
                     "ShippingLine1" = COALESCE(addresses."Line1", ''),
@@ -229,9 +233,8 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     "ShippingState" = COALESCE(addresses."State", ''),
                     "ShippingPostalCode" = COALESCE(addresses."PostalCode", ''),
                     "ShippingCountry" = COALESCE(addresses."Country", '')
-                FROM "AspNetUsers" AS users
-                LEFT JOIN "Addresses" AS addresses ON addresses."Id" = orders."ShippingAddressId"
-                WHERE users."Id" = orders."UserId";
+                FROM "Addresses" AS addresses
+                WHERE addresses."Id" = orders."ShippingAddressId";
                 """);
 
             migrationBuilder.CreateIndex(

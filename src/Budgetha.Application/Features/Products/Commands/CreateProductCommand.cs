@@ -41,6 +41,15 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
     public async Task<Guid> Handle(CreateProductCommand request, CancellationToken cancellationToken)
     {
         var images = request.Images ?? [];
+        if (images.Any(image => string.IsNullOrWhiteSpace(image.PublicId)))
+            throw new InvalidOperationException("Every new product image must be uploaded through the image service.");
+
+        var imagePublicIds = images.Select(image => image.PublicId!).Distinct().ToList();
+        var ownedUploads = await _context.PendingImageUploads
+            .CountAsync(upload => upload.UserId == request.SellerId && imagePublicIds.Contains(upload.PublicId), cancellationToken);
+        if (ownedUploads != imagePublicIds.Count)
+            throw new UnauthorizedAccessException("One or more product images are not owned by the current user.");
+
         ProductRules.Validate(request.Price, request.StockQuantity, request.OriginalPrice, request.IsAvailableForRent, request.RentalPricePerDay, request.Variants);
 
         var requestedSkus = (request.Variants ?? []).Select(variant => variant.SKU.Trim()).ToList();

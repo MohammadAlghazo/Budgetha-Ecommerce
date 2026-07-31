@@ -28,6 +28,7 @@ public class CreatePayPalOrderCommandHandler : IRequestHandler<CreatePayPalOrder
         if (string.IsNullOrEmpty(userId)) throw new UnauthorizedAccessException();
 
         var order = await _context.Orders
+            .Include(o => o.Payment)
             .FirstOrDefaultAsync(o => o.Id == request.OrderId && o.UserId == userId, cancellationToken);
 
         if (order == null) throw new NotFoundException(nameof(Order), request.OrderId);

@@ -56,12 +56,10 @@ public class NotificationService : INotificationService
 
                     var sendMethod = userProxy?.GetType().GetMethod("SendCoreAsync", new[] { typeof(string), typeof(object[]), typeof(System.Threading.CancellationToken) });
                     
-                    if (sendMethod != null)
-                    {
-                        var task = (Task)sendMethod.Invoke(userProxy, new object[] 
-                        { 
-                            "ReceiveNotification", 
-                            new object[] { new 
+                    if (sendMethod?.Invoke(userProxy, new object[]
+                        {
+                            "ReceiveNotification",
+                            new object[] { new
                             {
                                 id = notification.Id.ToString(),
                                 title = notification.Title,
@@ -70,14 +68,11 @@ public class NotificationService : INotificationService
                                 isRead = notification.IsRead,
                                 relatedEntityId = notification.RelatedEntityId,
                                 createdAt = notification.Created
-                            } }, 
-                            default(System.Threading.CancellationToken) 
-                        });
-                        
-                        if (task != null)
-                        {
-                            await task;
-                        }
+                            } },
+                            default(System.Threading.CancellationToken)
+                        }) is Task task)
+                    {
+                        await task;
                     }
                 }
             }

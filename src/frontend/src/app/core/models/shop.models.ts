@@ -104,6 +104,8 @@ export interface PromoCode {
   value: number;
   description: string;
   maxDiscountAmount?: number;
+  scope?: 'Platform' | 'Seller';
+  sellerId?: string;
 }
 
 export interface Address {

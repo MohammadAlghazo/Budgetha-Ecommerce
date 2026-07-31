@@ -98,6 +98,7 @@ public static class InfrastructureServiceRegistration
         services.AddHttpClient<IPaymentService, PaymentService>();
         services.AddHostedService<ExpiredPayPalReservationService>();
         services.AddHostedService<PendingImageCleanupService>();
+        services.AddHostedService<PendingImageDeletionService>();
 
         return services;
     }

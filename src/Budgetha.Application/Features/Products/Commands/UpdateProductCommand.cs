@@ -66,6 +66,31 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
             .FirstOrDefaultAsync(p => p.Id == request.Id, cancellationToken);
         if (product == null) return false;
 
+        var existingPublicIdsByUrl = product.Images
+            .Where(image => !string.IsNullOrWhiteSpace(image.PublicId))
+            .GroupBy(image => image.Url)
+            .ToDictionary(group => group.Key, group => group.First().PublicId!, StringComparer.Ordinal);
+        if (!string.IsNullOrWhiteSpace(product.ThumbnailUrl) && !string.IsNullOrWhiteSpace(product.ThumbnailPublicId))
+            existingPublicIdsByUrl[product.ThumbnailUrl] = product.ThumbnailPublicId;
+
+        images = images.Select(image => string.IsNullOrWhiteSpace(image.PublicId) && existingPublicIdsByUrl.TryGetValue(image.Url, out var existingPublicId)
+            ? image with { PublicId = existingPublicId }
+            : image).ToList();
+
+        var existingImageUrls = product.Images.Select(image => image.Url)
+            .Append(product.ThumbnailUrl)
+            .Where(url => !string.IsNullOrWhiteSpace(url))
+            .ToHashSet(StringComparer.Ordinal);
+        var newImages = images.Where(image => !existingImageUrls.Contains(image.Url)).ToList();
+        if (newImages.Any(image => string.IsNullOrWhiteSpace(image.PublicId)))
+            throw new InvalidOperationException("Every new product image must be uploaded through the image service.");
+
+        var newPublicIds = newImages.Select(image => image.PublicId!).Distinct().ToList();
+        var ownedUploads = await _context.PendingImageUploads
+            .CountAsync(upload => upload.UserId == request.UserId && newPublicIds.Contains(upload.PublicId), cancellationToken);
+        if (ownedUploads != newPublicIds.Count)
+            throw new UnauthorizedAccessException("One or more product images are not owned by the current user.");
+
         var roles = await _identityService.GetRolesAsync(request.UserId);
         var isAdmin = roles.Contains("Admin") || roles.Contains("SuperAdmin");
 
@@ -176,19 +201,11 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
             .ToListAsync(cancellationToken);
         _context.PendingImageUploads.RemoveRange(pendingUploads);
 
-        await _context.SaveChangesAsync(cancellationToken);
+        var deletedPublicIds = oldPublicIds.Where(publicId => !retainedPublicIds.Contains(publicId)).ToList();
+        foreach (var publicId in deletedPublicIds)
+            _context.PendingImageDeletions.Add(new PendingImageDeletion { PublicId = publicId });
 
-        foreach (var publicId in oldPublicIds.Where(publicId => !retainedPublicIds.Contains(publicId)))
-        {
-            try
-            {
-                await _imageService.DeleteImageAsync(publicId);
-            }
-            catch
-            {
-                // The database is authoritative; failed Cloudinary cleanup can be retried later.
-            }
-        }
+        await _context.SaveChangesAsync(cancellationToken);
 
         return true;
     }

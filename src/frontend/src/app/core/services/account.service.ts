@@ -152,6 +152,7 @@ export class AccountService {
         this.http.put(`${this.apiUrl}/${id}`, {
           id: address.id,
           fullName: address.fullName,
+          phone: address.phone,
           line1: address.line1,
           line2: address.line2,
           city: address.city,

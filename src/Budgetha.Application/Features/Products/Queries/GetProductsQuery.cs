@@ -126,7 +126,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
                      .ToList(),
             ImageDetails = p.Images!
                 .OrderBy(image => image.DisplayOrder)
-                .Select(image => new ProductImageDto { Url = image.Url, PublicId = image.PublicId })
+                .Select(image => new ProductImageDto { Url = image.Url })
                 .ToList()
         }).ToList();
 

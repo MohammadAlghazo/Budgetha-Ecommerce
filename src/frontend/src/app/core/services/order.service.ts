@@ -136,6 +136,10 @@ export class OrderService {
     return this.http.post<void>(`${this.apiUrl}/${orderId}/capture-paypal-order`, { paypalOrderId });
   }
 
+  cancelOrder(orderId: string): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/${orderId}/cancel`, {});
+  }
+
   private toOrder(response: CustomerOrderResponse): Order {
     const address = response.shippingAddress;
     return {

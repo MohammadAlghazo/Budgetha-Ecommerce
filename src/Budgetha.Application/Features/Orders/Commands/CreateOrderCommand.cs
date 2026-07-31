@@ -113,6 +113,10 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
             {
                 if (stock < cartItem.Quantity)
                     throw new InvalidOperationException($"Product {cartItem.Product.Name} does not have enough stock available.");
+                var futureReserved = await InventoryRules.GetMaximumFutureReservedQuantityAsync(
+                    _context, cartItem.ProductId, variant?.Id, cancellationToken);
+                if (stock - cartItem.Quantity < futureReserved)
+                    throw new InvalidOperationException($"Product {cartItem.Product.Name} has units reserved for upcoming rentals.");
                 if (variant != null)
                     variant.StockQuantity -= cartItem.Quantity;
                 else

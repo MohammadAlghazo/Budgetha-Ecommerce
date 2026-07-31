@@ -30,7 +30,9 @@ public class PromoCodesController : ControllerBase
         {
             promo.Code,
             promo.DiscountPercentage,
-            promo.MaxDiscountAmount
+            promo.MaxDiscountAmount,
+            promo.Scope,
+            promo.SellerId
         });
     }
 }

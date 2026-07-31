@@ -39,6 +39,6 @@ public class Product : BaseAuditableEntity
     public ICollection<ProductFeature> Features { get; set; } = new List<ProductFeature>();
     public ICollection<ProductVariant> Variants { get; set; } = new List<ProductVariant>();
 
-    [System.ComponentModel.DataAnnotations.Timestamp]
+    [System.ComponentModel.DataAnnotations.ConcurrencyCheck]
     public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 }

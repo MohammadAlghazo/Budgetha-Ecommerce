@@ -45,6 +45,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<ProductFeature> ProductFeatures => Set<ProductFeature>();
     public DbSet<PromoCode> PromoCodes => Set<PromoCode>();
     public DbSet<PendingImageUpload> PendingImageUploads => Set<PendingImageUpload>();
+    public DbSet<PendingImageDeletion> PendingImageDeletions => Set<PendingImageDeletion>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
