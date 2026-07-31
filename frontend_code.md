@@ -12005,6 +12005,7 @@ export const routes: Routes = [
       { path: 'categories', loadComponent: () => import('./features/admin/admin-categories.component').then(m => m.AdminCategoriesComponent) },
       { path: 'seller-requests', loadComponent: () => import('./features/admin/admin-seller-requests.component').then(m => m.AdminSellerRequestsComponent) },
       { path: 'announcements', loadComponent: () => import('./features/admin/admin-announcements.component').then(m => m.AdminAnnouncementsComponent) },
+      { path: 'orders', loadComponent: () => import('./features/admin/admin-orders.component').then(m => m.AdminOrdersComponent) },
       { path: 'logs', loadComponent: () => import('./features/admin/admin-logs.component').then(m => m.AdminLogsComponent) }
     ]
   },
@@ -12109,6 +12110,11 @@ export const routes: Routes = [
             path: 'settings',
             title: 'Account settings Â· Budgetha',
             loadComponent: () => import('./features/account/account-settings.component').then(m => m.AccountSettingsComponent),
+          },
+          {
+            path: 'support',
+            title: 'Support Tickets Â· Budgetha',
+            loadComponent: () => import('./features/account/account-support.component').then(m => m.AccountSupportComponent),
           },
           
           
@@ -12424,10 +12430,13 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 import { HttpInterceptorFn, HttpErrorResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { catchError, throwError } from 'rxjs';
+import { catchError, switchMap, throwError, BehaviorSubject, filter, take } from 'rxjs';
 import { ToastService } from '../services/toast.service';
 import { AuthService } from '../services/auth.service';
+import { HttpClient } from '@angular/common/http';
 
+let isRefreshing = false;
+const refreshTokenSubject = new BehaviorSubject<any>(null);
 
 export const errorInterceptor: HttpInterceptorFn = (req, next) => {
   const toast = inject(ToastService);
@@ -12441,12 +12450,51 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
     catchError((error: HttpErrorResponse) => {
       const message = describe(error);
 
-      if (error.status === 401) {
-        auth.clearSession();
-        const current = router.url;
-        
-        const returnUrl = current.startsWith('/auth/') ? null : current;
-        router.navigate(['/auth/login'], { queryParams: { returnUrl } });
+      if (error.status === 401 && !req.url.includes('auth/login') && !req.url.includes('auth/refresh')) {
+        const token = auth.getToken();
+        const user = auth.user();
+        if (token && user?.refreshToken) {
+          if (!isRefreshing) {
+            isRefreshing = true;
+            refreshTokenSubject.next(null);
+
+            return auth.refreshToken(token, user.refreshToken).pipe(
+              switchMap((authResponse) => {
+                isRefreshing = false;
+                refreshTokenSubject.next(authResponse.token);
+                return next(req.clone({
+                  setHeaders: { Authorization: `Bearer ${authResponse.token}` }
+                }));
+              }),
+              catchError((err) => {
+                isRefreshing = false;
+                auth.clearSession();
+                router.navigate(['/auth/login'], { queryParams: { returnUrl: router.url } });
+                return throwError(() => err);
+              })
+            );
+          } else {
+            return refreshTokenSubject.pipe(
+              filter(token => token != null),
+              take(1),
+              switchMap(jwt => {
+                return next(req.clone({
+                  setHeaders: { Authorization: `Bearer ${jwt}` }
+                }));
+              })
+            );
+          }
+        } else {
+          auth.clearSession();
+          const current = router.url;
+          const returnUrl = current.startsWith('/auth/') ? null : current;
+          router.navigate(['/auth/login'], { queryParams: { returnUrl } });
+        }
+      } else if (error.status === 401) {
+          auth.clearSession();
+          const current = router.url;
+          const returnUrl = current.startsWith('/auth/') ? null : current;
+          router.navigate(['/auth/login'], { queryParams: { returnUrl } });
       }
 
       if (!silent) {
@@ -12821,6 +12869,7 @@ export interface AuthResponse {
   firstName: string;
   lastName: string;
   roles: string[];
+  refreshToken?: string;
 }
 
 ``
@@ -13411,6 +13460,12 @@ export class AuthService {
     this.router.navigate(['/auth/login']);
   }
 
+  refreshToken(token: string, refreshToken: string): Observable<AuthResponse> {
+    return this.http.post<AuthResponse>(`${this.apiUrl}/refresh`, { token, refreshToken }).pipe(
+      tap(response => this.handleAuth(response))
+    );
+  }
+
   
   clearSession(): void {
     try {
@@ -13476,6 +13531,7 @@ export class AuthService {
 ``typescript
 import { Injectable, computed, effect, signal, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
 import { CartItem, Product, PromoCode } from '../models/shop.models';
 import { ToastService } from './toast.service';
 import { AuthService } from './auth.service';
@@ -13701,14 +13757,27 @@ export class CartService {
     }
   }
 
-  applyPromo(code: string): boolean {
-    const promo = PROMO_CODES.find(p => p.code === code.trim().toUpperCase());
-    if (promo) {
-      this._promo.set(promo);
-      this.toast.success(`Promo applied â€” ${promo.description}`);
-      return true;
-    }
-    return false;
+  applyPromo(code: string): Observable<boolean> {
+    return new Observable<boolean>(subscriber => {
+      this.http.get<any>(`${environment.apiUrl}/PromoCodes/${code}`).subscribe({
+        next: (promo) => {
+          this._promo.set({
+            code: promo.code,
+            type: 'percent',
+            value: promo.discountPercentage,
+            description: `${promo.discountPercentage}% off your order`
+          });
+          this.toast.success(`Promo applied â€” ${promo.discountPercentage}% off`);
+          subscriber.next(true);
+          subscriber.complete();
+        },
+        error: () => {
+          this.toast.error('Invalid or expired promo code');
+          subscriber.next(false);
+          subscriber.complete();
+        }
+      });
+    });
   }
 
   removePromo(): void {
@@ -13905,6 +13974,7 @@ export interface PlaceOrderInput {
   notes?: string;
   shippingAddressId?: string; // UUID from backend if we use saved address
   paymentMethod: string;
+  promoCode?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -13931,7 +14001,8 @@ export class OrderService {
     return this.http.post<string>(this.apiUrl, {
       shippingAddressId: input.shippingAddressId || null,
       notes: input.notes || '',
-      paymentMethod: input.paymentMethod
+      paymentMethod: input.paymentMethod,
+      promoCode: input.promoCode || null
     }).pipe(
       tap(orderId => {
         // Construct a mock local order or refresh history
@@ -14857,6 +14928,11 @@ export class AccountLayoutComponent {
       path: '/account/settings',
       icon: 'M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.28zM15 12a3 3 0 11-6 0 3 3 0 016 0z',
     },
+    {
+      label: 'Support Tickets',
+      path: '/account/support',
+      icon: 'M11.412 15.655L9.75 21.75l3.745-4.012M9.257 13.5H3.75l2.659-2.849m2.048-2.194L14.628 2.25 12 10.5h8.25l-4.707 5.043M8.457 8.457L3 3m5.457 5.457l7.086 7.086m0 0L21 21',
+    },
   ];
 
   readonly fullName = computed(() => {
@@ -15176,12 +15252,30 @@ import { ToastService } from '../../core/services/toast.service';
               <p class="text-sm text-slate-500 mt-1">Want to sell your own products? Apply for a seller account today and reach thousands of customers.</p>
               
               @if (isRequestingSeller()) {
-                <div class="mt-4 space-y-3">
-                  <textarea [(ngModel)]="sellerRequestReason" rows="3" placeholder="Tell us briefly about what you plan to sell..."
-                            class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 resize-none text-sm"></textarea>
-                  <div class="flex items-center gap-3">
-                    <button type="button" (click)="submitSellerRequest()" [disabled]="submittingSellerRequest()"
-                            class="btn-primary py-2 px-5 text-sm">
+                <div class="mt-4 space-y-4">
+                  <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Business Name *</label>
+                    <input type="text" [(ngModel)]="sellerBusinessName" placeholder="Enter your business name"
+                           class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 text-sm">
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Business Description</label>
+                    <textarea [(ngModel)]="sellerRequestReason" rows="3" placeholder="Tell us briefly about what you plan to sell..."
+                              class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 resize-none text-sm"></textarea>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1.5">Commercial Register / Identity Document</label>
+                    <input type="file" (change)="onSellerDocumentSelected($event)" accept="image/jpeg,image/png,application/pdf"
+                           class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-all">
+                    @if (sellerDocumentUrl()) {
+                      <p class="text-xs text-emerald-600 mt-2 font-medium">Document uploaded successfully!</p>
+                    } @else if (uploadingDocument()) {
+                      <p class="text-xs text-slate-500 mt-2">Uploading...</p>
+                    }
+                  </div>
+                  <div class="flex items-center gap-3 pt-2">
+                    <button type="button" (click)="submitSellerRequest()" [disabled]="submittingSellerRequest() || !sellerBusinessName"
+                            class="btn-primary py-2 px-5 text-sm disabled:opacity-50">
                       {{ submittingSellerRequest() ? 'Submitting...' : 'Submit Request' }}
                     </button>
                     <button type="button" (click)="isRequestingSeller.set(false)" class="text-sm font-medium text-slate-500 hover:text-slate-700">Cancel</button>
@@ -15242,7 +15336,12 @@ export class AccountSettingsComponent implements OnInit {
   readonly isSeller = signal(false);
   readonly sellerRequestStatus = signal<'None' | 'Pending' | 'Rejected'>('None');
   readonly isRequestingSeller = signal(false);
+  
+  sellerBusinessName = '';
   sellerRequestReason = '';
+  readonly sellerDocumentUrl = signal<string | null>(null);
+  readonly uploadingDocument = signal(false);
+  
   readonly submittingSellerRequest = signal(false);
 
   ngOnInit() {
@@ -15254,9 +15353,36 @@ export class AccountSettingsComponent implements OnInit {
     this.isSeller.set(roles.includes('Seller'));
   }
 
+  onSellerDocumentSelected(event: any) {
+    const file = event.target.files[0];
+    if (file) {
+      this.uploadingDocument.set(true);
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      this.http.post<{ url: string }>(`${environment.apiUrl}/images`, formData).subscribe({
+        next: (res) => {
+          this.sellerDocumentUrl.set(res.url);
+          this.uploadingDocument.set(false);
+        },
+        error: () => {
+          this.toast.error('Failed to upload document.');
+          this.uploadingDocument.set(false);
+        }
+      });
+    }
+  }
+
   submitSellerRequest() {
     this.submittingSellerRequest.set(true);
-    this.http.post(`${environment.apiUrl}/sellerrequests`, { reason: this.sellerRequestReason }).subscribe({
+    const payload = {
+      reason: this.sellerRequestReason,
+      businessName: this.sellerBusinessName,
+      businessDescription: this.sellerRequestReason,
+      documentUrl: this.sellerDocumentUrl()
+    };
+    
+    this.http.post(`${environment.apiUrl}/sellerrequests`, payload).subscribe({
       next: () => {
         this.toast.success('Your request to become a seller has been submitted!');
         this.sellerRequestStatus.set('Pending');
@@ -15324,6 +15450,187 @@ export class AccountSettingsComponent implements OnInit {
 
   requestDelete(): void {
     this.toast.info('Account deletion requires email confirmation â€” check your inbox.');
+  }
+}
+
+``
+
+## src\app\features\account\account-support.component.ts
+
+``typescript
+import { Component, inject, signal, OnInit } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { DatePipe } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { environment } from '../../../environments/environment';
+import { ToastService } from '../../core/services/toast.service';
+
+@Component({
+  selector: 'app-account-support',
+  imports: [DatePipe, FormsModule],
+  template: `
+    <div class="space-y-6">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Support Tickets</h2>
+          <p class="text-sm text-slate-400 mt-0.5">Need help? Open a ticket to reach our support team.</p>
+        </div>
+        <button (click)="isCreating.set(true)" class="btn-primary py-2 px-4 text-sm">New Ticket</button>
+      </div>
+
+      @if (isCreating()) {
+        <div class="card p-6 border-indigo-100">
+          <h3 class="text-base font-bold text-slate-900 mb-4">Create a New Ticket</h3>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1.5">Subject</label>
+              <input type="text" [(ngModel)]="newSubject" placeholder="Brief description of the issue"
+                     class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 text-sm">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1.5">Message</label>
+              <textarea [(ngModel)]="newMessage" rows="4" placeholder="Provide details..."
+                        class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 resize-none text-sm"></textarea>
+            </div>
+            <div class="flex gap-3">
+              <button (click)="createTicket()" [disabled]="!newSubject || !newMessage" class="btn-primary py-2 px-5 text-sm disabled:opacity-50">Submit</button>
+              <button (click)="isCreating.set(false)" class="text-sm font-medium text-slate-500 hover:text-slate-700">Cancel</button>
+            </div>
+          </div>
+        </div>
+      }
+
+      <div class="grid gap-4 mt-6">
+        @if (tickets().length === 0 && !isCreating()) {
+          <div class="card p-12 text-center text-slate-500">
+            You don't have any open support tickets.
+          </div>
+        }
+        @for (ticket of tickets(); track ticket.id) {
+          <div class="card p-5 cursor-pointer hover:border-indigo-200 transition-colors" (click)="viewTicket(ticket.id)">
+            <div class="flex items-center justify-between">
+              <h3 class="font-bold text-slate-900">{{ ticket.subject }}</h3>
+              <span class="px-2 py-1 rounded text-xs font-semibold"
+                    [class.bg-emerald-100]="ticket.status === 'Open'"
+                    [class.text-emerald-700]="ticket.status === 'Open'"
+                    [class.bg-slate-100]="ticket.status !== 'Open'"
+                    [class.text-slate-700]="ticket.status !== 'Open'">
+                {{ ticket.status }}
+              </span>
+            </div>
+            <p class="text-xs text-slate-400 mt-2">Opened on {{ ticket.createdAt | date:'MMM d, y' }}</p>
+          </div>
+        }
+      </div>
+
+      <!-- Ticket Details Modal -->
+      @if (selectedTicket()) {
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" (click)="closeTicket()"></div>
+          
+          <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-[toastIn_0.2s_ease-out]">
+            <div class="p-5 flex items-center justify-between border-b border-slate-100">
+              <h3 class="text-lg font-bold text-slate-900">{{ selectedTicket().subject }}</h3>
+              <button (click)="closeTicket()" class="text-slate-400 hover:text-slate-600 transition-colors">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+            
+            <div class="p-5 overflow-y-auto flex-1 space-y-4 bg-slate-50">
+              @for (msg of selectedTicket().messages; track msg.id) {
+                <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="font-semibold text-sm text-slate-900">{{ msg.senderName }}</span>
+                    <span class="text-xs text-slate-400">{{ msg.sentAt | date:'MMM d, h:mm a' }}</span>
+                  </div>
+                  <p class="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{{ msg.body }}</p>
+                </div>
+              }
+            </div>
+            
+            @if (selectedTicket().status !== 'Closed') {
+              <div class="p-5 bg-white border-t border-slate-100">
+                <textarea [(ngModel)]="replyMessage" rows="3" placeholder="Type your reply..."
+                          class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 resize-none text-sm mb-3"></textarea>
+                <div class="flex justify-end">
+                  <button (click)="replyToTicket()" [disabled]="!replyMessage" class="btn-primary py-2 px-6 text-sm disabled:opacity-50">Reply</button>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  `
+})
+export class AccountSupportComponent implements OnInit {
+  private http = inject(HttpClient);
+  private toast = inject(ToastService);
+
+  tickets = signal<any[]>([]);
+  isCreating = signal(false);
+  newSubject = '';
+  newMessage = '';
+  
+  selectedTicket = signal<any>(null);
+  replyMessage = '';
+
+  ngOnInit() {
+    this.loadTickets();
+  }
+
+  loadTickets() {
+    this.http.get<any[]>(`${environment.apiUrl}/supporttickets`).subscribe({
+      next: (res) => this.tickets.set(res),
+      error: () => this.toast.error('Failed to load tickets.')
+    });
+  }
+
+  createTicket() {
+    if (!this.newSubject || !this.newMessage) return;
+    
+    this.http.post(`${environment.apiUrl}/supporttickets`, {
+      subject: this.newSubject,
+      message: this.newMessage
+    }).subscribe({
+      next: () => {
+        this.toast.success('Ticket created.');
+        this.isCreating.set(false);
+        this.newSubject = '';
+        this.newMessage = '';
+        this.loadTickets();
+      },
+      error: () => this.toast.error('Failed to create ticket.')
+    });
+  }
+
+  viewTicket(id: string) {
+    this.http.get<any>(`${environment.apiUrl}/supporttickets/${id}`).subscribe({
+      next: (res) => {
+        this.selectedTicket.set(res);
+        this.replyMessage = '';
+      },
+      error: () => this.toast.error('Failed to load ticket details.')
+    });
+  }
+
+  closeTicket() {
+    this.selectedTicket.set(null);
+  }
+
+  replyToTicket() {
+    if (!this.replyMessage) return;
+    const ticketId = this.selectedTicket().id;
+    
+    this.http.post(`${environment.apiUrl}/supporttickets/${ticketId}/reply`, {
+      message: this.replyMessage
+    }).subscribe({
+      next: () => {
+        this.toast.success('Reply sent.');
+        this.viewTicket(ticketId); // Reload to show new message
+      },
+      error: () => this.toast.error('Failed to send reply.')
+    });
   }
 }
 
@@ -15458,6 +15765,37 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
             }
           </div>
 
+          <!-- Variants & Features -->
+          <div class="space-y-6">
+            <h3 class="text-base font-semibold text-slate-900 border-b border-slate-100 pb-2">Variants & Specifications</h3>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div class="space-y-2">
+                <label for="colors" class="block text-sm font-semibold text-slate-700">Colors <span class="text-xs text-slate-500 font-normal">(Comma separated)</span></label>
+                <input type="text" id="colors" formControlName="colors" placeholder="e.g. Red, Blue, Black"
+                       class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400">
+              </div>
+
+              <div class="space-y-2">
+                <label for="sizes" class="block text-sm font-semibold text-slate-700">Sizes <span class="text-xs text-slate-500 font-normal">(Comma separated)</span></label>
+                <input type="text" id="sizes" formControlName="sizes" placeholder="e.g. S, M, L, XL"
+                       class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400">
+              </div>
+
+              <div class="space-y-2">
+                <label for="features" class="block text-sm font-semibold text-slate-700">Key Features <span class="text-xs text-slate-500 font-normal">(One per line)</span></label>
+                <textarea id="features" formControlName="features" rows="4" placeholder="e.g. Noise Cancelling&#10;Waterproof IP68"
+                          class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 resize-none"></textarea>
+              </div>
+
+              <div class="space-y-2">
+                <label for="specs" class="block text-sm font-semibold text-slate-700">Specifications <span class="text-xs text-slate-500 font-normal">(Key: Value per line)</span></label>
+                <textarea id="specs" formControlName="specs" rows="4" placeholder="e.g. Weight: 200g&#10;Battery Life: 24h"
+                          class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 resize-none"></textarea>
+              </div>
+            </div>
+          </div>
+
           <!-- Product Images -->
           <div class="space-y-6">
             <div class="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -15585,7 +15923,11 @@ export class AdminAddProductComponent implements OnInit {
     stockQuantity: [null as number | null, [Validators.required, Validators.min(0)]],
     categoryId: ['', [Validators.required]],
     isAvailableForRent: [false],
-    rentalPricePerDay: [null as number | null]
+    rentalPricePerDay: [null as number | null],
+    colors: [''],
+    sizes: [''],
+    features: [''],
+    specs: ['']
   });
 
   ngOnInit() {
@@ -15615,7 +15957,11 @@ export class AdminAddProductComponent implements OnInit {
           stockQuantity: product.stock,
           categoryId: product.categoryId,
           isAvailableForRent: product.isAvailableForRent,
-          rentalPricePerDay: product.rentalPricePerDay
+          rentalPricePerDay: product.rentalPricePerDay,
+          colors: product.colors ? product.colors.map((c: any) => c.name).join(', ') : '',
+          sizes: product.sizes ? product.sizes.map((s: any) => s.name).join(', ') : '',
+          features: product.features ? product.features.map((f: any) => f.value).join('\n') : '',
+          specs: product.specs ? product.specs.map((s: any) => `${s.key}: ${s.value}`).join('\n') : ''
         });
         if (product.images) {
           this.uploadedImages.set(product.images);
@@ -15770,6 +16116,20 @@ export class AdminAddProductComponent implements OnInit {
 
     const categoryId = val.categoryId || '00000000-0000-0000-0000-000000000001';
 
+    // Parse Variants
+    const colors = val.colors ? val.colors.split(',').map((c: string) => c.trim()).filter((c: string) => c.length > 0) : [];
+    const sizes = val.sizes ? val.sizes.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0) : [];
+    const features = val.features ? val.features.split('\n').map((f: string) => f.trim()).filter((f: string) => f.length > 0) : [];
+    const specsDict: { [key: string]: string } = {};
+    if (val.specs) {
+      val.specs.split('\n').forEach((line: string) => {
+        const parts = line.split(':');
+        if (parts.length === 2) {
+          specsDict[parts[0].trim()] = parts[1].trim();
+        }
+      });
+    }
+
     const payload = {
       name: val.name,
       brand: val.brand,
@@ -15780,7 +16140,11 @@ export class AdminAddProductComponent implements OnInit {
       categoryId: categoryId,
       imageUrls: this.uploadedImages(),
       isAvailableForRent: val.isAvailableForRent,
-      rentalPricePerDay: val.rentalPricePerDay
+      rentalPricePerDay: val.rentalPricePerDay,
+      colors: colors.length > 0 ? colors : null,
+      sizes: sizes.length > 0 ? sizes : null,
+      features: features.length > 0 ? features : null,
+      specs: Object.keys(specsDict).length > 0 ? specsDict : null
     };
 
     if (this.isEditMode() && this.editProductId()) {
@@ -17310,6 +17674,187 @@ export class AdminLogsComponent implements OnInit {
 
   toggleExpand(id: string) {
     this.expandedId.update(curr => curr === id ? null : id);
+  }
+}
+
+``
+
+## src\app\features\admin\admin-orders.component.ts
+
+``typescript
+import { Component, inject, signal, OnInit, computed } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { DatePipe, CurrencyPipe, UpperCasePipe } from '@angular/common';
+import { environment } from '../../../environments/environment';
+import { ToastService } from '../../core/services/toast.service';
+
+@Component({
+  selector: 'app-admin-orders',
+  imports: [DatePipe, CurrencyPipe, UpperCasePipe],
+  template: `
+    <div class="space-y-6">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Order Management</h2>
+          <p class="text-sm text-slate-500 mt-1">View and manage all customer orders.</p>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="flex gap-2 pb-4 overflow-x-auto no-scrollbar">
+        @for (status of statuses; track status) {
+          <button (click)="filterStatus.set(status)"
+                  class="px-4 py-2 text-sm font-semibold rounded-full whitespace-nowrap transition-colors"
+                  [class.bg-slate-800]="filterStatus() === status"
+                  [class.text-white]="filterStatus() === status"
+                  [class.bg-slate-100]="filterStatus() !== status"
+                  [class.text-slate-600]="filterStatus() !== status"
+                  [class.hover:bg-slate-200]="filterStatus() !== status">
+            {{ status }}
+          </button>
+        }
+      </div>
+
+      @if (isLoading()) {
+        <div class="flex flex-col items-center justify-center py-20 text-slate-400">
+          <svg class="animate-spin w-8 h-8 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p>Loading orders...</p>
+        </div>
+      } @else if (filteredOrders().length === 0) {
+        <div class="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-sm">
+          <div class="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-400">
+            <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-bold text-slate-900">No Orders Found</h3>
+          <p class="text-slate-500 mt-1 max-w-sm mx-auto">There are no orders matching the selected status.</p>
+        </div>
+      } @else {
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                <tr>
+                  <th class="px-6 py-4 whitespace-nowrap">Order ID</th>
+                  <th class="px-6 py-4">Customer</th>
+                  <th class="px-6 py-4">Date</th>
+                  <th class="px-6 py-4">Status</th>
+                  <th class="px-6 py-4 text-right">Total</th>
+                  <th class="px-6 py-4 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 text-slate-700">
+                @for (order of filteredOrders(); track order.id) {
+                  <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      <span class="font-mono font-medium text-indigo-600">#{{ order.id.substring(0, 8) | uppercase }}</span>
+                    </td>
+                    <td class="px-6 py-4">
+                      <div class="font-semibold text-slate-900">{{ order.userName }}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-slate-500">
+                      {{ order.createdAt | date:'MMM d, y, h:mm a' }}
+                    </td>
+                    <td class="px-6 py-4">
+                      <span class="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider rounded-full"
+                            [class.bg-amber-100]="order.status === 0"
+                            [class.text-amber-700]="order.status === 0"
+                            [class.bg-blue-100]="order.status === 1 || order.status === 2"
+                            [class.text-blue-700]="order.status === 1 || order.status === 2"
+                            [class.bg-indigo-100]="order.status === 3"
+                            [class.text-indigo-700]="order.status === 3"
+                            [class.bg-emerald-100]="order.status === 4"
+                            [class.text-emerald-700]="order.status === 4"
+                            [class.bg-rose-100]="order.status === 5"
+                            [class.text-rose-700]="order.status === 5">
+                        {{ getStatusText(order.status) }}
+                      </span>
+                    </td>
+                    <td class="px-6 py-4 text-right font-bold text-slate-900">
+                      {{ order.totalAmount | currency }}
+                    </td>
+                    <td class="px-6 py-4 text-center">
+                      <select (change)="updateStatus(order.id, $event)" [value]="order.status" class="text-sm bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-500">
+                        <option [value]="0">Pending</option>
+                        <option [value]="1">Processing</option>
+                        <option [value]="2">Confirmed</option>
+                        <option [value]="3">Shipped</option>
+                        <option [value]="4">Delivered</option>
+                        <option [value]="5">Cancelled</option>
+                      </select>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      }
+    </div>
+  `
+})
+export class AdminOrdersComponent implements OnInit {
+  private http = inject(HttpClient);
+  private toast = inject(ToastService);
+
+  orders = signal<any[]>([]);
+  isLoading = signal(true);
+  
+  statuses = ['All', 'Pending', 'Processing', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled'];
+  filterStatus = signal('All');
+
+  filteredOrders = computed(() => {
+    const statusStr = this.filterStatus();
+    if (statusStr === 'All') return this.orders();
+    const statusMap: Record<string, number> = {
+      'Pending': 0, 'Processing': 1, 'Confirmed': 2, 'Shipped': 3, 'Delivered': 4, 'Cancelled': 5
+    };
+    return this.orders().filter(o => o.status === statusMap[statusStr]);
+  });
+
+  ngOnInit() {
+    this.loadOrders();
+  }
+
+  loadOrders() {
+    this.isLoading.set(true);
+    // Note: To show buyer info, we should ideally have a specific GET /api/orders/all endpoint for Admin.
+    // For now we assume GET /api/orders returns all if admin or there's a specialized endpoint.
+    // Wait, let's just GET /api/orders and see if it works, or we may need to create an AdminOrders endpoint.
+    this.http.get<any[]>(`${environment.apiUrl}/orders/all`).subscribe({
+      next: (res) => {
+        this.orders.set(res);
+        this.isLoading.set(false);
+      },
+      error: (err) => {
+        this.toast.error('Failed to load orders.');
+        this.isLoading.set(false);
+      }
+    });
+  }
+
+  getStatusText(status: number): string {
+    const map = ['Pending', 'Processing', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled'];
+    return map[status] || 'Unknown';
+  }
+
+  updateStatus(orderId: string, event: Event) {
+    const select = event.target as HTMLSelectElement;
+    const newStatus = parseInt(select.value, 10);
+    
+    this.http.put(`${environment.apiUrl}/orders/${orderId}/status`, { status: newStatus }).subscribe({
+      next: () => {
+        this.toast.success('Order status updated.');
+        this.orders.update(orders => orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+      },
+      error: () => {
+        this.toast.error('Failed to update order status.');
+        this.loadOrders(); // reload to revert select
+      }
+    });
   }
 }
 
@@ -19709,9 +20254,10 @@ export class CartComponent {
   applyPromo(event: Event): void {
     event.preventDefault();
     if (!this.promoInput.trim()) return;
-    const ok = this.cart.applyPromo(this.promoInput);
-    this.promoError.set(!ok);
-    if (ok) this.promoInput = '';
+    this.cart.applyPromo(this.promoInput).subscribe(ok => {
+      this.promoError.set(!ok);
+      if (ok) this.promoInput = '';
+    });
   }
 }
 
@@ -20594,7 +21140,8 @@ export class CheckoutComponent implements OnInit {
               isDefault: false,
             },
             paymentSummary: 'PayPal',
-            paymentMethod: 'CreditCard'
+            paymentMethod: 'CreditCard',
+            promoCode: this.cart.promo()?.code
           }).subscribe({
             next: (orderId) => {
               // Now create the PayPal order on backend
@@ -20708,7 +21255,8 @@ export class CheckoutComponent implements OnInit {
         isDefault: false,
       },
       paymentSummary,
-      paymentMethod: paymentSummary.includes('PayPal') ? 'CreditCard' : 'CashOnDelivery'
+      paymentMethod: paymentSummary.includes('PayPal') ? 'CreditCard' : 'CashOnDelivery',
+      promoCode: this.cart.promo()?.code
     }).subscribe({
       next: (orderId) => {
         this.cart.clear();
@@ -21202,6 +21750,7 @@ export class NotFoundComponent {}
 import { Component, computed, inject, signal, OnDestroy } from '@angular/core';
 import { CurrencyPipe, DatePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Title, Meta } from '@angular/platform-browser';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../core/services/product.service';
 import { CartService } from '../../core/services/cart.service';
@@ -21631,6 +22180,8 @@ export class ProductDetailComponent implements OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly toastService = inject(ToastService);
+  private readonly titleService = inject(Title);
+  private readonly metaService = inject(Meta);
 
   readonly product = signal<Product | undefined>(undefined);
   readonly confirmDeleteReviewId = signal<string | number | null>(null);
@@ -21725,6 +22276,14 @@ export class ProductDetailComponent implements OnDestroy {
           window.scrollTo({ top: 0 });
 
           if (product) {
+            this.titleService.setTitle(`${product.name} - Budgetha`);
+            this.metaService.updateTag({ name: 'description', content: product.shortDescription || product.description.substring(0, 160) });
+            this.metaService.updateTag({ property: 'og:title', content: product.name });
+            this.metaService.updateTag({ property: 'og:description', content: product.shortDescription || product.description.substring(0, 160) });
+            if (product.images?.length > 0) {
+              this.metaService.updateTag({ property: 'og:image', content: product.images[0] });
+            }
+
             this.productService.getRelated(product).subscribe(related => {
               this.relatedProducts.set(related);
             });

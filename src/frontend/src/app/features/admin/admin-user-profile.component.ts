@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal, computed } from '@angular/core';
+﻿import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule, DatePipe, CurrencyPipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AdminService, AdminUserProfile } from '../../core/services/admin.service';
@@ -52,7 +52,7 @@ import { ToastService } from '../../core/services/toast.service';
               <div class="w-24 h-24 mx-auto rounded-2xl bg-gradient-to-br from-teal-400 to-teal-700 text-white flex items-center justify-center font-bold text-3xl shadow-lg shadow-teal-200 mb-6 relative">
                 {{ profile()!.firstName[0] }}{{ profile()!.lastName[0] }}
                 @if (profile()!.isBanned) {
-                  <div class="absolute -bottom-2 -right-2 w-8 h-8 bg-rose-500 rounded-full border-4 border-white flex items-center justify-center text-white" title="User is Banned">
+                  <div class="absolute -bottom-2 -end-2 w-8 h-8 bg-rose-500 rounded-full border-4 border-white flex items-center justify-center text-white" title="User is Banned">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
                   </div>
                 }
@@ -75,7 +75,7 @@ import { ToastService } from '../../core/services/toast.service';
                 }
               </div>
 
-              <div class="mt-8 pt-6 border-t border-slate-100 text-left space-y-4">
+              <div class="mt-8 pt-6 border-t border-slate-100 text-start space-y-4">
                 <div>
                   <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Member Since</p>
                   <p class="text-sm font-medium text-slate-700 mt-1">{{ profile()!.createdAt | date:'longDate' }}</p>

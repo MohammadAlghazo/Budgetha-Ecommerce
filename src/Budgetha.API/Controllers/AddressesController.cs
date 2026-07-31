@@ -30,4 +30,24 @@ public class AddressesController : ControllerBase
         var id = await _mediator.Send(command);
         return Ok(id);
     }
+
+    [HttpPut("{id}")]
+    public async Task<ActionResult> UpdateAddress(Guid id, [FromBody] UpdateAddressCommand command)
+    {
+        if (id != command.Id)
+        {
+            return BadRequest("ID mismatch");
+        }
+        var success = await _mediator.Send(command);
+        if (!success) return NotFound();
+        return NoContent();
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<ActionResult> DeleteAddress(Guid id)
+    {
+        var success = await _mediator.Send(new DeleteAddressCommand(id));
+        if (!success) return NotFound();
+        return NoContent();
+    }
 }

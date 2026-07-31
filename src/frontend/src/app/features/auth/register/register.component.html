@@ -1,4 +1,4 @@
-<div class="min-h-screen flex">
+﻿<div class="min-h-screen flex">
   <!-- ── Left Brand Panel ── -->
   <div class="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-slate-900">
     <!-- Background Image -->
@@ -9,7 +9,7 @@
 
     <div class="relative z-10 flex flex-col justify-between p-12 lg:p-16 w-full text-white">
       <!-- Logo -->
-      <div class="flex items-center gap-4 -ml-2">
+      <div class="flex items-center gap-4 -ms-2">
         <div class="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-2xl shadow-teal-900/40 overflow-hidden shrink-0">
           <img src="/images/logo.png" alt="Budgetha" class="h-14 w-auto object-contain" />
         </div>
@@ -46,8 +46,8 @@
   <div class="flex-1 flex items-center justify-center p-6 sm:p-12 bg-slate-50 relative overflow-hidden bg-[radial-gradient(#cbd5e1_1.5px,transparent_1.5px)] [background-size:24px_24px] animate-pan-bg">
     
     <!-- Optional: Super soft glowing orb in background of right panel to make it even more magical -->
-    <div class="absolute top-1/4 right-1/4 w-96 h-96 bg-teal-400/10 rounded-full blur-3xl pointer-events-none"></div>
-    <div class="absolute bottom-1/4 left-1/4 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute top-1/4 end-1/4 w-96 h-96 bg-teal-400/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute bottom-1/4 start-1/4 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl pointer-events-none"></div>
 
     <!-- Form Container -->
     <div class="w-full max-w-[440px] bg-white/80 backdrop-blur-xl p-8 sm:p-10 rounded-[2rem] shadow-2xl border border-white relative z-10">
@@ -130,13 +130,13 @@
               [type]="showPassword() ? 'text' : 'password'"
               formControlName="password"
               autocomplete="new-password"
-              class="input-field pr-11 bg-white/50 focus:bg-white"
+              class="input-field pe-11 bg-white/50 focus:bg-white"
               [class.input-error]="form.get('password')?.touched && form.get('password')?.invalid"
               placeholder="Create a strong password" />
             <button
               type="button"
               (click)="togglePassword()"
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
+              class="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 @if (showPassword()) {
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
@@ -179,13 +179,13 @@
               [type]="showConfirmPassword() ? 'text' : 'password'"
               formControlName="confirmPassword"
               autocomplete="new-password"
-              class="input-field pr-11 bg-white/50 focus:bg-white"
+              class="input-field pe-11 bg-white/50 focus:bg-white"
               [class.input-error]="form.get('confirmPassword')?.touched && form.get('confirmPassword')?.invalid"
               placeholder="Repeat your password" />
             <button
               type="button"
               (click)="toggleConfirmPassword()"
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
+              class="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 @if (showConfirmPassword()) {
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
@@ -215,7 +215,7 @@
         <!-- Submit -->
         <button type="submit" [disabled]="loading()" class="btn-primary w-full bg-teal-700 hover:bg-teal-800 focus:ring-teal-500/50">
           @if (loading()) {
-            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
+            <svg class="animate-spin -ms-1 me-2 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
             </svg>

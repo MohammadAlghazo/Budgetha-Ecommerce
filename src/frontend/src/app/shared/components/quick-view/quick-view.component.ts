@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+﻿import { Component, computed, effect, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { Router } from '@angular/router';
 import { CartService } from '../../../core/services/cart.service';
@@ -43,14 +43,14 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
                 type="button"
                 (click)="close()"
                 aria-label="Close quick view"
-                class="absolute top-4 right-4 icon-btn h-9 w-9 bg-slate-100">
+                class="absolute top-4 end-4 icon-btn h-9 w-9 bg-slate-100">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
 
               <span class="text-xs font-medium uppercase tracking-wider text-slate-400">{{ p.brand }}</span>
-              <h2 class="mt-1 text-xl font-bold text-slate-900 pr-10">{{ p.name }}</h2>
+              <h2 class="mt-1 text-xl font-bold text-slate-900 pe-10">{{ p.name }}</h2>
               <div class="mt-2 flex items-center gap-2">
                 <app-star-rating [rating]="p.rating" size="sm" />
                 <span class="text-xs text-slate-400">{{ p.rating }} · {{ p.reviewCount }} reviews</span>

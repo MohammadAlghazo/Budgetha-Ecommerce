@@ -120,7 +120,8 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
     {
         string str = name.ToLower();
         
-        str = Regex.Replace(str, @"[^a-z0-9\s-]", "");
+        // Allow Arabic characters using \p{IsArabic}
+        str = Regex.Replace(str, @"[^a-z0-9\p{IsArabic}\s-]", "");
         
         str = Regex.Replace(str, @"\s+", " ").Trim();
         

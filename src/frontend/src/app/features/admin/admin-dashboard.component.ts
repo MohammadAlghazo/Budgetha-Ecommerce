@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal, computed } from '@angular/core';
+﻿import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { DatePipe, DecimalPipe, CurrencyPipe } from '@angular/common';
 import { RouterLink, Router } from '@angular/router';
 import { AdminService, AdminStats, AdminUser, SellerStats } from '../../core/services/admin.service';
@@ -12,8 +12,8 @@ import { AuthService } from '../../core/services/auth.service';
 
       <!-- Welcome Banner -->
       <div class="rounded-2xl bg-gradient-to-r from-teal-700 to-teal-900 p-6 text-white flex items-center justify-between shadow-lg overflow-hidden relative">
-        <div class="absolute right-0 top-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/4"></div>
-        <div class="absolute right-24 bottom-0 w-40 h-40 bg-white/5 rounded-full translate-y-1/2"></div>
+        <div class="absolute end-0 top-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/4"></div>
+        <div class="absolute end-24 bottom-0 w-40 h-40 bg-white/5 rounded-full translate-y-1/2"></div>
         <div class="relative z-10">
           <p class="text-teal-200 text-sm font-medium mb-1">Welcome back,</p>
           <h1 class="text-2xl font-bold">{{ authService.user()?.firstName }} {{ authService.user()?.lastName }}</h1>
@@ -317,7 +317,7 @@ import { AuthService } from '../../core/services/auth.service';
             <a routerLink="/admin/users" class="text-sm font-medium text-teal-600 hover:text-teal-700 transition-colors">View all →</a>
           </div>
           <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm whitespace-nowrap">
+            <table class="w-full text-start text-sm whitespace-nowrap">
               <thead class="bg-slate-50/70 text-slate-500 border-b border-slate-100">
                 <tr>
                   <th class="px-6 py-3.5 font-semibold text-xs uppercase tracking-wider">User</th>
@@ -383,7 +383,7 @@ import { AuthService } from '../../core/services/auth.service';
                     <p class="text-sm font-semibold">Manage Users</p>
                     <p class="text-xs text-slate-400">View & assign roles</p>
                   </div>
-                  <svg class="w-4 h-4 ml-auto text-slate-300 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                  <svg class="w-4 h-4 ms-auto text-slate-300 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
                 </a>
               }
 
@@ -398,7 +398,7 @@ import { AuthService } from '../../core/services/auth.service';
                     All products are active
                   </p>
                 </div>
-                <svg class="w-4 h-4 ml-auto text-slate-300 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                <svg class="w-4 h-4 ms-auto text-slate-300 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
               </a>
 
               <a routerLink="/"
@@ -410,7 +410,7 @@ import { AuthService } from '../../core/services/auth.service';
                   <p class="text-sm font-semibold">Visit Store</p>
                   <p class="text-xs text-slate-400">Go to customer view</p>
                 </div>
-                <svg class="w-4 h-4 ml-auto text-slate-300 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                <svg class="w-4 h-4 ms-auto text-slate-300 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
               </a>
             </div>
           </div>

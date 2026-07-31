@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+﻿import { Component, inject, signal, OnInit } from '@angular/core';
 import { FormBuilder, Validators, ReactiveFormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
@@ -68,18 +68,18 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
               <div class="space-y-2">
                 <label for="price" class="block text-sm font-semibold text-slate-700">Price ($) <span class="text-rose-500">*</span></label>
                 <div class="relative">
-                  <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">$</span>
+                  <span class="absolute start-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">$</span>
                   <input type="number" id="price" formControlName="price" min="0" step="0.01" placeholder="0.00"
-                         class="w-full pl-8 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
+                         class="w-full ps-8 pe-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
                 </div>
               </div>
 
               <div class="space-y-2">
                 <label for="originalPrice" class="block text-sm font-semibold text-slate-700">Original Price ($) <span class="text-xs text-slate-500 font-normal">(Optional - for discounts)</span></label>
                 <div class="relative">
-                  <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">$</span>
+                  <span class="absolute start-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">$</span>
                   <input type="number" id="originalPrice" formControlName="originalPrice" min="0" step="0.01" placeholder="0.00"
-                         class="w-full pl-8 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
+                         class="w-full ps-8 pe-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
                 </div>
               </div>
 
@@ -116,9 +116,9 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
               <div class="w-full md:w-1/2 space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
                 <label for="rentalPricePerDay" class="block text-sm font-semibold text-slate-700">Rental Price Per Day ($) <span class="text-rose-500">*</span></label>
                 <div class="relative">
-                  <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">$</span>
+                  <span class="absolute start-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">$</span>
                   <input type="number" id="rentalPricePerDay" formControlName="rentalPricePerDay" min="0" step="0.01" placeholder="0.00"
-                         class="w-full pl-8 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
+                         class="w-full ps-8 pe-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
                 </div>
               </div>
             }
@@ -198,12 +198,12 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
                     <img [src]="img" alt="Product Image" class="w-full h-full object-contain rounded-xl">
                     <!-- Delete Button -->
                     <button type="button" (click)="removeImage(i)" 
-                            class="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/90 text-rose-500 shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-50 hover:text-rose-600 focus:outline-none">
+                            class="absolute top-2 end-2 w-8 h-8 rounded-full bg-white/90 text-rose-500 shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-50 hover:text-rose-600 focus:outline-none">
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                     </button>
                     <!-- Main Thumbnail Badge -->
                     @if (i === 0) {
-                      <div class="absolute bottom-2 left-2 px-2 py-1 bg-indigo-600/90 text-white text-[10px] font-bold uppercase rounded-md shadow-sm backdrop-blur-sm">
+                      <div class="absolute bottom-2 start-2 px-2 py-1 bg-indigo-600/90 text-white text-[10px] font-bold uppercase rounded-md shadow-sm backdrop-blur-sm">
                         Main Image
                       </div>
                     }

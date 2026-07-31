@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal, effect } from '@angular/core';
+﻿import { Component, computed, inject, signal, effect } from '@angular/core';
 import { CurrencyPipe, NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
@@ -52,7 +52,7 @@ const PAGE_SIZE = 9;
               [value]="sort()"
               (change)="setSort($event)"
               aria-label="Sort products"
-              class="appearance-none rounded-xl border border-slate-200 bg-white pl-4 pr-10 py-2.5 text-sm font-medium text-slate-700
+              class="appearance-none rounded-xl border border-slate-200 bg-white ps-4 pe-10 py-2.5 text-sm font-medium text-slate-700
                      focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 cursor-pointer
                      transition-all duration-300">
               <option value="featured">Featured</option>
@@ -61,7 +61,7 @@ const PAGE_SIZE = 9;
               <option value="price-desc">Price: High to Low</option>
               <option value="rating">Top Rated</option>
             </select>
-            <svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <svg class="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
             </svg>
           </div>
@@ -103,7 +103,7 @@ const PAGE_SIZE = 9;
         <!-- ══ Mobile filter drawer ══ -->
         @if (filtersOpen()) {
           <div class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm lg:hidden" (click)="filtersOpen.set(false)" aria-hidden="true"></div>
-          <aside class="fixed inset-y-0 left-0 z-50 w-80 max-w-[85vw] bg-white shadow-2xl overflow-y-auto p-5 lg:hidden animate-[slideInLeft_0.3s_ease-out]"
+          <aside class="fixed inset-y-0 start-0 z-50 w-80 max-w-[85vw] bg-white shadow-2xl overflow-y-auto p-5 lg:hidden animate-[slideInLeft_0.3s_ease-out]"
                  role="dialog" aria-modal="true" aria-label="Filters">
             <div class="flex items-center justify-between mb-5">
               <h2 class="text-lg font-bold text-slate-900">Filters</h2>

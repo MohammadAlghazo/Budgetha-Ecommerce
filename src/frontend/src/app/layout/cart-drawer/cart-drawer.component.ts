@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+﻿import { Component, inject } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { Router } from '@angular/router';
 import { CartService } from '../../core/services/cart.service';
@@ -17,7 +17,7 @@ import { CartItem } from '../../core/models/shop.models';
 
       <!-- Drawer panel -->
       <aside
-        class="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col animate-[slideIn_0.3s_ease-out]"
+        class="fixed inset-y-0 end-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col animate-[slideIn_0.3s_ease-out]"
         role="dialog"
         aria-modal="true"
         aria-label="Shopping cart">

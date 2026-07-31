@@ -1,4 +1,4 @@
-import { Component, computed, inject, input } from '@angular/core';
+﻿import { Component, computed, inject, input } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { Product } from '../../../core/models/shop.models';
@@ -24,7 +24,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
           </a>
 
           <!-- Badges -->
-          <div class="absolute top-3 left-3 flex flex-col gap-1.5">
+          <div class="absolute top-3 start-3 flex flex-col gap-1.5">
             @if (discountPercent() > 0) {
               <span class="badge bg-rose-500 text-white shadow-sm">-{{ discountPercent() }}%</span>
             }
@@ -42,7 +42,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
           </div>
 
           <!-- Hover actions -->
-          <div class="absolute top-3 right-3 flex flex-col gap-2 opacity-100 lg:opacity-0 lg:translate-x-2 lg:group-hover:opacity-100 lg:group-hover:translate-x-0 transition-all duration-300">
+          <div class="absolute top-3 end-3 flex flex-col gap-2 opacity-100 lg:opacity-0 lg:translate-x-2 lg:group-hover:opacity-100 lg:group-hover:translate-x-0 transition-all duration-300">
             <button
               type="button"
               (click)="toggleWishlist()"
@@ -110,7 +110,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
               loading="lazy"
               class="h-full w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-500 p-2" />
           </a>
-          <div class="absolute top-3 left-3 flex flex-col gap-1.5">
+          <div class="absolute top-3 start-3 flex flex-col gap-1.5">
             @if (discountPercent() > 0) {
               <span class="badge bg-rose-500 text-white shadow-sm">-{{ discountPercent() }}%</span>
             }

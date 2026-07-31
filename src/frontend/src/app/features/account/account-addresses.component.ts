@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+﻿import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AccountService } from '../../core/services/account.service';
 import { ToastService } from '../../core/services/toast.service';
@@ -52,7 +52,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                   @if (!address.isDefault) {
                     <button type="button" (click)="account.setDefaultAddress(address.id)" class="text-slate-500 hover:text-slate-700 transition-colors duration-300">Set default</button>
                   }
-                  <button type="button" (click)="remove(address)" class="text-rose-500 hover:text-rose-400 transition-colors duration-300 ml-auto">Delete</button>
+                  <button type="button" (click)="remove(address)" class="text-rose-500 hover:text-rose-400 transition-colors duration-300 ms-auto">Delete</button>
                 </div>
               </div>
             }

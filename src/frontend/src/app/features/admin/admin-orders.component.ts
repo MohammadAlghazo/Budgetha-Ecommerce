@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit, computed } from '@angular/core';
+﻿import { Component, inject, signal, OnInit, computed, effect } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { DatePipe, CurrencyPipe, UpperCasePipe } from '@angular/common';
 import { environment } from '../../../environments/environment';
@@ -49,21 +49,22 @@ import { ToastService } from '../../core/services/toast.service';
           <p class="text-slate-500 mt-1 max-w-sm mx-auto">There are no orders matching the selected status.</p>
         </div>
       } @else {
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <!-- Desktop Table -->
+        <div class="hidden md:block bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm">
+            <table class="w-full text-start text-sm">
               <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
                 <tr>
                   <th class="px-6 py-4 whitespace-nowrap">Order ID</th>
                   <th class="px-6 py-4">Customer</th>
                   <th class="px-6 py-4">Date</th>
                   <th class="px-6 py-4">Status</th>
-                  <th class="px-6 py-4 text-right">Total</th>
+                  <th class="px-6 py-4 text-end">Total</th>
                   <th class="px-6 py-4 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 text-slate-700">
-                @for (order of filteredOrders(); track order.id) {
+                @for (order of pagedOrders(); track order.id) {
                   <tr class="hover:bg-slate-50 transition-colors">
                     <td class="px-6 py-4 whitespace-nowrap">
                       <span class="font-mono font-medium text-indigo-600">#{{ order.id.substring(0, 8) | uppercase }}</span>
@@ -89,7 +90,7 @@ import { ToastService } from '../../core/services/toast.service';
                         {{ getStatusText(order.status) }}
                       </span>
                     </td>
-                    <td class="px-6 py-4 text-right font-bold text-slate-900">
+                    <td class="px-6 py-4 text-end font-bold text-slate-900">
                       {{ order.totalAmount | currency }}
                     </td>
                     <td class="px-6 py-4 text-center">
@@ -108,6 +109,70 @@ import { ToastService } from '../../core/services/toast.service';
             </table>
           </div>
         </div>
+
+        <!-- Mobile Cards -->
+        <div class="md:hidden space-y-4">
+          @for (order of pagedOrders(); track order.id) {
+            <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+              <div class="flex items-center justify-between mb-2">
+                <span class="font-mono font-medium text-indigo-600">#{{ order.id.substring(0, 8) | uppercase }}</span>
+                <span class="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider rounded-full"
+                      [class.bg-amber-100]="order.status === 0"
+                      [class.text-amber-700]="order.status === 0"
+                      [class.bg-blue-100]="order.status === 1 || order.status === 2"
+                      [class.text-blue-700]="order.status === 1 || order.status === 2"
+                      [class.bg-indigo-100]="order.status === 3"
+                      [class.text-indigo-700]="order.status === 3"
+                      [class.bg-emerald-100]="order.status === 4"
+                      [class.text-emerald-700]="order.status === 4"
+                      [class.bg-rose-100]="order.status === 5"
+                      [class.text-rose-700]="order.status === 5">
+                  {{ getStatusText(order.status) }}
+                </span>
+              </div>
+              <div class="mb-3">
+                <p class="font-semibold text-slate-900">{{ order.userName }}</p>
+                <p class="text-xs text-slate-500">{{ order.createdAt | date:'MMM d, y, h:mm a' }}</p>
+              </div>
+              <div class="flex items-center justify-between pt-3 border-t border-slate-100">
+                <span class="font-bold text-slate-900">{{ order.totalAmount | currency }}</span>
+                <select (change)="updateStatus(order.id, $event)" [value]="order.status" class="text-sm bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-500">
+                  <option [value]="0">Pending</option>
+                  <option [value]="1">Processing</option>
+                  <option [value]="2">Confirmed</option>
+                  <option [value]="3">Shipped</option>
+                  <option [value]="4">Delivered</option>
+                  <option [value]="5">Cancelled</option>
+                </select>
+              </div>
+            </div>
+          }
+        </div>
+
+        <!-- Pagination -->
+        @if (totalPages() > 1) {
+          <div class="flex items-center justify-between mt-4 bg-white px-4 py-3 sm:px-6 rounded-2xl shadow-sm border border-slate-200">
+            <div class="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+              <div>
+                <p class="text-sm text-gray-700">
+                  Showing page <span class="font-medium">{{ currentPage() }}</span> of <span class="font-medium">{{ totalPages() }}</span>
+                </p>
+              </div>
+              <div>
+                <nav class="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+                  <button (click)="currentPage.set(currentPage() - 1)" [disabled]="currentPage() === 1" class="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50">
+                    <span class="sr-only">Previous</span>
+                    <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clip-rule="evenodd" /></svg>
+                  </button>
+                  <button (click)="currentPage.set(currentPage() + 1)" [disabled]="currentPage() === totalPages()" class="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50">
+                    <span class="sr-only">Next</span>
+                    <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" /></svg>
+                  </button>
+                </nav>
+              </div>
+            </div>
+          </div>
+        }
       }
     </div>
   `
@@ -121,6 +186,8 @@ export class AdminOrdersComponent implements OnInit {
   
   statuses = ['All', 'Pending', 'Processing', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled'];
   filterStatus = signal('All');
+  currentPage = signal(1);
+  pageSize = signal(10);
 
   filteredOrders = computed(() => {
     const statusStr = this.filterStatus();
@@ -130,6 +197,21 @@ export class AdminOrdersComponent implements OnInit {
     };
     return this.orders().filter(o => o.status === statusMap[statusStr]);
   });
+
+  totalPages = computed(() => Math.max(1, Math.ceil(this.filteredOrders().length / this.pageSize())));
+
+  pagedOrders = computed(() => {
+    const startIndex = (this.currentPage() - 1) * this.pageSize();
+    return this.filteredOrders().slice(startIndex, startIndex + this.pageSize());
+  });
+
+  // Reset page when filter changes
+  constructor() {
+    effect(() => {
+      this.filterStatus(); // depend on filterStatus
+      this.currentPage.set(1); // reset to page 1
+    }, { allowSignalWrites: true });
+  }
 
   ngOnInit() {
     this.loadOrders();

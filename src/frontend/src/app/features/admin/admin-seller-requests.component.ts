@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+﻿import { Component, OnInit, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
 import { ToastService } from '../../core/services/toast.service';
@@ -28,14 +28,14 @@ interface SellerRequest {
 
       <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="w-full text-left text-sm whitespace-nowrap">
+          <table class="w-full text-start text-sm whitespace-nowrap">
             <thead class="bg-slate-50/50 text-slate-500 uppercase tracking-wider text-xs font-semibold">
               <tr>
                 <th class="px-6 py-4">User</th>
                 <th class="px-6 py-4">Reason</th>
                 <th class="px-6 py-4">Date</th>
                 <th class="px-6 py-4">Status</th>
-                <th class="px-6 py-4 text-right">Actions</th>
+                <th class="px-6 py-4 text-end">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 text-slate-700">
@@ -72,7 +72,7 @@ interface SellerRequest {
                       {{ req.status }}
                     </span>
                   </td>
-                  <td class="px-6 py-4 text-right">
+                  <td class="px-6 py-4 text-end">
                     @if (req.status === 'Pending') {
                       <div class="flex items-center justify-end gap-2">
                         <button (click)="approve(req.id)" [disabled]="isProcessing()" class="px-3 py-1.5 text-xs font-bold bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg transition-colors disabled:opacity-50">Approve</button>

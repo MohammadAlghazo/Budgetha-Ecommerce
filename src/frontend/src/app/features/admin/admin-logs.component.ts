@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal, computed } from '@angular/core';
+﻿import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AdminService } from '../../core/services/admin.service';
@@ -91,7 +91,7 @@ export interface TransactionItemDto {
           </div>
         } @else {
           <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm whitespace-nowrap">
+            <table class="w-full text-start text-sm whitespace-nowrap">
               <thead class="bg-slate-50/70 text-slate-500 border-b border-slate-100">
                 <tr>
                   <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Date</th>
@@ -100,7 +100,7 @@ export interface TransactionItemDto {
                   <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Amount</th>
                   <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Customer</th>
                   <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Status</th>
-                  <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-right">Details</th>
+                  <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-end">Details</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-50 text-slate-700">
@@ -125,7 +125,7 @@ export interface TransactionItemDto {
                         {{ log.status }}
                       </span>
                     </td>
-                    <td class="px-6 py-4 text-right">
+                    <td class="px-6 py-4 text-end">
                       <button (click)="toggleExpand(log.orderId)" class="text-teal-600 hover:text-teal-700 font-semibold text-xs transition-colors">
                         {{ expandedId() === log.orderId ? 'Hide' : 'View' }}
                       </button>
@@ -145,7 +145,7 @@ export interface TransactionItemDto {
                                 <p class="text-sm font-bold text-slate-900 truncate">{{ item.productName }}</p>
                                 <p class="text-xs text-slate-500">Qty: {{ item.quantity }} × {{ item.price | currency }}</p>
                               </div>
-                              <div class="text-right">
+                              <div class="text-end">
                                 <p class="text-sm font-bold text-slate-900">{{ (item.quantity * item.price) | currency }}</p>
                               </div>
                             </div>

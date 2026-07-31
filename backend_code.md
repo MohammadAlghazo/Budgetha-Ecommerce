@@ -137,6 +137,7 @@ using Budgetha.Infrastructure.DependencyInjection;
 using Budgetha.Infrastructure.Persistence;
 using Budgetha.Api.Hubs;
 using Budgetha.API.Hubs;
+using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -149,6 +150,17 @@ builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("GlobalLimiter", opt =>
+    {
+        opt.PermitLimit = 100;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst;
+        opt.QueueLimit = 10;
+    });
+});
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
@@ -213,11 +225,12 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
+app.UseRateLimiter();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();
-app.MapControllers();
+app.MapControllers().RequireRateLimiting("GlobalLimiter");
 app.MapHub<ReviewHub>("/hubs/reviews");
 app.MapHub<NotificationHub>("/hubs/notifications");
 
@@ -841,6 +854,14 @@ public class ImagesController : ControllerBase
     {
         if (file == null || file.Length == 0)
             return BadRequest("No file was uploaded.");
+            
+        // Max size 5MB
+        if (file.Length > 5 * 1024 * 1024)
+            return BadRequest("File size exceeds 5MB limit.");
+            
+        var allowedMimeTypes = new[] { "image/jpeg", "image/png", "image/webp", "application/pdf" };
+        if (!allowedMimeTypes.Contains(file.ContentType.ToLowerInvariant()))
+            return BadRequest("Invalid file type.");
 
         using var stream = file.OpenReadStream();
         var result = await _imageService.UploadImageAsync(stream, file.FileName);
@@ -971,6 +992,28 @@ public class OrdersController : ControllerBase
             
         return Ok();
     }
+
+    [HttpGet("all")]
+    [Authorize(Roles = "Seller,Admin,SuperAdmin")]
+    public async Task<ActionResult<List<Budgetha.Application.Features.Orders.Queries.AdminOrderDto>>> GetAllOrders()
+    {
+        var result = await _mediator.Send(new Budgetha.Application.Features.Orders.Queries.GetAdminOrdersQuery());
+        return Ok(result);
+    }
+
+    [HttpPut("{id:guid}/status")]
+    [Authorize(Roles = "Seller,Admin,SuperAdmin")]
+    public async Task<ActionResult> UpdateStatus(Guid id, [FromBody] UpdateOrderStatusRequest request)
+    {
+        var success = await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.UpdateOrderStatusCommand(id, request.Status));
+        if (!success) return BadRequest("Failed to update status.");
+        return Ok();
+    }
+}
+
+public class UpdateOrderStatusRequest
+{
+    public Budgetha.Domain.Enums.OrderStatus Status { get; set; }
 }
 
 public class CapturePayPalOrderRequest
@@ -1123,6 +1166,48 @@ public record CreateProductRequest(
     string Brand,
     decimal? OriginalPrice
 );
+
+``
+
+## Budgetha.API\Controllers\PromoCodesController.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Api.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class PromoCodesController : ControllerBase
+{
+    private readonly IApplicationDbContext _context;
+
+    public PromoCodesController(IApplicationDbContext context)
+    {
+        _context = context;
+    }
+
+    [HttpGet("{code}")]
+    public async Task<ActionResult> ValidatePromoCode(string code)
+    {
+        var promo = await _context.PromoCodes
+            .FirstOrDefaultAsync(p => p.Code.ToLower() == code.ToLower() && p.IsActive);
+
+        if (promo == null || (promo.ExpiryDate.HasValue && promo.ExpiryDate.Value < DateTime.UtcNow))
+        {
+            return NotFound("Invalid or expired promo code.");
+        }
+
+        return Ok(new
+        {
+            promo.Code,
+            promo.DiscountPercentage,
+            promo.MaxDiscountAmount
+        });
+    }
+}
 
 ``
 
@@ -1302,6 +1387,169 @@ public class SellerRequestsController : ControllerBase
         var result = await _mediator.Send(new RejectSellerRequestCommand(id));
         if (!result) return BadRequest("Could not reject request.");
         return Ok();
+    }
+}
+
+``
+
+## Budgetha.API\Controllers\SupportTicketsController.cs
+
+``csharp
+using Budgetha.Application.Features.SupportTickets.Commands;
+using Budgetha.Application.Features.SupportTickets.Queries;
+using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Budgetha.Api.Controllers;
+
+[Authorize]
+[ApiController]
+[Route("api/[controller]")]
+public class SupportTicketsController : ControllerBase
+{
+    private readonly IMediator _mediator;
+
+    public SupportTicketsController(IMediator mediator)
+    {
+        _mediator = mediator;
+    }
+
+    [HttpPost]
+    public async Task<ActionResult<Guid>> CreateTicket([FromBody] CreateTicketRequest request)
+    {
+        var ticketId = await _mediator.Send(new CreateTicketCommand(request.Subject, request.Message));
+        return Ok(new { id = ticketId });
+    }
+
+    [HttpGet]
+    public async Task<ActionResult<List<TicketDto>>> GetTickets()
+    {
+        var tickets = await _mediator.Send(new GetTicketsQuery());
+        return Ok(tickets);
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task<ActionResult<TicketDetailDto>> GetTicket(Guid id)
+    {
+        var ticket = await _mediator.Send(new GetTicketQuery(id));
+        if (ticket == null) return NotFound();
+        return Ok(ticket);
+    }
+
+    [HttpPost("{id:guid}/reply")]
+    public async Task<ActionResult> ReplyToTicket(Guid id, [FromBody] ReplyToTicketRequest request)
+    {
+        var success = await _mediator.Send(new ReplyToTicketCommand(id, request.Message));
+        if (!success) return NotFound();
+        return Ok();
+    }
+}
+
+public class CreateTicketRequest
+{
+    public string Subject { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+}
+
+public class ReplyToTicketRequest
+{
+    public string Message { get; set; } = string.Empty;
+}
+
+``
+
+## Budgetha.API\Controllers\WebhooksController.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Enums;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+
+namespace Budgetha.Api.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class WebhooksController : ControllerBase
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ILogger<WebhooksController> _logger;
+    private readonly IConfiguration _configuration;
+
+    public WebhooksController(IApplicationDbContext context, ILogger<WebhooksController> logger, IConfiguration configuration)
+    {
+        _context = context;
+        _logger = logger;
+        _configuration = configuration;
+    }
+
+    [HttpPost("paypal")]
+    public async Task<IActionResult> PayPalWebhook()
+    {
+        using var reader = new StreamReader(Request.Body);
+        var body = await reader.ReadToEndAsync();
+        
+        try
+        {
+            var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            var eventType = root.GetProperty("event_type").GetString();
+            
+            // Validate webhook signature here using PayPal SDK if needed.
+            // For now, we will process the event type.
+
+            if (eventType == "PAYMENT.CAPTURE.COMPLETED")
+            {
+                var resource = root.GetProperty("resource");
+                var captureId = resource.GetProperty("id").GetString();
+                
+                // Assuming PayPal passes back the order ID in supplementary data or custom ID.
+                // Normally, we'd look up by PayPal Order ID, but in webhook it might be the capture ID or order ID is in a different field.
+                // E.g., supplementary_data.related_ids.order_id
+                string? payPalOrderId = null;
+                if (resource.TryGetProperty("supplementary_data", out var supplementaryData))
+                {
+                    if (supplementaryData.TryGetProperty("related_ids", out var relatedIds))
+                    {
+                        if (relatedIds.TryGetProperty("order_id", out var orderIdProp))
+                        {
+                            payPalOrderId = orderIdProp.GetString();
+                        }
+                    }
+                }
+                
+                if (string.IsNullOrEmpty(payPalOrderId))
+                {
+                    _logger.LogWarning("PayPal Order ID not found in webhook payload.");
+                    return Ok();
+                }
+
+                // Find the Payment by ExternalTransactionId
+                var payment = await _context.Payments
+                    .Include(p => p.Order)
+                    .FirstOrDefaultAsync(p => p.ExternalTransactionId == payPalOrderId);
+
+                if (payment != null && payment.Status != PaymentStatus.Completed)
+                {
+                    payment.Status = PaymentStatus.Completed;
+                    if (payment.Order != null)
+                    {
+                        // Update order status if needed
+                    }
+                    await _context.SaveChangesAsync(default);
+                    _logger.LogInformation("Payment {PaymentId} marked as Completed from Webhook", payment.Id);
+                }
+            }
+
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing PayPal webhook");
+            return BadRequest();
+        }
     }
 }
 
@@ -1688,6 +1936,7 @@ public interface IApplicationDbContext
     DbSet<ProductSize> ProductSizes { get; }
     DbSet<ProductSpec> ProductSpecs { get; }
     DbSet<ProductFeature> ProductFeatures { get; }
+    DbSet<PromoCode> PromoCodes { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }
@@ -2262,7 +2511,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Budgetha.Application.Features.Cart.Commands;
 
-public record AddToCartCommand(Guid ProductId, int Quantity, OrderItemType Type, DateOnly? RentalStartDate, DateOnly? RentalEndDate) : IRequest;
+public record AddToCartCommand(Guid ProductId, int Quantity, OrderItemType Type, DateOnly? RentalStartDate, DateOnly? RentalEndDate, string? Color = null, string? Size = null) : IRequest;
 
 public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
 {
@@ -2295,20 +2544,48 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
         if (product == null || !product.IsActive)
             throw new NotFoundException(nameof(Product), request.ProductId);
 
-        if (product.StockQuantity < request.Quantity)
+        if (request.Type == OrderItemType.Purchase && product.StockQuantity < request.Quantity)
             throw new InvalidOperationException("Not enough stock available.");
 
-        // Check if item already exists in cart with same type (and dates if rental)
+        if (request.Type == OrderItemType.Rental)
+        {
+            if (!request.RentalStartDate.HasValue || !request.RentalEndDate.HasValue)
+                throw new InvalidOperationException("Rental dates are required.");
+                
+            if (request.RentalStartDate > request.RentalEndDate)
+                throw new InvalidOperationException("End date must be after start date.");
+
+            // Check for overlap in existing non-cancelled orders
+            var overlappingOrders = await _context.OrderItems
+                .Include(oi => oi.Order)
+                .Where(oi => oi.ProductId == request.ProductId &&
+                             oi.Type == OrderItemType.Rental &&
+                             oi.Order != null && 
+                             oi.Order.Status != OrderStatus.Cancelled &&
+                             oi.Order.Status != OrderStatus.Failed &&
+                             oi.RentalStartDate <= request.RentalEndDate &&
+                             oi.RentalEndDate >= request.RentalStartDate)
+                .ToListAsync(cancellationToken);
+
+            var totalRented = overlappingOrders.Sum(oi => oi.Quantity);
+            
+            if (product.StockQuantity - totalRented < request.Quantity)
+                throw new InvalidOperationException("Not enough items available for the selected dates.");
+        }
+
+        // Check if item already exists in cart with same type, variants, and dates
         var existingItem = cart.Items.FirstOrDefault(i => 
             i.ProductId == request.ProductId && 
             i.Type == request.Type && 
             i.RentalStartDate == request.RentalStartDate && 
-            i.RentalEndDate == request.RentalEndDate);
+            i.RentalEndDate == request.RentalEndDate &&
+            i.Color == request.Color &&
+            i.Size == request.Size);
 
         if (existingItem != null)
         {
             existingItem.Quantity += request.Quantity;
-            if (existingItem.Quantity > product.StockQuantity)
+            if (request.Type == OrderItemType.Purchase && existingItem.Quantity > product.StockQuantity)
                 throw new InvalidOperationException("Cannot add more than available stock.");
         }
         else
@@ -2319,7 +2596,9 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
                 Quantity = request.Quantity,
                 Type = request.Type,
                 RentalStartDate = request.RentalStartDate,
-                RentalEndDate = request.RentalEndDate
+                RentalEndDate = request.RentalEndDate,
+                Color = request.Color,
+                Size = request.Size
             };
             cart.Items.Add(newItem);
         }
@@ -2456,23 +2735,28 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
             _context.Carts.Add(cart);
         }
 
-        // Clear existing items
-        if (cart.Items.Any())
-        {
-            _context.CartItems.RemoveRange(cart.Items);
-            cart.Items.Clear();
-        }
-
-        // Add new items
+        // Merge items instead of clearing
         foreach (var itemDto in request.Items)
         {
-            cart.Items.Add(new CartItem
+            var existingItem = cart.Items.FirstOrDefault(i => 
+                i.ProductId == itemDto.ProductId && 
+                i.Color == itemDto.Color && 
+                i.Size == itemDto.Size);
+
+            if (existingItem != null)
             {
-                ProductId = itemDto.ProductId,
-                Quantity = itemDto.Quantity,
-                Color = itemDto.Color,
-                Size = itemDto.Size
-            });
+                existingItem.Quantity += itemDto.Quantity;
+            }
+            else
+            {
+                cart.Items.Add(new CartItem
+                {
+                    ProductId = itemDto.ProductId,
+                    Quantity = itemDto.Quantity,
+                    Color = itemDto.Color,
+                    Size = itemDto.Size
+                });
+            }
         }
 
         await _context.SaveChangesAsync(cancellationToken);
@@ -3062,7 +3346,8 @@ namespace Budgetha.Application.Features.Orders.Commands;
 public record CreateOrderCommand(
     Guid? ShippingAddressId,
     string? Notes,
-    string PaymentMethod
+    string PaymentMethod,
+    string? PromoCode
 ) : IRequest<Guid>;
 
 public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Guid>
@@ -3108,8 +3393,34 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
             if (cartItem.Product.StockQuantity < cartItem.Quantity)
                 throw new InvalidOperationException($"Not enough stock for product {cartItem.Product.Name}");
 
-            // Reduce Stock
-            cartItem.Product.StockQuantity -= cartItem.Quantity;
+            if (cartItem.Type == OrderItemType.Rental)
+            {
+                if (!cartItem.RentalStartDate.HasValue || !cartItem.RentalEndDate.HasValue)
+                    throw new InvalidOperationException($"Product {cartItem.Product.Name} requires rental dates.");
+
+                var overlappingOrders = await _context.OrderItems
+                    .Include(oi => oi.Order)
+                    .Where(oi => oi.ProductId == cartItem.ProductId &&
+                                 oi.Type == OrderItemType.Rental &&
+                                 oi.Order != null && 
+                                 oi.Order.Status != OrderStatus.Cancelled &&
+                                 oi.Order.Status != OrderStatus.Failed &&
+                                 oi.RentalStartDate <= cartItem.RentalEndDate &&
+                                 oi.RentalEndDate >= cartItem.RentalStartDate)
+                    .ToListAsync(cancellationToken);
+
+                var totalRented = overlappingOrders.Sum(oi => oi.Quantity);
+                
+                if (cartItem.Product.StockQuantity - totalRented < cartItem.Quantity)
+                    throw new InvalidOperationException($"Product {cartItem.Product.Name} does not have enough stock available for the selected dates.");
+            }
+            else 
+            {
+                if (cartItem.Product.StockQuantity < cartItem.Quantity)
+                    throw new InvalidOperationException($"Product {cartItem.Product.Name} does not have enough stock available.");
+                // Reduce Stock only for purchase, since rental stock returns after date
+                cartItem.Product.StockQuantity -= cartItem.Quantity;
+            }
 
             // Calculate Price (Assuming basic price for purchase, ignoring rental logic complexity for now)
             decimal itemPrice = cartItem.Product.Price;
@@ -3128,8 +3439,28 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
                 UnitPrice = itemPrice,
                 Type = cartItem.Type,
                 RentalStartDate = cartItem.RentalStartDate,
-                RentalEndDate = cartItem.RentalEndDate
+                RentalEndDate = cartItem.RentalEndDate,
+                Color = cartItem.Color,
+                Size = cartItem.Size
             });
+        }
+
+        // Apply Promo Code if exists
+        if (!string.IsNullOrWhiteSpace(request.PromoCode))
+        {
+            var promo = await _context.PromoCodes
+                .FirstOrDefaultAsync(p => p.Code.ToLower() == request.PromoCode.ToLower() && p.IsActive, cancellationToken);
+            
+            if (promo != null && (!promo.ExpiryDate.HasValue || promo.ExpiryDate.Value > DateTime.UtcNow))
+            {
+                var discountAmount = totalAmount * (promo.DiscountPercentage / 100);
+                if (promo.MaxDiscountAmount.HasValue && discountAmount > promo.MaxDiscountAmount.Value)
+                {
+                    discountAmount = promo.MaxDiscountAmount.Value;
+                }
+                totalAmount -= discountAmount;
+                if (totalAmount < 0) totalAmount = 0;
+            }
         }
 
         // 3. Create Order
@@ -3382,6 +3713,77 @@ public class TransactionItemDto
 
 ``
 
+## Budgetha.Application\Features\Orders\Queries\GetAdminOrdersQuery.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Enums;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Budgetha.Application.Features.Orders.Queries;
+
+public record AdminOrderDto(
+    Guid Id,
+    string UserName,
+    DateTime CreatedAt,
+    int Status,
+    decimal TotalAmount
+);
+
+public record GetAdminOrdersQuery : IRequest<List<AdminOrderDto>>;
+
+public class GetAdminOrdersQueryHandler : IRequestHandler<GetAdminOrdersQuery, List<AdminOrderDto>>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+    private readonly IIdentityService _identityService;
+
+    public GetAdminOrdersQueryHandler(IApplicationDbContext context, ICurrentUserService currentUserService, IIdentityService identityService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+        _identityService = identityService;
+    }
+
+    public async Task<List<AdminOrderDto>> Handle(GetAdminOrdersQuery request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var roles = await _identityService.GetRolesAsync(userId);
+        
+        IQueryable<Domain.Entities.Order> query = _context.Orders.Include(o => o.User).Include(o => o.Items).ThenInclude(i => i.Product);
+
+        if (!roles.Contains("Admin") && !roles.Contains("SuperAdmin"))
+        {
+            // If just a seller, return only orders containing their products
+            query = query.Where(o => o.Items.Any(i => i.Product.SellerId == userId));
+        }
+
+        var orders = await query
+            .OrderByDescending(o => o.Created)
+            .Select(o => new AdminOrderDto(
+                o.Id,
+                o.User != null ? $"{o.User.FirstName} {o.User.LastName}" : "Unknown User",
+                o.Created.DateTime,
+                (int)o.Status,
+                o.TotalAmount
+            ))
+            .ToListAsync(cancellationToken);
+
+        return orders;
+    }
+}
+
+``
+
 ## Budgetha.Application\Features\Orders\Queries\GetTransactionHistoryQuery.cs
 
 ``csharp
@@ -3573,7 +3975,11 @@ public record CreateProductCommand(
     decimal? RentalPricePerDay,
     string SellerId,
     string Brand,
-    decimal? OriginalPrice
+    decimal? OriginalPrice,
+    List<string>? Colors = null,
+    List<string>? Sizes = null,
+    Dictionary<string, string>? Specs = null,
+    List<string>? Features = null
 ) : IRequest<Guid>;
 
 public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand, Guid>
@@ -3634,6 +4040,30 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
                     Url = url,
                     DisplayOrder = order++
                 });
+            }
+        }
+
+        if (request.Colors != null)
+        {
+            foreach (var color in request.Colors) product.Colors.Add(new ProductColor { Name = color });
+        }
+        if (request.Sizes != null)
+        {
+            foreach (var size in request.Sizes) product.Sizes.Add(new ProductSize { Name = size });
+        }
+        if (request.Features != null && request.Features.Any())
+        {
+            foreach (var feature in request.Features)
+            {
+                product.Features.Add(new ProductFeature { Description = feature });
+            }
+        }
+
+        if (request.Specs != null && request.Specs.Any())
+        {
+            foreach (var spec in request.Specs)
+            {
+                product.Specs.Add(new ProductSpec { Label = spec.Key, Value = spec.Value });
             }
         }
 
@@ -3723,7 +4153,11 @@ public record UpdateProductCommand(
     decimal? RentalPricePerDay,
     string UserId,
     string Brand,
-    decimal? OriginalPrice
+    decimal? OriginalPrice,
+    List<string>? Colors = null,
+    List<string>? Sizes = null,
+    Dictionary<string, string>? Specs = null,
+    List<string>? Features = null
 ) : IRequest<bool>;
 
 public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand, bool>
@@ -3739,7 +4173,13 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
 
     public async Task<bool> Handle(UpdateProductCommand request, CancellationToken cancellationToken)
     {
-        var product = await _context.Products.Include(p => p.Images).FirstOrDefaultAsync(p => p.Id == request.Id, cancellationToken);
+        var product = await _context.Products
+            .Include(p => p.Images)
+            .Include(p => p.Colors)
+            .Include(p => p.Sizes)
+            .Include(p => p.Features)
+            .Include(p => p.Specs)
+            .FirstOrDefaultAsync(p => p.Id == request.Id, cancellationToken);
         if (product == null) return false;
 
         // Verify ownership or Admin rights
@@ -3768,6 +4208,27 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
         product.RentalPricePerDay = request.RentalPricePerDay;
         product.Brand = request.Brand;
         product.OriginalPrice = request.OriginalPrice;
+
+        if (request.Colors != null)
+        {
+            product.Colors.Clear();
+            foreach (var color in request.Colors) product.Colors.Add(new ProductColor { Name = color });
+        }
+        if (request.Sizes != null)
+        {
+            product.Sizes.Clear();
+            foreach (var size in request.Sizes) product.Sizes.Add(new ProductSize { Name = size });
+        }
+        if (request.Features != null)
+        {
+            product.Features.Clear();
+            foreach (var feature in request.Features) product.Features.Add(new ProductFeature { Description = feature });
+        }
+        if (request.Specs != null)
+        {
+            product.Specs.Clear();
+            foreach (var spec in request.Specs) product.Specs.Add(new ProductSpec { Label = spec.Key, Value = spec.Value });
+        }
 
         await _context.SaveChangesAsync(cancellationToken);
         return true;
@@ -4352,11 +4813,13 @@ public class ApproveSellerRequestCommandHandler : IRequestHandler<ApproveSellerR
 {
     private readonly IApplicationDbContext _context;
     private readonly IIdentityService _identityService;
+    private readonly ICurrentUserService _currentUserService;
 
-    public ApproveSellerRequestCommandHandler(IApplicationDbContext context, IIdentityService identityService)
+    public ApproveSellerRequestCommandHandler(IApplicationDbContext context, IIdentityService identityService, ICurrentUserService currentUserService)
     {
         _context = context;
         _identityService = identityService;
+        _currentUserService = currentUserService;
     }
 
     public async Task<bool> Handle(ApproveSellerRequestCommand request, CancellationToken cancellationToken)
@@ -4368,6 +4831,15 @@ public class ApproveSellerRequestCommandHandler : IRequestHandler<ApproveSellerR
             return false;
 
         sellerRequest.Status = "Approved";
+        
+        var verification = await _context.SellerVerifications
+            .FirstOrDefaultAsync(v => v.UserId == sellerRequest.UserId && v.Status == Budgetha.Domain.Enums.VerificationStatus.Pending, cancellationToken);
+            
+        if (verification != null)
+        {
+            verification.Status = Budgetha.Domain.Enums.VerificationStatus.Approved;
+            verification.ReviewedBy = _currentUserService.UserId;
+        }
         
         await _identityService.AssignRoleAsync(sellerRequest.UserId, "Seller");
 
@@ -4392,10 +4864,12 @@ public record RejectSellerRequestCommand(Guid RequestId) : IRequest<bool>;
 public class RejectSellerRequestCommandHandler : IRequestHandler<RejectSellerRequestCommand, bool>
 {
     private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
 
-    public RejectSellerRequestCommandHandler(IApplicationDbContext context)
+    public RejectSellerRequestCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
     {
         _context = context;
+        _currentUserService = currentUserService;
     }
 
     public async Task<bool> Handle(RejectSellerRequestCommand request, CancellationToken cancellationToken)
@@ -4407,6 +4881,16 @@ public class RejectSellerRequestCommandHandler : IRequestHandler<RejectSellerReq
             return false;
 
         sellerRequest.Status = "Rejected";
+
+        var verification = await _context.SellerVerifications
+            .FirstOrDefaultAsync(v => v.UserId == sellerRequest.UserId && v.Status == Budgetha.Domain.Enums.VerificationStatus.Pending, cancellationToken);
+            
+        if (verification != null)
+        {
+            verification.Status = Budgetha.Domain.Enums.VerificationStatus.Rejected;
+            verification.ReviewedBy = _currentUserService.UserId;
+            verification.RejectionReason = "Seller request was rejected by admin.";
+        }
 
         await _context.SaveChangesAsync(cancellationToken);
         return true;
@@ -4428,6 +4912,9 @@ namespace Budgetha.Application.Features.SellerRequests.Commands;
 public record SubmitSellerRequestCommand : IRequest<Guid>
 {
     public string Reason { get; init; } = string.Empty;
+    public string BusinessName { get; init; } = string.Empty;
+    public string BusinessDescription { get; init; } = string.Empty;
+    public string? DocumentUrl { get; init; }
 }
 
 public class SubmitSellerRequestCommandHandler : IRequestHandler<SubmitSellerRequestCommand, Guid>
@@ -4460,8 +4947,18 @@ public class SubmitSellerRequestCommandHandler : IRequestHandler<SubmitSellerReq
             Status = "Pending",
             Reason = request.Reason
         };
-
         _context.SellerRequests.Add(sellerRequest);
+
+        var verification = new SellerVerification
+        {
+            UserId = userId,
+            BusinessName = string.IsNullOrWhiteSpace(request.BusinessName) ? "Unknown" : request.BusinessName,
+            BusinessDescription = request.BusinessDescription,
+            DocumentUrl = request.DocumentUrl,
+            Status = Budgetha.Domain.Enums.VerificationStatus.Pending
+        };
+        _context.SellerVerifications.Add(verification);
+
         await _context.SaveChangesAsync(cancellationToken);
 
         return sellerRequest.Id;
@@ -4531,6 +5028,231 @@ public class GetSellerRequestsQueryHandler : IRequestHandler<GetSellerRequestsQu
             .ToListAsync(cancellationToken);
 
         return result;
+    }
+}
+
+``
+
+## Budgetha.Application\Features\SupportTickets\Commands\CreateTicketCommand.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
+using MediatR;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Budgetha.Application.Features.SupportTickets.Commands;
+
+public record CreateTicketCommand(string Subject, string Message) : IRequest<Guid>;
+
+public class CreateTicketCommandHandler : IRequestHandler<CreateTicketCommand, Guid>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public CreateTicketCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task<Guid> Handle(CreateTicketCommand request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var ticket = new SupportTicket
+        {
+            UserId = userId,
+            Subject = request.Subject,
+            Status = TicketStatus.Open
+        };
+
+        var message = new TicketMessage
+        {
+            SenderId = userId,
+            Body = request.Message
+        };
+
+        ticket.Messages.Add(message);
+
+        _context.SupportTickets.Add(ticket);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return ticket.Id;
+    }
+}
+
+``
+
+## Budgetha.Application\Features\SupportTickets\Commands\ReplyToTicketCommand.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Entities;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Budgetha.Application.Features.SupportTickets.Commands;
+
+public record ReplyToTicketCommand(Guid TicketId, string Message) : IRequest<bool>;
+
+public class ReplyToTicketCommandHandler : IRequestHandler<ReplyToTicketCommand, bool>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public ReplyToTicketCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task<bool> Handle(ReplyToTicketCommand request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var ticket = await _context.SupportTickets
+            .FirstOrDefaultAsync(t => t.Id == request.TicketId, cancellationToken);
+
+        if (ticket == null) return false;
+
+        var message = new TicketMessage
+        {
+            SenderId = userId,
+            Body = request.Message
+        };
+
+        ticket.Messages.Add(message);
+        
+        // Only update status if it was closed, maybe reopen it
+        if (ticket.Status == Budgetha.Domain.Enums.TicketStatus.Closed)
+        {
+            ticket.Status = Budgetha.Domain.Enums.TicketStatus.Open;
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+}
+
+``
+
+## Budgetha.Application\Features\SupportTickets\Queries\GetTicketQuery.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Budgetha.Application.Features.SupportTickets.Queries;
+
+public record TicketMessageDto(Guid Id, string Body, string SenderId, DateTimeOffset SentAt, string SenderName);
+
+public record TicketDetailDto(Guid Id, string Subject, string Status, DateTime CreatedAt, List<TicketMessageDto> Messages);
+
+public record GetTicketQuery(Guid TicketId) : IRequest<TicketDetailDto?>;
+
+public class GetTicketQueryHandler : IRequestHandler<GetTicketQuery, TicketDetailDto?>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+    private readonly IIdentityService _identityService;
+
+    public GetTicketQueryHandler(IApplicationDbContext context, ICurrentUserService currentUserService, IIdentityService identityService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+        _identityService = identityService;
+    }
+
+    public async Task<TicketDetailDto?> Handle(GetTicketQuery request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        var roles = await _identityService.GetRolesAsync(userId);
+        var isAdmin = roles.Contains("Admin") || roles.Contains("SuperAdmin");
+
+        var ticket = await _context.SupportTickets
+            .Include(t => t.Messages)
+            .Include(t => t.User)
+            .FirstOrDefaultAsync(t => t.Id == request.TicketId, cancellationToken);
+
+        if (ticket == null) return null;
+        if (!isAdmin && ticket.UserId != userId) return null; // Only admin or owner can view
+
+        var messages = ticket.Messages
+            .OrderBy(m => m.SentAt)
+            .Select(m => new TicketMessageDto(
+                m.Id,
+                m.Body,
+                m.SenderId,
+                m.SentAt,
+                m.SenderId == ticket.UserId ? (ticket.User != null ? $"{ticket.User.FirstName} {ticket.User.LastName}" : "User") : "Support Team"
+            )).ToList();
+
+        return new TicketDetailDto(ticket.Id, ticket.Subject, ticket.Status.ToString(), ticket.Created.DateTime, messages);
+    }
+}
+
+``
+
+## Budgetha.Application\Features\SupportTickets\Queries\GetTicketsQuery.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Budgetha.Application.Features.SupportTickets.Queries;
+
+public record TicketDto(Guid Id, string Subject, string Status, DateTime CreatedAt);
+
+public record GetTicketsQuery : IRequest<List<TicketDto>>;
+
+public class GetTicketsQueryHandler : IRequestHandler<GetTicketsQuery, List<TicketDto>>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public GetTicketsQueryHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task<List<TicketDto>> Handle(GetTicketsQuery request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrEmpty(userId))
+            throw new UnauthorizedAccessException();
+
+        return await _context.SupportTickets
+            .Where(t => t.UserId == userId)
+            .OrderByDescending(t => t.Created)
+            .Select(t => new TicketDto(t.Id, t.Subject, t.Status.ToString(), t.Created.DateTime))
+            .ToListAsync(cancellationToken);
     }
 }
 
@@ -4984,6 +5706,8 @@ public class OrderItem : BaseEntity
     public OrderItemType Type { get; set; } = OrderItemType.Purchase;
     public DateOnly? RentalStartDate { get; set; }
     public DateOnly? RentalEndDate { get; set; }
+    public string? Color { get; set; }
+    public string? Size { get; set; }
 }
 
 ``
@@ -5140,6 +5864,24 @@ public class ProductSpec : BaseEntity
 
 ``
 
+## Budgetha.Domain\Entities\PromoCode.cs
+
+``csharp
+using Budgetha.Domain.Common;
+
+namespace Budgetha.Domain.Entities;
+
+public class PromoCode : BaseEntity
+{
+    public string Code { get; set; } = null!;
+    public decimal DiscountPercentage { get; set; }
+    public decimal? MaxDiscountAmount { get; set; }
+    public DateTime? ExpiryDate { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+``
+
 ## Budgetha.Domain\Entities\Review.cs
 
 ``csharp
@@ -5289,7 +6031,8 @@ public enum OrderStatus
     Shipped,
     Delivered,
     Cancelled,
-    Refunded
+    Refunded,
+    Failed
 }
 
 ``
@@ -5860,6 +6603,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<ProductSize> ProductSizes => Set<ProductSize>();
     public DbSet<ProductSpec> ProductSpecs => Set<ProductSpec>();
     public DbSet<ProductFeature> ProductFeatures => Set<ProductFeature>();
+    public DbSet<PromoCode> PromoCodes => Set<PromoCode>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -19060,11 +19804,23 @@ public class AdminService : IAdminService
                 FirstName = u.FirstName,
                 LastName = u.LastName,
                 CreatedAt = u.Created,
-                IsBanned = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow,
-                Roles = _context.UserRoles.Where(ur => ur.UserId == u.Id)
-                    .Join(_context.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => r.Name).ToList()
+                IsBanned = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow
             })
             .ToListAsync();
+
+        var userIds = users.Select(u => u.Id).ToList();
+        var userRoles = await _context.UserRoles
+            .Where(ur => userIds.Contains(ur.UserId))
+            .Join(_context.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => new { ur.UserId, RoleName = r.Name })
+            .ToListAsync();
+
+        var roleLookup = userRoles.GroupBy(ur => ur.UserId)
+            .ToDictionary(g => g.Key, g => g.Select(ur => ur.RoleName).ToList());
+
+        foreach (var user in users)
+        {
+            user.Roles = roleLookup.ContainsKey(user.Id) ? roleLookup[user.Id]! : new List<string>();
+        }
 
         return new PagedResult<AdminUserDto>
         {
@@ -19107,11 +19863,23 @@ public class AdminService : IAdminService
                 FirstName = u.FirstName,
                 LastName = u.LastName,
                 CreatedAt = u.Created,
-                IsBanned = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow,
-                Roles = _context.UserRoles.Where(ur => ur.UserId == u.Id)
-                    .Join(_context.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => r.Name).ToList()
+                IsBanned = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow
             })
             .ToListAsync();
+
+        var userIds = users.Select(u => u.Id).ToList();
+        var userRoles = await _context.UserRoles
+            .Where(ur => userIds.Contains(ur.UserId))
+            .Join(_context.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => new { ur.UserId, RoleName = r.Name })
+            .ToListAsync();
+
+        var roleLookup = userRoles.GroupBy(ur => ur.UserId)
+            .ToDictionary(g => g.Key, g => g.Select(ur => ur.RoleName).ToList());
+
+        foreach (var user in users)
+        {
+            user.Roles = roleLookup.ContainsKey(user.Id) ? roleLookup[user.Id]! : new List<string>();
+        }
 
         return users;
     }

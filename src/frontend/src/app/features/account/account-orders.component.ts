@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+﻿import { Component, inject, signal } from '@angular/core';
 import { CurrencyPipe, DatePipe, NgTemplateOutlet } from '@angular/common';
 import { OrderService } from '../../core/services/order.service';
 import { Order, OrderStatus } from '../../core/models/shop.models';
@@ -28,13 +28,13 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
         <div class="hidden md:block overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
-              <tr class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider bg-slate-50/70">
+              <tr class="text-start text-xs font-semibold text-slate-400 uppercase tracking-wider bg-slate-50/70">
                 <th class="px-6 py-3.5">Order</th>
                 <th class="px-6 py-3.5">Date</th>
                 <th class="px-6 py-3.5">Items</th>
                 <th class="px-6 py-3.5">Total</th>
                 <th class="px-6 py-3.5">Status</th>
-                <th class="px-6 py-3.5 text-right">Details</th>
+                <th class="px-6 py-3.5 text-end">Details</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
@@ -61,7 +61,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                       {{ order.status }}
                     </span>
                   </td>
-                  <td class="px-6 py-4 text-right">
+                  <td class="px-6 py-4 text-end">
                     <button
                       type="button"
                       (click)="toggleExpand(order.id)"

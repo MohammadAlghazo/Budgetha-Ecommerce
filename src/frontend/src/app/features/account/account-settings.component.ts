@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+﻿import { Component, inject, signal, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators, FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
@@ -85,7 +85,7 @@ import { ToastService } from '../../core/services/toast.service';
                 class="relative h-6 w-11 rounded-full transition-colors duration-300 shrink-0"
                 [class]="pref.enabled ? 'bg-violet-600' : 'bg-slate-200'">
                 <span class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all duration-300"
-                      [class]="pref.enabled ? 'left-[1.375rem]' : 'left-0.5'"></span>
+                      [class]="pref.enabled ? 'start-[1.375rem]' : 'start-0.5'"></span>
               </button>
             </div>
           }
@@ -130,7 +130,7 @@ import { ToastService } from '../../core/services/toast.service';
                   <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1.5">Commercial Register / Identity Document</label>
                     <input type="file" (change)="onSellerDocumentSelected($event)" accept="image/jpeg,image/png,application/pdf"
-                           class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-all">
+                           class="block w-full text-sm text-slate-500 file:me-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-all">
                     @if (sellerDocumentUrl()) {
                       <p class="text-xs text-emerald-600 mt-2 font-medium">Document uploaded successfully!</p>
                     } @else if (uploadingDocument()) {

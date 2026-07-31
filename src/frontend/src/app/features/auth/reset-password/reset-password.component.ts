@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+﻿import { Component, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators, AbstractControl, ValidationErrors } from '@angular/forms';
 import { RouterLink, Router } from '@angular/router';
@@ -14,7 +14,7 @@ import { ToastService } from '../../../core/services/toast.service';
       <div class="w-full max-w-[420px]">
         <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 sm:p-10">
           <!-- Logo -->
-          <div class="flex items-center justify-center sm:justify-start gap-2 mb-8 sm:-ml-2">
+          <div class="flex items-center justify-center sm:justify-start gap-2 mb-8 sm:-ms-2">
             <img src="/images/logo.png" alt="Budgetha" class="h-16 w-auto object-contain" />
             <span class="text-3xl font-black text-slate-900 tracking-tighter" style="font-family: 'Outfit', sans-serif; padding-top: 4px;">Budgetha</span>
           </div>
@@ -68,13 +68,13 @@ import { ToastService } from '../../../core/services/toast.service';
                   [type]="showPassword() ? 'text' : 'password'"
                   formControlName="newPassword"
                   autocomplete="new-password"
-                  class="input-field pr-11"
+                  class="input-field pe-11"
                   [class.input-error]="form.get('newPassword')?.touched && form.get('newPassword')?.invalid"
                   placeholder="Enter new password" />
                 <button
                   type="button"
                   (click)="togglePassword()"
-                  class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
+                  class="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     @if (showPassword()) {
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
@@ -114,7 +114,7 @@ import { ToastService } from '../../../core/services/toast.service';
 
             <button type="submit" [disabled]="loading()" class="btn-primary w-full">
               @if (loading()) {
-                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
+                <svg class="animate-spin -ms-1 me-2 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                 </svg>

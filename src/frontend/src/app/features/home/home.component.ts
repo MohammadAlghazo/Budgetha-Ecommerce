@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+﻿import { Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../core/services/product.service';
@@ -11,12 +11,12 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
     <!-- ══ Hero ══ -->
     <section class="relative overflow-hidden bg-gradient-to-br from-teal-950 via-teal-900 to-teal-800">
       <!-- Decorative blurs -->
-      <div class="absolute top-0 left-1/4 w-96 h-96 bg-teal-500/20 rounded-full blur-3xl"></div>
-      <div class="absolute bottom-0 right-1/4 w-80 h-80 bg-teal-400/20 rounded-full blur-3xl"></div>
-      <div class="absolute top-1/3 right-10 w-64 h-64 bg-teal-300/10 rounded-full blur-2xl"></div>
+      <div class="absolute top-0 start-1/4 w-96 h-96 bg-teal-500/20 rounded-full blur-3xl"></div>
+      <div class="absolute bottom-0 end-1/4 w-80 h-80 bg-teal-400/20 rounded-full blur-3xl"></div>
+      <div class="absolute top-1/3 end-10 w-64 h-64 bg-teal-300/10 rounded-full blur-2xl"></div>
 
       <div class="relative max-w-7xl mx-auto px-4 sm:px-6 py-16 lg:py-24 grid lg:grid-cols-2 gap-12 items-center">
-        <div class="text-center lg:text-left">
+        <div class="text-center lg:text-start">
           <span class="badge bg-white/10 text-teal-200 ring-1 ring-white/20 backdrop-blur px-4 py-1.5">
             Summer Sale — up to 40% off
           </span>
@@ -30,7 +30,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
           <div class="mt-8 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
             <a routerLink="/shop" class="btn-primary bg-teal-600 hover:bg-teal-500 px-8 py-4 text-base shadow-lg shadow-teal-950/40">
               Shop the Collection
-              <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <svg class="w-4 h-4 ms-2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
               </svg>
             </a>
@@ -43,15 +43,15 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
 
           <!-- Trust stats -->
           <div class="mt-12 grid grid-cols-3 gap-6 max-w-md mx-auto lg:mx-0">
-            <div class="text-center lg:text-left">
+            <div class="text-center lg:text-start">
               <div class="text-2xl font-bold text-white">50K+</div>
               <div class="text-xs text-teal-200/70 mt-1">Happy Shoppers</div>
             </div>
-            <div class="text-center lg:text-left">
+            <div class="text-center lg:text-start">
               <div class="text-2xl font-bold text-white">200+</div>
               <div class="text-xs text-teal-200/70 mt-1">Trusted Vendors</div>
             </div>
-            <div class="text-center lg:text-left">
+            <div class="text-center lg:text-start">
               <div class="text-2xl font-bold text-white">4.9★</div>
               <div class="text-xs text-teal-200/70 mt-1">Average Rating</div>
             </div>
@@ -180,8 +180,8 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
     <!-- ══ Promo banner ══ -->
     <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20">
       <div class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-teal-700 to-teal-800 px-8 py-12 sm:px-14 sm:py-16">
-        <div class="absolute -top-16 -right-16 w-64 h-64 bg-white/10 rounded-full blur-2xl"></div>
-        <div class="absolute -bottom-20 left-1/4 w-72 h-72 bg-teal-400/20 rounded-full blur-3xl"></div>
+        <div class="absolute -top-16 -end-16 w-64 h-64 bg-white/10 rounded-full blur-2xl"></div>
+        <div class="absolute -bottom-20 start-1/4 w-72 h-72 bg-teal-400/20 rounded-full blur-3xl"></div>
         <div class="relative max-w-xl">
           <span class="badge bg-white/15 text-white ring-1 ring-white/25 px-3 py-1">Limited time</span>
           <h2 class="mt-4 text-3xl sm:text-4xl font-extrabold text-white tracking-tight">Get 20% off your next order</h2>

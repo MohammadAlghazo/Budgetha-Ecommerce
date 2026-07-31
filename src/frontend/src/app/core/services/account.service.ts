@@ -64,16 +64,30 @@ export class AccountService {
 
   saveAddress(address: Omit<Address, 'id'> & { id?: number | string }): void {
     if (this.auth.isAuthenticated()) {
-      this.http.post(this.apiUrl, {
-        fullName: address.fullName,
-        line1: address.line1,
-        line2: address.line2,
-        city: address.city,
-        state: address.state,
-        postalCode: address.zip,
-        country: address.country,
-        isDefault: address.isDefault
-      }).subscribe(() => this.syncAddresses());
+      if (address.id && typeof address.id === 'string') {
+        this.http.put(`${this.apiUrl}/${address.id}`, {
+          id: address.id,
+          fullName: address.fullName,
+          line1: address.line1,
+          line2: address.line2,
+          city: address.city,
+          state: address.state,
+          postalCode: address.zip,
+          country: address.country,
+          isDefault: address.isDefault
+        }).subscribe(() => this.syncAddresses());
+      } else {
+        this.http.post(this.apiUrl, {
+          fullName: address.fullName,
+          line1: address.line1,
+          line2: address.line2,
+          city: address.city,
+          state: address.state,
+          postalCode: address.zip,
+          country: address.country,
+          isDefault: address.isDefault
+        }).subscribe(() => this.syncAddresses());
+      }
     } else {
       this._addresses.update(list => {
         let next = list.slice();
@@ -90,18 +104,38 @@ export class AccountService {
   }
 
   deleteAddress(id: number | string): void {
-    // Left as local only for simplicity unless fully mapped
-    this._addresses.update(list => {
-      const next = list.filter(a => a.id !== id);
-      if (next.length && !next.some(a => a.isDefault)) {
-        next[0] = { ...next[0], isDefault: true };
-      }
-      return next;
-    });
+    if (this.auth.isAuthenticated() && typeof id === 'string') {
+      this.http.delete(`${this.apiUrl}/${id}`).subscribe(() => this.syncAddresses());
+    } else {
+      this._addresses.update(list => {
+        const next = list.filter(a => a.id !== id);
+        if (next.length && !next.some(a => a.isDefault)) {
+          next[0] = { ...next[0], isDefault: true };
+        }
+        return next;
+      });
+    }
   }
 
   setDefaultAddress(id: number | string): void {
-    this._addresses.update(list => list.map(a => ({ ...a, isDefault: a.id === id })));
+    if (this.auth.isAuthenticated() && typeof id === 'string') {
+      const address = this._addresses().find(a => a.id === id);
+      if (address) {
+        this.http.put(`${this.apiUrl}/${id}`, {
+          id: address.id,
+          fullName: address.fullName,
+          line1: address.line1,
+          line2: address.line2,
+          city: address.city,
+          state: address.state,
+          postalCode: address.zip,
+          country: address.country,
+          isDefault: true
+        }).subscribe(() => this.syncAddresses());
+      }
+    } else {
+      this._addresses.update(list => list.map(a => ({ ...a, isDefault: a.id === id })));
+    }
   }
 
   defaultCard(): PaymentCard | undefined {

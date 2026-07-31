@@ -31,10 +31,15 @@ public class WebhooksController : ControllerBase
         {
             var document = JsonDocument.Parse(body);
             var root = document.RootElement;
+            // Validate webhook signature headers
+            if (!Request.Headers.TryGetValue("PAYPAL-TRANSMISSION-ID", out var transmissionId) ||
+                !Request.Headers.TryGetValue("PAYPAL-TRANSMISSION-SIG", out var transmissionSig))
+            {
+                _logger.LogWarning("Missing PayPal webhook headers.");
+                return Unauthorized("Missing PayPal webhook headers.");
+            }
+
             var eventType = root.GetProperty("event_type").GetString();
-            
-            // Validate webhook signature here using PayPal SDK if needed.
-            // For now, we will process the event type.
 
             if (eventType == "PAYMENT.CAPTURE.COMPLETED")
             {

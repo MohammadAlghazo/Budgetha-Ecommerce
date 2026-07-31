@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal, computed } from '@angular/core';
+﻿import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -26,14 +26,14 @@ import { ToastService } from '../../core/services/toast.service';
       <!-- Users Table -->
       <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="w-full text-left text-sm whitespace-nowrap">
+          <table class="w-full text-start text-sm whitespace-nowrap">
             <thead class="bg-slate-50/70 text-slate-500 border-b border-slate-100">
               <tr>
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">User</th>
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Roles</th>
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Joined At</th>
                 @if (isSuperAdmin()) {
-                  <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-right">Actions</th>
+                  <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-end">Actions</th>
                 }
               </tr>
             </thead>
@@ -76,7 +76,7 @@ import { ToastService } from '../../core/services/toast.service';
                         <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-slate-100 text-slate-600">User</span>
                       }
                       @if (user.isBanned) {
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-rose-100 text-rose-700 ml-1">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-rose-100 text-rose-700 ms-1">
                           Banned
                         </span>
                       }
@@ -198,7 +198,7 @@ import { ToastService } from '../../core/services/toast.service';
                         class="relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-2">
                   <span [class.translate-x-6]="hasRole('Admin')"
                         [class.translate-x-0]="!hasRole('Admin')"
-                        class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
+                        class="absolute top-0.5 start-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
                 </button>
               </div>
 
@@ -219,7 +219,7 @@ import { ToastService } from '../../core/services/toast.service';
                         class="relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2">
                   <span [class.translate-x-6]="hasRole('Seller')"
                         [class.translate-x-0]="!hasRole('Seller')"
-                        class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
+                        class="absolute top-0.5 start-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
                 </button>
               </div>
 

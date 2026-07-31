@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+﻿import { Component, inject } from '@angular/core';
 import { Toast, ToastService, ToastType } from '../../../core/services/toast.service';
 
 @Component({
@@ -9,7 +9,7 @@ import { Toast, ToastService, ToastType } from '../../../core/services/toast.ser
          pointer-events are off on the stack and back on per card, so the
          container never blocks clicks on the page beneath it. -->
     <div
-      class="fixed inset-x-4 top-20 z-[60] flex flex-col items-end gap-3 sm:inset-x-auto sm:right-6 sm:top-24 sm:max-w-sm pointer-events-none"
+      class="fixed inset-x-4 top-20 z-[60] flex flex-col items-end gap-3 sm:inset-x-auto sm:end-6 sm:top-24 sm:max-w-sm pointer-events-none"
       role="region"
       aria-label="Notifications">
       <div aria-live="polite" aria-atomic="false" class="sr-only">
@@ -46,7 +46,7 @@ import { Toast, ToastService, ToastType } from '../../../core/services/toast.ser
               type="button"
               (click)="dismiss(toast.id)"
               aria-label="Dismiss notification"
-              class="-mr-1 -mt-1 shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600
+              class="-me-1 -mt-1 shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600
                      focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600
                      transition-colors duration-200">
               <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">

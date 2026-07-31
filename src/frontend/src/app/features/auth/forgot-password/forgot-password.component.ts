@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+﻿import { Component, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -14,7 +14,7 @@ import { ToastService } from '../../../core/services/toast.service';
       <div class="w-full max-w-[420px]">
         <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 sm:p-10">
           <!-- Logo -->
-          <div class="flex items-center justify-center sm:justify-start gap-2 mb-8 sm:-ml-2">
+          <div class="flex items-center justify-center sm:justify-start gap-2 mb-8 sm:-ms-2">
             <img src="/images/logo.png" alt="Budgetha" class="h-16 w-auto object-contain" />
             <span class="text-3xl font-black text-slate-900 tracking-tighter" style="font-family: 'Outfit', sans-serif; padding-top: 4px;">Budgetha</span>
           </div>
@@ -46,7 +46,7 @@ import { ToastService } from '../../../core/services/toast.service';
 
               <button type="submit" [disabled]="loading()" class="btn-primary w-full">
                 @if (loading()) {
-                  <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
+                  <svg class="animate-spin -ms-1 me-2 h-4 w-4 text-white inline-block" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                   </svg>

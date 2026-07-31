@@ -1,4 +1,4 @@
-import { Component, inject, computed, signal, effect, OnDestroy } from '@angular/core';
+﻿import { Component, inject, computed, signal, effect, OnDestroy } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { NgTemplateOutlet } from '@angular/common';
 import { AuthService } from '../../core/services/auth.service';
@@ -16,7 +16,7 @@ import { AuthService } from '../../core/services/auth.service';
       <!-- Mobile Sidebar Overlay -->
       @if (mobileMenuOpen()) {
         <div class="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm md:hidden" (click)="mobileMenuOpen.set(false)"></div>
-        <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-teal-950 to-slate-900 text-teal-100 shadow-2xl flex flex-col md:hidden animate-[slideInLeft_0.3s_ease-out] h-full">
+        <aside class="fixed inset-y-0 start-0 z-50 w-64 bg-gradient-to-b from-teal-950 to-slate-900 text-teal-100 shadow-2xl flex flex-col md:hidden animate-[slideInLeft_0.3s_ease-out] h-full">
           <ng-container *ngTemplateOutlet="sidebarContent"></ng-container>
         </aside>
       }
@@ -92,7 +92,7 @@ import { AuthService } from '../../core/services/auth.service';
             </div>
             <span class="text-sm font-medium">Users</span>
             @if (isSuperAdmin()) {
-              <span class="ml-auto text-xs bg-purple-500/30 text-purple-300 px-1.5 py-0.5 rounded-md font-medium">SA</span>
+              <span class="ms-auto text-xs bg-purple-500/30 text-purple-300 px-1.5 py-0.5 rounded-md font-medium">SA</span>
             }
             </a>
 

@@ -73,6 +73,17 @@ export class CartService {
   }
 
   private syncWithBackend() {
+    const localItems = this.load();
+    if (localItems.length > 0) {
+      // Temporarily clear local items so we don't push them again
+      localStorage.removeItem(STORAGE_KEY);
+      this.pushLocalToBackend(localItems);
+    } else {
+      this.fetchFromBackend();
+    }
+  }
+
+  private fetchFromBackend() {
     this.http.get<any>(this.apiUrl).subscribe({
       next: (cart) => {
         if (cart && cart.items) {
@@ -90,16 +101,9 @@ export class CartService {
             rentalStartDate: i.rentalStartDate,
             rentalEndDate: i.rentalEndDate
           }));
-          
-          // Merge logic: If local storage had items and backend is empty, maybe push to backend?
-          // For simplicity, let's just use backend state if it has items, otherwise push local to backend.
-          const localItems = this.load();
-          if (mappedItems.length === 0 && localItems.length > 0) {
-             // Push local items to backend one by one
-             this.pushLocalToBackend(localItems);
-          } else {
-             this._items.set(mappedItems);
-          }
+          this._items.set(mappedItems);
+        } else {
+          this._items.set([]);
         }
       },
       error: (err) => console.error('Failed to sync cart', err)
@@ -115,7 +119,7 @@ export class CartService {
     }));
 
     this.http.post(`${this.apiUrl}/sync`, { items }).subscribe({
-      next: () => this.syncWithBackend(),
+      next: () => this.fetchFromBackend(),
       error: (err) => console.error('Failed to bulk sync cart', err)
     });
   }

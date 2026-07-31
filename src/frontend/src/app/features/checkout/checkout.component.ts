@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+﻿import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -174,7 +174,7 @@ type PaymentMethod = 'paypal' | 'cod';
               <div class="mt-5 grid sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Payment method">
                 <!-- PayPal option -->
                 <button type="button" role="radio" [attr.aria-checked]="paymentMethod() === 'paypal'" (click)="paymentMethod.set('paypal')"
-                        class="rounded-2xl border-2 p-4 text-left transition-all duration-300"
+                        class="rounded-2xl border-2 p-4 text-start transition-all duration-300"
                         [class]="paymentMethod() === 'paypal' ? 'border-violet-600 bg-violet-50/60 shadow-md shadow-violet-100' : 'border-slate-200 hover:border-slate-300'">
                   <svg class="w-7 h-7 mb-2" viewBox="0 0 24 24" fill="none">
                     <path d="M7.076 21.337H4.13a.64.64 0 01-.633-.74L6.222 3.384a.77.77 0 01.76-.65h6.673c2.217 0 3.916.472 4.933 1.404.95.87 1.322 2.083 1.106 3.72-.023.15-.048.302-.078.458-.71 3.65-3.14 4.913-6.24 4.913h-1.58a.77.77 0 00-.76.65l-.81 5.148-.15 1.31z" [attr.fill]="paymentMethod() === 'paypal' ? '#003087' : '#94a3b8'"/>
@@ -186,7 +186,7 @@ type PaymentMethod = 'paypal' | 'cod';
 
                 <!-- COD option -->
                 <button type="button" role="radio" [attr.aria-checked]="paymentMethod() === 'cod'" (click)="paymentMethod.set('cod')"
-                        class="rounded-2xl border-2 p-4 text-left transition-all duration-300"
+                        class="rounded-2xl border-2 p-4 text-start transition-all duration-300"
                         [class]="paymentMethod() === 'cod' ? 'border-violet-600 bg-violet-50/60 shadow-md shadow-violet-100' : 'border-slate-200 hover:border-slate-300'">
                   <svg class="w-7 h-7 mb-2" [class]="paymentMethod() === 'cod' ? 'text-violet-600' : 'text-slate-400'" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
@@ -233,12 +233,12 @@ type PaymentMethod = 'paypal' | 'cod';
           <aside class="lg:col-span-2 card p-6 lg:sticky lg:top-24">
             <h2 class="text-lg font-bold text-slate-900">Order Summary</h2>
 
-            <ul class="mt-5 space-y-4 max-h-72 overflow-y-auto pr-1">
+            <ul class="mt-5 space-y-4 max-h-72 overflow-y-auto pe-1">
               @for (item of cart.items(); track item.productId + (item.color ?? '') + (item.size ?? '')) {
                 <li class="flex items-center gap-3.5">
                   <div class="relative shrink-0">
                     <img [src]="item.image" [alt]="item.name" class="h-16 w-16 rounded-xl object-contain mix-blend-multiply bg-slate-100 p-1" />
-                    <span class="absolute -top-1.5 -right-1.5 h-5 min-w-5 px-1 rounded-full bg-slate-800 text-white text-[11px] font-bold flex items-center justify-center">
+                    <span class="absolute -top-1.5 -end-1.5 h-5 min-w-5 px-1 rounded-full bg-slate-800 text-white text-[11px] font-bold flex items-center justify-center">
                       {{ item.quantity }}
                     </span>
                   </div>
@@ -290,7 +290,7 @@ type PaymentMethod = 'paypal' | 'cod';
             @if (paymentMethod() === 'cod') {
               <button type="submit" [disabled]="placing() || form.invalid" class="btn-primary w-full mt-6 py-4 sm:py-5 text-base sm:text-lg shadow-lg shadow-violet-600/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none">
                 @if (placing()) {
-                  <svg class="animate-spin -ml-1 mr-2.5 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                  <svg class="animate-spin -ms-1 me-2.5 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                   </svg>

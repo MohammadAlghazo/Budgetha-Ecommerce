@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+﻿import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AnnouncementService, Announcement } from '../../core/services/announcement.service';
 import { DatePipe } from '@angular/common';
@@ -58,14 +58,14 @@ import { ToastService } from '../../core/services/toast.service';
       <!-- List -->
       <div class="card overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="w-full text-left text-sm text-slate-600">
+          <table class="w-full text-start text-sm text-slate-600">
             <thead class="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-200">
               <tr>
                 <th class="px-6 py-4 font-semibold">Message</th>
                 <th class="px-6 py-4 font-semibold">Status</th>
                 <th class="px-6 py-4 font-semibold">Start</th>
                 <th class="px-6 py-4 font-semibold">End</th>
-                <th class="px-6 py-4 font-semibold text-right">Actions</th>
+                <th class="px-6 py-4 font-semibold text-end">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
@@ -93,8 +93,8 @@ import { ToastService } from '../../core/services/toast.service';
                   </td>
                   <td class="px-6 py-4">{{ item.startDate ? (item.startDate | date:'short') : '-' }}</td>
                   <td class="px-6 py-4">{{ item.endDate ? (item.endDate | date:'short') : '-' }}</td>
-                  <td class="px-6 py-4 text-right">
-                    <button type="button" class="text-violet-600 hover:text-violet-900 font-medium mr-4" (click)="edit(item)">Edit</button>
+                  <td class="px-6 py-4 text-end">
+                    <button type="button" class="text-violet-600 hover:text-violet-900 font-medium me-4" (click)="edit(item)">Edit</button>
                     <button type="button" class="text-red-600 hover:text-red-900 font-medium" (click)="delete(item.id)">Delete</button>
                   </td>
                 </tr>

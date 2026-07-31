@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+﻿import { Component, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 @Component({
@@ -37,15 +37,15 @@ import { CommonModule } from '@angular/common';
       </div>
 
       <!-- Floating Buttons -->
-      <button type="button" (click)="prevCard()" class="absolute -left-5 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white backdrop-blur-md transition-all duration-300 border border-white/20 shadow-[0_4px_12px_rgba(0,0,0,0.2)] hover:scale-110 active:scale-95" style="z-index: 40;">
+      <button type="button" (click)="prevCard()" class="absolute -start-5 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white backdrop-blur-md transition-all duration-300 border border-white/20 shadow-[0_4px_12px_rgba(0,0,0,0.2)] hover:scale-110 active:scale-95" style="z-index: 40;">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
       </button>
-      <button type="button" (click)="nextCard()" class="absolute -right-5 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white backdrop-blur-md transition-all duration-300 border border-white/20 shadow-[0_4px_12px_rgba(0,0,0,0.2)] hover:scale-110 active:scale-95" style="z-index: 40;">
+      <button type="button" (click)="nextCard()" class="absolute -end-5 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white backdrop-blur-md transition-all duration-300 border border-white/20 shadow-[0_4px_12px_rgba(0,0,0,0.2)] hover:scale-110 active:scale-95" style="z-index: 40;">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
       </button>
 
       <!-- Slider Dots -->
-      <div class="absolute -bottom-8 left-0 right-0 flex justify-center gap-1.5 flex-wrap px-4">
+      <div class="absolute -bottom-8 start-0 end-0 flex justify-center gap-1.5 flex-wrap px-4">
         <button type="button" *ngFor="let dot of cards; let i = index" 
                 (click)="currentCardIndex.set(i)"
                 class="h-2 rounded-full transition-all duration-300 ease-out"

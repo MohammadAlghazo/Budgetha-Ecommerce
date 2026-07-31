@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal, OnDestroy } from '@angular/core';
+﻿import { Component, computed, inject, signal, OnDestroy } from '@angular/core';
 import { CurrencyPipe, DatePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Title, Meta } from '@angular/platform-browser';
@@ -212,7 +212,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                 [class]="activeTab() === tab.key ? 'text-violet-700' : 'text-slate-500 hover:text-slate-800'">
                 {{ tab.label }}
                 @if (tab.key === 'reviews') {
-                  <span class="ml-1.5 badge bg-slate-100 text-slate-500">{{ reviews().length }}</span>
+                  <span class="ms-1.5 badge bg-slate-100 text-slate-500">{{ reviews().length }}</span>
                 }
                 @if (activeTab() === tab.key) {
                   <span class="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-violet-600"></span>
@@ -255,7 +255,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                     <tbody>
                       @for (spec of (p.specs || []); track spec.label; let even = $even) {
                         <tr [class]="even ? 'bg-slate-50/70' : 'bg-white'">
-                          <th scope="row" class="text-left font-semibold text-slate-700 px-6 py-3.5 w-1/3">{{ spec.label }}</th>
+                          <th scope="row" class="text-start font-semibold text-slate-700 px-6 py-3.5 w-1/3">{{ spec.label }}</th>
                           <td class="text-slate-600 px-6 py-3.5">{{ spec.value }}</td>
                         </tr>
                       }
@@ -286,7 +286,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                             <div class="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
                               <div class="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 transition-all duration-500" [style.width.%]="bucket.percent"></div>
                             </div>
-                            <span class="text-xs text-slate-400 w-9 text-right shrink-0">{{ bucket.percent }}%</span>
+                            <span class="text-xs text-slate-400 w-9 text-end shrink-0">{{ bucket.percent }}%</span>
                           </div>
                         }
                       </div>
@@ -547,7 +547,9 @@ export class ProductDetailComponent implements OnDestroy {
               this.hubConnection.stop();
             }
             this.hubConnection = new signalR.HubConnectionBuilder()
-              .withUrl(`${environment.apiUrl.replace('/api', '')}/hubs/reviews`)
+              .withUrl(`${environment.apiUrl.replace('/api', '')}/hubs/reviews`, {
+                accessTokenFactory: () => this.authService.getToken() || ''
+              })
               .withAutomaticReconnect()
               .build();
               

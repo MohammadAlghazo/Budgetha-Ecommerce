@@ -1,4 +1,4 @@
-import { Component, HostListener, computed, inject, signal, OnInit } from '@angular/core';
+﻿import { Component, HostListener, computed, inject, signal, OnInit } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
@@ -50,7 +50,7 @@ import { DatePipe } from '@angular/common';
               }
             </button>
 
-            <a routerLink="/" class="flex items-center gap-2 group -ml-3">
+            <a routerLink="/" class="flex items-center gap-2 group -ms-3">
               <img src="/images/logo.png" alt="Budgetha" class="h-16 w-auto object-contain" />
               <span class="text-3xl font-black text-slate-900 tracking-tighter hidden sm:block" style="font-family: 'Outfit', sans-serif; padding-top: 4px;">Budgetha</span>
             </a>
@@ -77,7 +77,7 @@ import { DatePipe } from '@angular/common';
 
             <!-- Desktop search -->
             <form (submit)="$event.preventDefault()" class="hidden md:block relative">
-              <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <svg class="absolute start-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
               </svg>
               <input
@@ -87,7 +87,7 @@ import { DatePipe } from '@angular/common';
                 (ngModelChange)="onSearchChange($event)"
                 placeholder="Search products…"
                 aria-label="Search products"
-                class="w-44 lg:w-64 rounded-full border border-slate-200 bg-slate-50/70 pl-10 pr-4 py-2.5 text-sm
+                class="w-44 lg:w-64 rounded-full border border-slate-200 bg-slate-50/70 ps-10 pe-4 py-2.5 text-sm
                        placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20
                        focus:border-teal-500 focus:bg-white transition-all duration-300" />
             </form>
@@ -98,7 +98,7 @@ import { DatePipe } from '@angular/common';
                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
               </svg>
               @if (wishlistCount() > 0) {
-                <span class="absolute -top-0.5 -right-0.5 h-5 min-w-5 px-1 rounded-full bg-rose-500 text-white text-[11px] font-bold flex items-center justify-center">
+                <span class="absolute -top-0.5 -end-0.5 h-5 min-w-5 px-1 rounded-full bg-rose-500 text-white text-[11px] font-bold flex items-center justify-center">
                   {{ wishlistCount() }}
                 </span>
               }
@@ -110,7 +110,7 @@ import { DatePipe } from '@angular/common';
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007z" />
               </svg>
               @if (cartCount() > 0) {
-                <span class="absolute -top-0.5 -right-0.5 h-5 min-w-5 px-1 rounded-full bg-teal-600 text-white text-[11px] font-bold flex items-center justify-center">
+                <span class="absolute -top-0.5 -end-0.5 h-5 min-w-5 px-1 rounded-full bg-teal-600 text-white text-[11px] font-bold flex items-center justify-center">
                   {{ cartCount() }}
                 </span>
               }
@@ -124,13 +124,13 @@ import { DatePipe } from '@angular/common';
                     <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
                   </svg>
                   @if (notificationCount() > 0) {
-                    <span class="absolute top-0 right-0.5 h-3 min-w-3 px-1 rounded-full bg-red-500 border border-white text-white text-[9px] font-bold flex items-center justify-center">
+                    <span class="absolute top-0 end-0.5 h-3 min-w-3 px-1 rounded-full bg-red-500 border border-white text-white text-[9px] font-bold flex items-center justify-center">
                     </span>
                   }
                 </button>
                 
                 @if (notificationMenuOpen()) {
-                  <div class="absolute right-0 mt-2 w-80 card bg-white shadow-xl shadow-slate-200/80 animate-[menuIn_0.15s_ease-out] z-50 overflow-hidden" (click)="$event.stopPropagation()">
+                  <div class="absolute end-0 mt-2 w-80 card bg-white shadow-xl shadow-slate-200/80 animate-[menuIn_0.15s_ease-out] z-50 overflow-hidden" (click)="$event.stopPropagation()">
                     <div class="px-4 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                       <span class="text-sm font-semibold text-slate-800">Notifications</span>
                       @if (notificationCount() > 0) {
@@ -184,7 +184,7 @@ import { DatePipe } from '@angular/common';
                   (click)="toggleUserMenu($event)"
                   [attr.aria-expanded]="userMenuOpen()"
                   aria-label="Account menu"
-                  class="flex items-center gap-2 rounded-full pl-1 pr-1 sm:pr-3 py-1 hover:bg-slate-100 transition-colors duration-300">
+                  class="flex items-center gap-2 rounded-full ps-1 pe-1 sm:pe-3 py-1 hover:bg-slate-100 transition-colors duration-300">
                   <span class="h-8 w-8 rounded-full bg-gradient-to-br from-teal-500 to-teal-700 text-white text-xs font-bold flex items-center justify-center">
                     {{ initials() }}
                   </span>
@@ -194,7 +194,7 @@ import { DatePipe } from '@angular/common';
                 </button>
 
                 @if (userMenuOpen()) {
-                  <div class="absolute right-0 mt-2 w-64 card p-2 bg-white shadow-xl shadow-slate-200/80 animate-[menuIn_0.15s_ease-out] z-50" (click)="$event.stopPropagation()">
+                  <div class="absolute end-0 mt-2 w-64 card p-2 bg-white shadow-xl shadow-slate-200/80 animate-[menuIn_0.15s_ease-out] z-50" (click)="$event.stopPropagation()">
                     <div class="px-3 py-2.5 border-b border-slate-100 mb-1">
                       <p class="text-sm font-semibold text-slate-900 truncate">{{ auth.user()?.firstName }} {{ auth.user()?.lastName }}</p>
                       <p class="text-xs text-slate-400 break-all">{{ auth.user()?.email }}</p>
@@ -231,14 +231,14 @@ import { DatePipe } from '@angular/common';
                 class="hidden sm:inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 transition-all duration-300">
                 Sign in
               </a>
-              <a routerLink="/auth/register" class="btn-primary px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm ml-1">Sign up</a>
+              <a routerLink="/auth/register" class="btn-primary px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm ms-1">Sign up</a>
             }
           </div>
         </div>
 
         <!-- Mobile search -->
         <form (submit)="$event.preventDefault()" class="md:hidden pb-3 relative">
-          <svg class="absolute left-3.5 top-1/2 -translate-y-[calc(50%+0.375rem)] w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <svg class="absolute start-3.5 top-1/2 -translate-y-[calc(50%+0.375rem)] w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
           </svg>
           <input
@@ -248,7 +248,7 @@ import { DatePipe } from '@angular/common';
             (ngModelChange)="onSearchChange($event)"
             placeholder="Search products…"
             aria-label="Search products"
-            class="w-full rounded-full border border-slate-200 bg-slate-50/70 pl-10 pr-4 py-2.5 text-sm
+            class="w-full rounded-full border border-slate-200 bg-slate-50/70 ps-10 pe-4 py-2.5 text-sm
                    placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20
                    focus:border-teal-500 focus:bg-white transition-all duration-300" />
         </form>

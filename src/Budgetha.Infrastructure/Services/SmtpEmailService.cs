@@ -53,7 +53,7 @@ public class SmtpEmailService : IEmailService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send email to {To}", to);
-            // Don't throw for now to avoid breaking the flow if SMTP is not configured
+            throw;
         }
     }
 }

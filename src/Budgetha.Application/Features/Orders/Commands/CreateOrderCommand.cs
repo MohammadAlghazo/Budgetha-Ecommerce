@@ -164,7 +164,14 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         // 5. Clear Cart
         _context.CartItems.RemoveRange(cart.Items);
 
-        await _context.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException("One or more products in your cart were just sold out or updated. Please try again.");
+        }
 
         // 6. Send Notifications & Emails
         var user = await _context.Users.FindAsync(new object[] { userId }, cancellationToken);

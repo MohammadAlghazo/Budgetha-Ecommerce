@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal, computed } from '@angular/core';
+﻿import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { AdminService, AdminProductResult } from '../../core/services/admin.service';
@@ -25,22 +25,22 @@ import { AuthService } from '../../core/services/auth.service';
         </div>
       </div>
 
-      <!-- Products Table -->
-      <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      <!-- Products Desktop Table -->
+      <div class="hidden md:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="w-full text-left text-sm whitespace-nowrap">
+          <table class="w-full text-start text-sm whitespace-nowrap">
             <thead class="bg-slate-50/70 text-slate-500 border-b border-slate-100">
               <tr>
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Product</th>
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Price</th>
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Stock</th>
-                <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-right">Actions</th>
+                <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-end">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-50 text-slate-700">
               @if (isLoading()) {
                 <tr>
-                  <td colspan="5" class="px-6 py-12 text-center">
+                  <td colspan="4" class="px-6 py-12 text-center">
                     <div class="flex flex-col items-center justify-center gap-3">
                       <div class="w-8 h-8 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
                       <p class="text-sm text-slate-500 font-medium">Loading products...</p>
@@ -72,11 +72,11 @@ import { AuthService } from '../../core/services/auth.service';
                           [class.text-slate-700]="product.stock >= 10">
                       {{ product.stock }}
                       @if (product.stock < 10) {
-                        <span class="text-xs text-rose-400 ml-1">(Low)</span>
+                        <span class="text-xs text-rose-400 ms-1">(Low)</span>
                       }
                     </span>
                   </td>
-                  <td class="px-6 py-4 text-right">
+                  <td class="px-6 py-4 text-end">
                     <div class="flex items-center justify-end gap-2">
                       <!-- Edit -->
                       @if (canManageProducts()) {
@@ -99,7 +99,7 @@ import { AuthService } from '../../core/services/auth.service';
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="5" class="px-6 py-12 text-center text-slate-400">
+                  <td colspan="4" class="px-6 py-12 text-center text-slate-400">
                     <div class="flex flex-col items-center gap-2">
                       <svg class="w-10 h-10 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
                       <p class="text-sm">No products found</p>
@@ -112,6 +112,81 @@ import { AuthService } from '../../core/services/auth.service';
           </table>
         </div>
       </div>
+
+      <!-- Mobile cards -->
+      <div class="md:hidden space-y-4">
+        @if (isLoading()) {
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 text-center">
+            <div class="flex flex-col items-center justify-center gap-3">
+              <div class="w-8 h-8 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+              <p class="text-sm text-slate-500 font-medium">Loading products...</p>
+            </div>
+          </div>
+        } @else {
+          @for (product of filteredProducts(); track product.id) {
+            <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100" [class.opacity-50]="processingId() === product.id">
+              <div class="flex items-center gap-3 mb-3">
+                <div class="h-12 w-12 rounded-xl bg-slate-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+                  @if (product.images && product.images.length > 0) {
+                    <img [src]="product.images[0]" [alt]="product.name" class="w-full h-full object-cover">
+                  } @else {
+                    <svg class="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                  }
+                </div>
+                <div>
+                  <p class="font-semibold text-slate-900 truncate" [title]="product.name">{{ product.name }}</p>
+                  <p class="text-xs text-slate-400">{{ product.category }}</p>
+                </div>
+              </div>
+              <div class="flex justify-between items-center text-sm mb-4">
+                <span class="font-bold">{{ product.price | currency }}</span>
+                <span [class.text-rose-600]="product.stock < 10" [class.font-semibold]="product.stock < 10" [class.text-slate-700]="product.stock >= 10">
+                  Stock: {{ product.stock }}
+                </span>
+              </div>
+              <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                @if (canManageProducts()) {
+                  <a [routerLink]="['/admin/edit-product', product.slug]" class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors">
+                    Edit
+                  </a>
+                  <button (click)="confirmDelete(product)" [disabled]="processingId() === product.id" class="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors">
+                    Delete
+                  </button>
+                }
+              </div>
+            </div>
+          } @empty {
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 text-center text-slate-400">
+              <p class="text-sm">No products found</p>
+            </div>
+          }
+        }
+      </div>
+
+      <!-- Pagination -->
+      @if (productsResult() && productsResult()!.totalPages > 1) {
+        <div class="flex items-center justify-between border-t border-slate-200 bg-white px-4 py-3 sm:px-6 rounded-2xl shadow-sm">
+          <div class="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+            <div>
+              <p class="text-sm text-gray-700">
+                Showing page <span class="font-medium">{{ currentPage() }}</span> of <span class="font-medium">{{ productsResult()?.totalPages }}</span>
+              </p>
+            </div>
+            <div>
+              <nav class="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+                <button (click)="changePage(currentPage() - 1)" [disabled]="currentPage() === 1" class="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50">
+                  <span class="sr-only">Previous</span>
+                  <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clip-rule="evenodd" /></svg>
+                </button>
+                <button (click)="changePage(currentPage() + 1)" [disabled]="currentPage() === productsResult()?.totalPages" class="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50">
+                  <span class="sr-only">Next</span>
+                  <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" /></svg>
+                </button>
+              </nav>
+            </div>
+          </div>
+        </div>
+      }
     </div>
 
     <!-- Delete Confirmation Modal -->
@@ -153,6 +228,7 @@ export class AdminProductsComponent implements OnInit {
   readonly processingId = signal<string | null>(null);
   readonly productToDelete = signal<any>(null);
   readonly isLoading = signal(true);
+  readonly currentPage = signal(1);
 
   readonly isSuperAdmin = computed(() =>
     this.authService.user()?.roles?.includes('SuperAdmin') ?? false
@@ -168,14 +244,15 @@ export class AdminProductsComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.loadProducts();
+    this.loadProducts(this.currentPage());
   }
 
-  loadProducts(): void {
+  loadProducts(page: number = 1): void {
     this.isLoading.set(true);
-    this.adminService.getAllProducts().subscribe({
+    this.adminService.getAllProducts(page).subscribe({
       next: (result) => {
         this.productsResult.set(result);
+        this.currentPage.set(page);
         this.isLoading.set(false);
       },
       error: (err) => {
@@ -183,6 +260,12 @@ export class AdminProductsComponent implements OnInit {
         this.isLoading.set(false);
       }
     });
+  }
+
+  changePage(page: number): void {
+    if (page > 0 && page <= (this.productsResult()?.totalPages || 1)) {
+      this.loadProducts(page);
+    }
   }
 
   confirmDelete(product: any): void {
