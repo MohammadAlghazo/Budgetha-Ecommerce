@@ -193,7 +193,7 @@ const PAGE_SIZE = 9;
           <div class="card p-5">
             <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4">Brands</h3>
             <div class="space-y-2.5">
-              @for (brand of brands; track brand) {
+              @for (brand of brands(); track brand) {
                 <label class="flex items-center gap-3 cursor-pointer group">
                   <input
                     type="checkbox"
@@ -309,7 +309,7 @@ export class CatalogComponent {
   readonly router = inject(Router);
 
   readonly categories = toSignal(this.productService.getCategories(), { initialValue: [] });
-  readonly brands = this.productService.getBrands(); 
+  readonly brands = toSignal(this.productService.getBrands(), { initialValue: [] }); 
   
   
   readonly bounds = toSignal(this.productService.priceBounds(), { initialValue: { min: 0, max: 10000 } });

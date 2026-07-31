@@ -16,7 +16,9 @@ public record CreateProductCommand(
     List<string> ImageUrls,
     bool IsAvailableForRent,
     decimal? RentalPricePerDay,
-    string SellerId
+    string SellerId,
+    string Brand,
+    decimal? OriginalPrice
 ) : IRequest<Guid>;
 
 public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand, Guid>
@@ -59,10 +61,12 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             ThumbnailUrl = request.ImageUrls.FirstOrDefault(),
             IsAvailableForRent = request.IsAvailableForRent,
             RentalPricePerDay = request.RentalPricePerDay,
+            Brand = string.IsNullOrWhiteSpace(request.Brand) ? "Generic" : request.Brand,
+            OriginalPrice = request.OriginalPrice,
             SellerId = request.SellerId,
             Slug = slug,
             IsActive = true,
-            ApprovalStatus = ApprovalStatus.Pending
+            ApprovalStatus = ApprovalStatus.Approved
         };
 
         if (request.ImageUrls != null && request.ImageUrls.Any())

@@ -5,7 +5,7 @@ const STORAGE_KEY = 'budgetha_wishlist';
 
 @Injectable({ providedIn: 'root' })
 export class WishlistService {
-  private readonly _ids = signal<number[]>(this.load());
+  private readonly _ids = signal<string[]>(this.load());
 
   readonly ids = this._ids.asReadonly();
   readonly count = computed(() => this._ids().length);
@@ -14,11 +14,11 @@ export class WishlistService {
     effect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(this._ids())));
   }
 
-  has(productId: number): boolean {
+  has(productId: string): boolean {
     return this._ids().includes(productId);
   }
 
-  toggle(productId: number, productName?: string): void {
+  toggle(productId: string, productName?: string): void {
     if (this.has(productId)) {
       this._ids.update(ids => ids.filter(id => id !== productId));
       if (productName) this.toast.info(`${productName} removed from wishlist`);
@@ -28,11 +28,13 @@ export class WishlistService {
     }
   }
 
-  private load(): number[] {
+  private load(): string[] {
     try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
-    } catch {
-      return [];
-    }
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        return JSON.parse(stored) as string[];
+      }
+    } catch { }
+    return [];
   }
 }

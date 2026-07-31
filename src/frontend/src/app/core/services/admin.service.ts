@@ -109,4 +109,8 @@ export class AdminService {
 
     return this.http.get<TransactionHistoryDto[]>(`${environment.apiUrl}/orders/history`, { params });
   }
+
+  getAnnouncements(): Observable<any[]> {
+    return this.http.get<any[]>(`${this.apiUrl}/announcements`);
+  }
 }

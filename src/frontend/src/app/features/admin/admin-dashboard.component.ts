@@ -80,26 +80,7 @@ import { AuthService } from '../../core/services/auth.service';
           </div>
         </div>
 
-        <!-- Pending -->
-        <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
-          <div class="flex items-center justify-between mb-4">
-            <div class="h-11 w-11 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white shadow-lg shadow-amber-200">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-            </div>
-            @if ((stats()?.pendingProducts ?? 0) > 0) {
-              <span class="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full animate-pulse">Action needed</span>
-            } @else {
-              <span class="text-xs font-semibold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full">All clear</span>
-            }
-          </div>
-          <h3 class="text-3xl font-bold text-slate-900 tabular-nums">{{ stats()?.pendingProducts | number }}</h3>
-          <p class="text-sm font-medium text-slate-500 mt-1">Pending Approval</p>
-          <div class="mt-3 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-            <div class="h-full bg-gradient-to-r from-amber-400 to-amber-200 rounded-full"
-                 [style.width]="pendingPercent() + '%'"></div>
-          </div>
-        </div>
-
+        <!-- Padding space instead of Pending -->
         <!-- Total Orders -->
         <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
           <div class="flex items-center justify-between mb-4">
@@ -170,12 +151,6 @@ import { AuthService } from '../../core/services/auth.service';
               <!-- X-axis label -->
               <text x="88" y="188" text-anchor="middle" font-size="10" fill="#64748b" font-weight="600">Current Stats</text>
 
-              <!-- Pending bar (amber) -->
-              <rect x="240" y="10" width="28" rx="4"
-                    [attr.height]="barHeight(stats()?.pendingProducts, maxStat())"
-                    [attr.y]="170 - barHeight(stats()?.pendingProducts, maxStat())"
-                    fill="url(#amberGrad)" class="transition-all duration-700"/>
-              <text x="254" y="188" text-anchor="middle" font-size="10" fill="#64748b" font-weight="600">Pending</text>
 
               <!-- Gradients -->
               <defs>
@@ -209,10 +184,7 @@ import { AuthService } from '../../core/services/auth.service';
               <p class="text-lg font-bold text-indigo-600">{{ stats()?.totalProducts ?? 0 }}</p>
               <p class="text-xs text-slate-400">Products</p>
             </div>
-            <div class="text-center">
-              <p class="text-lg font-bold text-amber-500">{{ stats()?.pendingProducts ?? 0 }}</p>
-              <p class="text-xs text-slate-400">Pending</p>
-            </div>
+
             <div class="text-center">
               <p class="text-lg font-bold text-rose-500">{{ stats()?.totalOrders ?? 0 }}</p>
               <p class="text-xs text-slate-400">Orders</p>
@@ -372,11 +344,7 @@ import { AuthService } from '../../core/services/auth.service';
                 <div>
                   <p class="text-sm font-semibold">Review Products</p>
                   <p class="text-xs text-slate-400">
-                    @if ((stats()?.pendingProducts ?? 0) > 0) {
-                      <span class="text-amber-500 font-medium">{{ stats()?.pendingProducts }} pending approval</span>
-                    } @else {
-                      All products reviewed
-                    }
+                    All products are active
                   </p>
                 </div>
                 <svg class="w-4 h-4 ml-auto text-slate-300 group-hover:text-slate-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
@@ -404,10 +372,7 @@ import { AuthService } from '../../core/services/auth.service';
                 <svg class="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
                 <span class="text-slate-600 font-medium">View & manage users</span>
               </div>
-              <div class="flex items-center gap-2 text-sm">
-                <svg class="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
-                <span class="text-slate-600 font-medium">Approve/reject products</span>
-              </div>
+
               <div class="flex items-center gap-2 text-sm">
                 @if (isSuperAdmin()) {
                   <svg class="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>

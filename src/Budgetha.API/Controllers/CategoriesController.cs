@@ -29,4 +29,13 @@ public class CategoriesController : ControllerBase
         var result = await _mediator.Send(command);
         return Ok(result);
     }
+
+    [HttpPut("{id:guid}")]
+    public async Task<ActionResult> UpdateCategory(Guid id, [FromBody] UpdateCategoryCommand command)
+    {
+        if (id != command.Id) return BadRequest();
+        var result = await _mediator.Send(command);
+        if (!result) return NotFound();
+        return NoContent();
+    }
 }

@@ -19,7 +19,7 @@ import { DatePipe, NgIf } from '@angular/common';
             {{ categories().length }} total categories.
           </p>
         </div>
-        <button (click)="isAdding.set(true)" *ngIf="!isAdding()"
+        <button (click)="openAdd()" *ngIf="!isAdding()"
                 class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-colors">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
           Add New Category
@@ -30,7 +30,7 @@ import { DatePipe, NgIf } from '@angular/common';
       @if (isAdding()) {
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 animate-[slideDown_0.3s_ease-out]">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-bold text-slate-900">Create New Category</h3>
+            <h3 class="text-lg font-bold text-slate-900">{{ editId() ? 'Edit Category' : 'Create New Category' }}</h3>
             <button (click)="isAdding.set(false)" class="text-slate-400 hover:text-slate-600">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
@@ -110,7 +110,10 @@ import { DatePipe, NgIf } from '@angular/common';
       } @else {
       <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         @for (category of categories(); track category.id) {
-          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col items-center text-center hover:shadow-md transition-shadow">
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col items-center text-center hover:shadow-md transition-shadow relative group">
+            <button (click)="editCategory(category)" class="absolute top-2 right-2 p-2 bg-slate-50 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+            </button>
             @if (category.image) {
               <img [src]="category.image" class="w-20 h-20 rounded-full object-cover mb-4 ring-4 ring-slate-50">
             } @else {
@@ -140,6 +143,7 @@ export class AdminCategoriesComponent implements OnInit {
   isSubmitting = signal(false);
   isLoading = signal(true);
   imageUrl = signal<string | null>(null);
+  editId = signal<string | null>(null);
 
   form = this.fb.group({
     name: ['', Validators.required],
@@ -198,31 +202,65 @@ export class AdminCategoriesComponent implements OnInit {
     }
   }
 
+  openAdd() {
+    this.editId.set(null);
+    this.form.reset();
+    this.imageUrl.set(null);
+    this.isAdding.set(true);
+  }
+
+  editCategory(category: Category) {
+    this.editId.set(category.id);
+    this.form.patchValue({
+      name: category.name,
+      slug: category.slug
+    });
+    this.imageUrl.set(category.image || null);
+    this.isAdding.set(true);
+  }
+
   onSubmit() {
     if (this.form.invalid) return;
 
     this.isSubmitting.set(true);
-    const data = {
-      name: this.form.value.name!,
-      slug: this.form.value.slug!,
-      imageUrl: this.imageUrl() || undefined
-    };
-
-    this.productService.createCategory(data).subscribe({
-      next: () => {
-        this.toastService.success('Category created successfully');
-        this.isAdding.set(false);
-        this.form.reset();
-        this.imageUrl.set(null);
-        this.loadCategories();
-      },
-      error: (err) => {
-        console.error(err);
-        this.toastService.error('Failed to create category');
-      },
-      complete: () => {
-        this.isSubmitting.set(false);
-      }
-    });
+    
+    if (this.editId()) {
+      const data = {
+        id: this.editId()!,
+        name: this.form.value.name!,
+        slug: this.form.value.slug!,
+        imageUrl: this.imageUrl() || undefined
+      };
+      this.productService.updateCategory(this.editId()!, data).subscribe({
+        next: () => {
+          this.toastService.success('Category updated successfully');
+          this.isAdding.set(false);
+          this.loadCategories();
+        },
+        error: (err) => {
+          console.error(err);
+          this.toastService.error('Failed to update category');
+        },
+        complete: () => this.isSubmitting.set(false)
+      });
+    } else {
+      const data = {
+        name: this.form.value.name!,
+        slug: this.form.value.slug!,
+        imageUrl: this.imageUrl() || undefined
+      };
+      this.productService.createCategory(data).subscribe({
+        next: () => {
+          this.toastService.success('Category created successfully');
+          this.isAdding.set(false);
+          this.loadCategories();
+        },
+        error: (err) => {
+          console.error(err);
+          this.toastService.error('Failed to create category');
+        },
+        complete: () => this.isSubmitting.set(false)
+      });
+    }
   }
 }

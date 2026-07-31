@@ -31,12 +31,21 @@ export class ProductService {
     return this.http.post<string>(`${this.apiUrl}/categories`, category);
   }
 
-  getBrands(): string[] {
-    return BRANDS; 
+  updateCategory(id: string, category: { id: string, name: string, slug: string, imageUrl?: string }): Observable<void> {
+    return this.http.put<void>(`${this.apiUrl}/categories/${id}`, category);
+  }
+
+  getBrands(): Observable<string[]> {
+    return this.http.get<string[]>(`${this.apiUrl}/products/brands`).pipe(
+      catchError(err => {
+        console.error('Failed to fetch brands', err);
+        return of([]);
+      })
+    );
   }
 
   getAll(): Observable<Product[]> {
-    return this.query({ page: 1, pageSize: 100 } as CatalogQuery).pipe(map(res => res?.items || []));
+    return this.query({ page: 1, pageSize: 100, minPrice: 0, maxPrice: 1000000, minRating: 0 } as CatalogQuery).pipe(map(res => res?.items || []));
   }
 
   getFeatured(): Observable<Product[]> {

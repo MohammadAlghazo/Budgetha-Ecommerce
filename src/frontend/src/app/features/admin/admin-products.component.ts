@@ -14,9 +14,6 @@ import { AuthService } from '../../core/services/auth.service';
           <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Products Management</h2>
           <p class="mt-1 text-sm text-slate-500">
             {{ productsResult()?.total ?? 0 }} total products.
-            @if (pendingCount() > 0) {
-              <span class="text-amber-600 font-medium">{{ pendingCount() }} awaiting approval.</span>
-            }
           </p>
         </div>
 
@@ -25,25 +22,7 @@ import { AuthService } from '../../core/services/auth.service';
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
             Add New Product
           </a>
-
-        <!-- Filter tabs -->
-        <div class="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
-          @for (tab of filterTabs; track tab.value) {
-            <button (click)="activeFilter.set(tab.value)"
-                    [class.bg-white]="activeFilter() === tab.value"
-                    [class.shadow-sm]="activeFilter() === tab.value"
-                    [class.text-slate-900]="activeFilter() === tab.value"
-                    [class.font-semibold]="activeFilter() === tab.value"
-                    [class.text-slate-500]="activeFilter() !== tab.value"
-                    class="px-4 py-2 rounded-lg text-sm transition-all">
-              {{ tab.label }}
-              @if (tab.value === 'Pending' && pendingCount() > 0) {
-                <span class="ml-1.5 bg-amber-500 text-white text-xs rounded-full px-1.5 py-0.5 font-bold">{{ pendingCount() }}</span>
-              }
-            </button>
-          }
         </div>
-      </div>
       </div>
 
       <!-- Products Table -->
@@ -55,7 +34,6 @@ import { AuthService } from '../../core/services/auth.service';
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Product</th>
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Price</th>
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Stock</th>
-                <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Status</th>
                 <th class="px-6 py-4 font-semibold text-xs uppercase tracking-wider text-right">Actions</th>
               </tr>
             </thead>
@@ -98,44 +76,17 @@ import { AuthService } from '../../core/services/auth.service';
                       }
                     </span>
                   </td>
-                  <td class="px-6 py-4">
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold"
-                          [class.bg-teal-100]="product.approvalStatus === 'Approved'"
-                          [class.text-teal-700]="product.approvalStatus === 'Approved'"
-                          [class.bg-amber-100]="product.approvalStatus === 'Pending'"
-                          [class.text-amber-700]="product.approvalStatus === 'Pending'"
-                          [class.bg-rose-100]="product.approvalStatus === 'Rejected'"
-                          [class.text-rose-700]="product.approvalStatus === 'Rejected'">
-                      <span class="w-1.5 h-1.5 rounded-full inline-block"
-                            [class.bg-teal-500]="product.approvalStatus === 'Approved'"
-                            [class.bg-amber-500]="product.approvalStatus === 'Pending'"
-                            [class.bg-rose-500]="product.approvalStatus === 'Rejected'">
-                      </span>
-                      {{ product.approvalStatus }}
-                    </span>
-                  </td>
                   <td class="px-6 py-4 text-right">
                     <div class="flex items-center justify-end gap-2">
-                      <!-- Approve -->
-                      @if (product.approvalStatus !== 'Approved') {
-                        <button (click)="changeStatus(product, 'Approved')"
-                                [disabled]="processingId() === product.id"
-                                class="inline-flex items-center gap-1 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors">
-                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
-                          Approve
-                        </button>
-                      }
-                      <!-- Reject -->
-                      @if (product.approvalStatus !== 'Rejected') {
-                        <button (click)="changeStatus(product, 'Rejected')"
-                                [disabled]="processingId() === product.id"
-                                class="inline-flex items-center gap-1 text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors">
-                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                          Reject
-                        </button>
-                      }
-                      <!-- Delete (SuperAdmin only) -->
-                      @if (isSuperAdmin()) {
+                      <!-- Edit -->
+                      @if (canManageProducts()) {
+                        <a [routerLink]="['/admin/edit-product', product.slug]"
+                           class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors">
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                          Edit
+                        </a>
+
+                        <!-- Delete -->
                         <button (click)="confirmDelete(product)"
                                 [disabled]="processingId() === product.id"
                                 class="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 border border-rose-200 hover:bg-rose-50 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors">
@@ -201,30 +152,20 @@ export class AdminProductsComponent implements OnInit {
   readonly productsResult = signal<AdminProductResult | null>(null);
   readonly processingId = signal<string | null>(null);
   readonly productToDelete = signal<any>(null);
-  readonly activeFilter = signal<string>('All');
   readonly isLoading = signal(true);
-
-  readonly filterTabs = [
-    { label: 'All', value: 'All' },
-    { label: 'Pending', value: 'Pending' },
-    { label: 'Approved', value: 'Approved' },
-    { label: 'Rejected', value: 'Rejected' },
-  ];
 
   readonly isSuperAdmin = computed(() =>
     this.authService.user()?.roles?.includes('SuperAdmin') ?? false
   );
 
-  readonly filteredProducts = computed(() => {
-    const items = this.productsResult()?.items ?? [];
-    const filter = this.activeFilter();
-    if (filter === 'All') return items;
-    return items.filter((p: any) => p.approvalStatus === filter);
+  readonly canManageProducts = computed(() => {
+    const roles = this.authService.user()?.roles ?? [];
+    return roles.includes('SuperAdmin') || roles.includes('Seller');
   });
 
-  readonly pendingCount = computed(() =>
-    (this.productsResult()?.items ?? []).filter((p: any) => p.approvalStatus === 'Pending').length
-  );
+  readonly filteredProducts = computed(() => {
+    return this.productsResult()?.items ?? [];
+  });
 
   ngOnInit(): void {
     this.loadProducts();
@@ -240,26 +181,6 @@ export class AdminProductsComponent implements OnInit {
       error: (err) => {
         console.error('Failed to load products:', err);
         this.isLoading.set(false);
-      }
-    });
-  }
-
-  changeStatus(product: any, status: 'Approved' | 'Rejected'): void {
-    this.processingId.set(product.id);
-    this.adminService.approveProduct(product.id, status).subscribe({
-      next: () => {
-        
-        const current = this.productsResult();
-        if (current) {
-          const updated = current.items.map((p: any) =>
-            p.id === product.id ? { ...p, approvalStatus: status } : p
-          );
-          this.productsResult.set({ ...current, items: updated });
-        }
-        this.processingId.set(null);
-      },
-      error: () => {
-        this.processingId.set(null);
       }
     });
   }

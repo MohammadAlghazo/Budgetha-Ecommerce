@@ -53,11 +53,60 @@ public class ProductsController : ControllerBase
             request.ImageUrls ?? new List<string>(),
             request.IsAvailableForRent,
             request.RentalPricePerDay,
-            userId
+            userId,
+            request.Brand,
+            request.OriginalPrice
         );
 
         var productId = await _mediator.Send(command);
         return Ok(productId);
+    }
+
+    [Authorize(Roles = "Admin,SuperAdmin,Seller")]
+    [HttpPut("{id:guid}")]
+    public async Task<ActionResult> UpdateProduct(Guid id, [FromBody] CreateProductRequest request)
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+        var command = new UpdateProductCommand(
+            id,
+            request.Name,
+            request.Description,
+            request.Price,
+            request.StockQuantity,
+            request.CategoryId,
+            request.ImageUrls ?? new List<string>(),
+            request.IsAvailableForRent,
+            request.RentalPricePerDay,
+            userId,
+            request.Brand,
+            request.OriginalPrice
+        );
+
+        var result = await _mediator.Send(command);
+        if (!result) return Forbid(); // Or NotFound
+        return NoContent();
+    }
+
+    [Authorize(Roles = "SuperAdmin,Seller")]
+    [HttpDelete("{id:guid}")]
+    public async Task<ActionResult> DeleteProduct(Guid id)
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var isSuperAdmin = User.IsInRole("SuperAdmin");
+        if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+        var result = await _mediator.Send(new DeleteProductCommand(id, userId, isSuperAdmin));
+        if (!result) return Forbid(); // Or NotFound
+        return NoContent();
+    }
+
+    [HttpGet("brands")]
+    public async Task<ActionResult<List<string>>> GetBrands()
+    {
+        var brands = await _mediator.Send(new Budgetha.Application.Features.Products.Queries.GetBrandsQuery());
+        return Ok(brands);
     }
 
 
@@ -80,5 +129,7 @@ public record CreateProductRequest(
     Guid CategoryId,
     List<string> ImageUrls,
     bool IsAvailableForRent,
-    decimal? RentalPricePerDay
+    decimal? RentalPricePerDay,
+    string Brand,
+    decimal? OriginalPrice
 );

@@ -15,9 +15,9 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
   template: `
     <div class="max-w-4xl mx-auto space-y-6 pb-20">
       <div>
-        <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Add New Product</h2>
+        <h2 class="text-2xl font-bold text-slate-900 tracking-tight">{{ isEditMode() ? 'Edit Product' : 'Add New Product' }}</h2>
         <p class="mt-1 text-sm text-slate-500">
-          Create a new product listing. Products will be marked as "Pending" and require Admin approval.
+          {{ isEditMode() ? 'Update your product listing details.' : 'Create a new product listing. It will be immediately published to the catalog.' }}
         </p>
       </div>
 
@@ -45,6 +45,12 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
                   }
                 </select>
               </div>
+
+              <div class="space-y-2 md:col-span-2">
+                <label for="brand" class="block text-sm font-semibold text-slate-700">Brand <span class="text-rose-500">*</span></label>
+                <input type="text" id="brand" formControlName="brand" placeholder="e.g. Sony, Samsung, Nike"
+                       class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400">
+              </div>
             </div>
 
             <div class="space-y-2">
@@ -69,6 +75,15 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
               </div>
 
               <div class="space-y-2">
+                <label for="originalPrice" class="block text-sm font-semibold text-slate-700">Original Price ($) <span class="text-xs text-slate-500 font-normal">(Optional - for discounts)</span></label>
+                <div class="relative">
+                  <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">$</span>
+                  <input type="number" id="originalPrice" formControlName="originalPrice" min="0" step="0.01" placeholder="0.00"
+                         class="w-full pl-8 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
+                </div>
+              </div>
+
+              <div class="space-y-2 md:col-span-2">
                 <label for="stockQuantity" class="block text-sm font-semibold text-slate-700">Stock Quantity <span class="text-rose-500">*</span></label>
                 <input type="number" id="stockQuantity" formControlName="stockQuantity" min="0" placeholder="0"
                        class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
@@ -184,7 +199,7 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
                   Saving...
                 </span>
               } @else {
-                Publish Product
+                {{ isEditMode() ? 'Save Changes' : 'Publish Product' }}
               }
             </button>
           </div>
@@ -195,19 +210,14 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
     <!-- Image Editor Modal -->
     @if (editingFile()) {
       <div class="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4">
-        <div class="relative w-full h-full max-w-6xl max-h-[90vh] bg-white rounded-2xl overflow-hidden shadow-2xl flex flex-col">
+        <div class="relative w-full h-[85vh] max-w-5xl bg-white rounded-2xl overflow-hidden shadow-2xl flex flex-col">
           <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
             <h3 class="text-lg font-bold text-slate-900">Advanced Image Editor</h3>
-            <div class="flex items-center gap-3">
-              <button type="button" (click)="closeEditor()" class="px-5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
-                Cancel
-              </button>
-              <button type="button" (click)="saveAndUpload()" class="px-6 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-sm shadow-indigo-200">
-                Save & Upload
-              </button>
-            </div>
+            <button type="button" (click)="closeEditor()" class="px-5 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+              Cancel
+            </button>
           </div>
-          <div id="filerobot-editor-container" class="w-full flex-1"></div>
+          <div id="filerobot-editor-container" class="w-full flex-1 relative"></div>
         </div>
       </div>
     }
@@ -224,6 +234,8 @@ export class AdminAddProductComponent implements OnInit {
 
   isSubmitting = false;
   isUploadingImage = signal(false);
+  isEditMode = signal(false);
+  editProductId = signal<string | null>(null);
 
   uploadedImages = signal<string[]>([]);
   categories = signal<Category[]>([]);
@@ -232,8 +244,10 @@ export class AdminAddProductComponent implements OnInit {
 
   form = this.fb.group({
     name: ['', [Validators.required, Validators.maxLength(200)]],
+    brand: ['', [Validators.required, Validators.maxLength(100)]],
     description: ['', [Validators.required]],
     price: [null as number | null, [Validators.required, Validators.min(0.01)]],
+    originalPrice: [null as number | null, [Validators.min(0.01)]],
     stockQuantity: [null as number | null, [Validators.required, Validators.min(0)]],
     categoryId: ['', [Validators.required]],
     isAvailableForRent: [false],
@@ -243,6 +257,44 @@ export class AdminAddProductComponent implements OnInit {
   ngOnInit() {
     this.productService.getCategories().subscribe(res => {
       this.categories.set(res);
+    });
+    
+    // Check if in edit mode
+    const urlParts = this.router.url.split('/');
+    if (urlParts.includes('edit-product')) {
+      const slug = urlParts[urlParts.length - 1];
+      this.isEditMode.set(true);
+      this.loadProductForEdit(slug);
+    }
+  }
+
+  loadProductForEdit(slug: string) {
+    this.productService.getBySlug(slug).subscribe({
+      next: (product) => {
+        this.editProductId.set(product.id);
+        this.form.patchValue({
+          name: product.name,
+          brand: product.brand || '',
+          description: product.description,
+          price: product.price,
+          originalPrice: product.originalPrice,
+          stockQuantity: product.stock,
+          categoryId: product.categoryId,
+          isAvailableForRent: product.isAvailableForRent,
+          rentalPricePerDay: product.rentalPricePerDay
+        });
+        if (product.images) {
+          this.uploadedImages.set(product.images);
+        }
+        if (product.isAvailableForRent) {
+          this.form.get('rentalPricePerDay')?.setValidators([Validators.required, Validators.min(0.01)]);
+          this.form.get('rentalPricePerDay')?.updateValueAndValidity();
+        }
+      },
+      error: (err) => {
+        this.toast.error('Failed to load product details.');
+        this.router.navigate(['/admin/products']);
+      }
     });
   }
 
@@ -287,7 +339,18 @@ export class AdminAddProductComponent implements OnInit {
     
     const config = {
       source: imageUrl,
-      removeSaveButton: true,
+      onSave: (imageInfo: any, designState: any) => {
+        if (imageInfo && imageInfo.imageBase64) {
+          this.uploadEditedImage(imageInfo.imageBase64, file.name);
+          this.closeEditor();
+        } else if (imageInfo && imageInfo.imageCanvas) {
+           const base64 = imageInfo.imageCanvas.toDataURL('image/jpeg');
+           this.uploadEditedImage(base64, file.name);
+           this.closeEditor();
+        } else {
+           this.toast.error("Could not capture edited image.");
+        }
+      },
       onClose: () => {
         this.closeEditor();
       },
@@ -326,33 +389,7 @@ export class AdminAddProductComponent implements OnInit {
     this.editingFile.set(null);
   }
 
-  saveAndUpload() {
-    if (!this.editorInstance) return;
-    
-    const file = this.editingFile();
-    const originalName = file?.name || 'edited.jpg';
-    
-    // Fallback if getCurrentImgData is async or structured differently
-    try {
-      const data = this.editorInstance.getCurrentImgData({
-        imageFileInfo: { name: originalName, extension: 'jpeg' }
-      });
-      
-      // Sometimes it returns a promise, sometimes an object directly
-      if (data && data.then) {
-        data.then((res: any) => {
-          this.uploadEditedImage(res.imageData, originalName);
-          this.closeEditor();
-        });
-      } else if (data && data.imageData) {
-        this.uploadEditedImage(data.imageData, originalName);
-        this.closeEditor();
-      }
-    } catch (e) {
-      console.error(e);
-      this.toast.error("Could not capture edited image.");
-    }
-  }
+  // saveAndUpload() method removed because we now use onSave hook in the Filerobot config
 
   uploadEditedImage(base64: string, originalName: string) {
     fetch(base64)
@@ -397,13 +434,14 @@ export class AdminAddProductComponent implements OnInit {
     this.isSubmitting = true;
     const val = this.form.value;
 
-    
     const categoryId = val.categoryId || '00000000-0000-0000-0000-000000000001';
 
     const payload = {
       name: val.name,
+      brand: val.brand,
       description: val.description,
       price: val.price,
+      originalPrice: val.originalPrice,
       stockQuantity: val.stockQuantity,
       categoryId: categoryId,
       imageUrls: this.uploadedImages(),
@@ -411,16 +449,30 @@ export class AdminAddProductComponent implements OnInit {
       rentalPricePerDay: val.rentalPricePerDay
     };
 
-    this.http.post<string>(`${environment.apiUrl}/api/products`, payload).subscribe({
-      next: () => {
-        this.toast.success('Product added successfully! Awaiting admin approval.');
-        this.router.navigate(['/admin/products']);
-      },
-      error: (err) => {
-        this.isSubmitting = false;
-        this.toast.error('Failed to add product. Please try again.');
-        console.error(err);
-      }
-    });
+    if (this.isEditMode() && this.editProductId()) {
+      this.http.put<void>(`${environment.apiUrl}/products/${this.editProductId()}`, payload).subscribe({
+        next: () => {
+          this.toast.success('Product updated successfully!');
+          this.router.navigate(['/admin/products']);
+        },
+        error: (err) => {
+          this.isSubmitting = false;
+          this.toast.error('Failed to update product.');
+          console.error(err);
+        }
+      });
+    } else {
+      this.http.post<string>(`${environment.apiUrl}/products`, payload).subscribe({
+        next: () => {
+          this.toast.success('Product added successfully!');
+          this.router.navigate(['/admin/products']);
+        },
+        error: (err) => {
+          this.isSubmitting = false;
+          this.toast.error('Failed to add product.');
+          console.error(err);
+        }
+      });
+    }
   }
 }

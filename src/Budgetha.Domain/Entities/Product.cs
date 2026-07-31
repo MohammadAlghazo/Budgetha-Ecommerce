@@ -9,12 +9,15 @@ public class Product : BaseAuditableEntity
     public string Slug { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public decimal Price { get; set; }
+    public decimal? OriginalPrice { get; set; }
     public decimal? RentalPricePerDay { get; set; }
     public int StockQuantity { get; set; }
+    public string Brand { get; set; } = "Generic";
     public string? ThumbnailUrl { get; set; }
     public bool IsActive { get; set; } = true;
     public bool IsAvailableForRent { get; set; }
-    public ApprovalStatus ApprovalStatus { get; set; } = ApprovalStatus.Pending;
+    public bool IsFeatured { get; set; }
+    public ApprovalStatus ApprovalStatus { get; set; } = ApprovalStatus.Approved;
 
     public Guid CategoryId { get; set; }
     public Category Category { get; set; } = null!;

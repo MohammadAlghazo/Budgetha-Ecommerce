@@ -1,5 +1,5 @@
 export interface Category {
-  id: number;
+  id: string;
   name: string;
   slug: string;
   image: string;
@@ -17,10 +17,11 @@ export interface ProductSpec {
 }
 
 export interface Product {
-  id: number;
+  id: string;
   name: string;
   slug: string;
   brand: string;
+  categoryId: string;
   category: string;
   price: number;
   originalPrice?: number;
@@ -37,6 +38,8 @@ export interface Product {
   isNew?: boolean;
   isFeatured?: boolean;
   approvalStatus?: string;
+  isAvailableForRent?: boolean;
+  rentalPricePerDay?: number;
 }
 
 export interface Review {
@@ -59,7 +62,7 @@ export interface RatingBucket {
 }
 
 export interface CartItem {
-  productId: number;
+  productId: string;
   name: string;
   slug: string;
   brand: string;
@@ -105,7 +108,7 @@ export interface PaymentCard {
 export type OrderStatus = 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled';
 
 export interface OrderItem {
-  productId: number;
+  productId: string;
   name: string;
   image: string;
   price: number;

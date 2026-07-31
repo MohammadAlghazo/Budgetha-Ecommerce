@@ -46,6 +46,9 @@ public class AdminController : ControllerBase
     [HttpGet("products")]
     public async Task<IActionResult> GetAllProducts([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
+        var isSuperAdminOrAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        
         var query = new GetProductsQuery(
             Search: null,
             Categories: null,
@@ -56,7 +59,7 @@ public class AdminController : ControllerBase
             Sort: "newest",
             Page: page,
             PageSize: pageSize,
-            Status: null 
+            SellerId: isSuperAdminOrAdmin ? null : userId
         );
 
         var result = await _mediator.Send(query);

@@ -8,6 +8,9 @@ import { PwaService } from '../../core/services/pwa.service';
 import { ToastService } from '../../core/services/toast.service';
 import { InstallButtonComponent } from '../../shared/components/install-button/install-button.component';
 import { AnnouncementService, Announcement } from '../../core/services/announcement.service';
+import { Subject } from 'rxjs';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
+
 
 @Component({
   selector: 'app-header',
@@ -72,7 +75,7 @@ import { AnnouncementService, Announcement } from '../../core/services/announcem
             <app-install-button variant="header" />
 
             <!-- Desktop search -->
-            <form (submit)="submitSearch($event)" class="hidden md:block relative">
+            <form (submit)="$event.preventDefault()" class="hidden md:block relative">
               <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
               </svg>
@@ -80,6 +83,7 @@ import { AnnouncementService, Announcement } from '../../core/services/announcem
                 type="search"
                 name="search"
                 [(ngModel)]="searchTerm"
+                (ngModelChange)="onSearchChange($event)"
                 placeholder="Search products…"
                 aria-label="Search products"
                 class="w-44 lg:w-64 rounded-full border border-slate-200 bg-slate-50/70 pl-10 pr-4 py-2.5 text-sm
@@ -172,7 +176,7 @@ import { AnnouncementService, Announcement } from '../../core/services/announcem
         </div>
 
         <!-- Mobile search -->
-        <form (submit)="submitSearch($event)" class="md:hidden pb-3 relative">
+        <form (submit)="$event.preventDefault()" class="md:hidden pb-3 relative">
           <svg class="absolute left-3.5 top-1/2 -translate-y-[calc(50%+0.375rem)] w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
           </svg>
@@ -180,6 +184,7 @@ import { AnnouncementService, Announcement } from '../../core/services/announcem
             type="search"
             name="search-mobile"
             [(ngModel)]="searchTerm"
+            (ngModelChange)="onSearchChange($event)"
             placeholder="Search products…"
             aria-label="Search products"
             class="w-full rounded-full border border-slate-200 bg-slate-50/70 pl-10 pr-4 py-2.5 text-sm
@@ -242,6 +247,7 @@ export class HeaderComponent implements OnInit {
   readonly mobileMenuOpen = signal(false);
   readonly userMenuOpen = signal(false);
   searchTerm = '';
+  private searchSubject = new Subject<string>();
 
   readonly cartCount = this.cart.count;
   readonly wishlistCount = this.wishlist.count;
@@ -270,6 +276,13 @@ export class HeaderComponent implements OnInit {
     this.announcementService.getActive().subscribe(data => {
       this.announcement.set(data);
     });
+    
+    this.searchSubject.pipe(
+      debounceTime(400),
+      distinctUntilChanged()
+    ).subscribe(term => {
+      this.router.navigate(['/shop'], { queryParams: { search: term || null } });
+    });
   }
 
   @HostListener('document:click')
@@ -282,10 +295,8 @@ export class HeaderComponent implements OnInit {
     this.userMenuOpen.update(v => !v);
   }
 
-  submitSearch(event: Event): void {
-    event.preventDefault();
-    this.router.navigate(['/shop'], { queryParams: { search: this.searchTerm || null } });
-    this.mobileMenuOpen.set(false);
+  onSearchChange(term: string): void {
+    this.searchSubject.next(term);
   }
 
   logout(): void {

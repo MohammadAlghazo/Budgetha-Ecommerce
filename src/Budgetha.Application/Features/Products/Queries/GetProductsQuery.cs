@@ -15,7 +15,6 @@ public record GetProductsQuery(
     string? Sort,
     int Page,
     int PageSize,
-    ApprovalStatus? Status = ApprovalStatus.Approved,
     string? SellerId = null) : IRequest<CatalogResultDto>;
 
 public class CatalogResultDto
@@ -36,12 +35,10 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
 
     public async Task<CatalogResultDto> Handle(GetProductsQuery request, CancellationToken cancellationToken)
     {
-        var query = _context.Products.Include(p => p.Category).AsNoTracking();
-
-        if (request.Status.HasValue)
-        {
-            query = query.Where(p => p.ApprovalStatus == request.Status.Value);
-        }
+        var query = _context.Products
+            .Include(p => p.Category)
+            .Include(p => p.Reviews)
+            .AsNoTracking();
 
         if (!string.IsNullOrEmpty(request.SellerId))
         {
@@ -82,17 +79,17 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
             Id = p.Id,
             Name = p.Name,
             Slug = p.Slug,
-            Brand = "Generic", 
+            Brand = string.IsNullOrWhiteSpace(p.Brand) ? "Generic" : p.Brand,
             Category = p.Category?.Slug ?? "",
             Price = p.Price,
-            OriginalPrice = p.Price * 1.2m, 
-            Rating = 4.5m, 
-            ReviewCount = 120, 
+            OriginalPrice = p.OriginalPrice, 
+            Rating = p.Reviews != null && p.Reviews.Any() ? Math.Round(p.Reviews.Average(r => (decimal)r.Rating), 1) : 0m, 
+            ReviewCount = p.Reviews != null ? p.Reviews.Count : 0, 
             ShortDescription = p.Description.Length > 50 ? p.Description.Substring(0, 50) + "..." : p.Description,
             Description = p.Description,
             Stock = p.StockQuantity,
-            IsNew = true,
-            IsFeatured = true,
+            IsNew = (DateTime.UtcNow - p.Created).TotalDays <= 7,
+            IsFeatured = p.IsFeatured,
             ApprovalStatus = p.ApprovalStatus.ToString(),
             Images = p.ThumbnailUrl != null ? new List<string> { p.ThumbnailUrl } : new List<string>()
         }).ToList();
