@@ -178,3 +178,193 @@ body {
 .range-slider::-moz-range-thumb:hover {
   transform: scale(1.15);
 }
+
+/* ── Theme compatibility ──
+   Existing screens use Tailwind's light palette extensively. These semantic
+   overrides keep those screens readable in dark mode without changing layout
+   or the intentionally dark brand panels. */
+
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
+
+html.dark :where(.bg-slate-50, .bg-slate-50\/50, .bg-slate-50\/60, .bg-slate-50\/70, .bg-slate-50\/80):not(.theme-preserve-light) {
+  background-color: #111c2f;
+}
+
+html.dark :where(.bg-slate-100, .bg-slate-100\/50, .bg-slate-100\/60):not(.theme-preserve-light) {
+  background-color: #1e293b;
+}
+
+html.dark :where(.bg-white, .bg-white\/80, .bg-white\/90, .bg-white\/95):not(.theme-preserve-light) {
+  background-color: #172235;
+}
+
+html.dark :where(.border-slate-50, .border-slate-100, .border-slate-200, .border-slate-200\/80, .border-slate-300):not(.theme-preserve-light) {
+  border-color: #334155;
+}
+
+html.dark :where(.ring-slate-100, .ring-slate-200, .ring-offset-2) {
+  --tw-ring-color: #475569;
+  --tw-ring-offset-color: #0f172a;
+}
+
+html.dark :where(.text-slate-900, .text-slate-800, .text-slate-700):not(.theme-preserve-light) {
+  color: #f1f5f9;
+}
+
+html.dark :where(.text-slate-600, .text-slate-500):not(.theme-preserve-light) {
+  color: #cbd5e1;
+}
+
+html.dark :where(.text-slate-400):not(.theme-preserve-light) {
+  color: #94a3b8;
+}
+
+html.dark :where(.text-gray-700):not(.theme-preserve-light) {
+  color: #e2e8f0;
+}
+
+html.dark :where(.border-gray-300, .ring-gray-300):not(.theme-preserve-light) {
+  border-color: #475569;
+  --tw-ring-color: #475569;
+}
+
+html.dark :where(.hover\:bg-slate-50:hover, .hover\:bg-gray-50:hover):not(.theme-preserve-light) {
+  background-color: #1e293b;
+}
+
+html.dark :where(.hover\:bg-slate-100:hover):not(.theme-preserve-light) {
+  background-color: #273449;
+}
+
+html.dark :where(.focus\:bg-white:focus):not(.theme-preserve-light) {
+  background-color: #172235;
+}
+
+html.dark :where(.hover\:text-slate-800:hover, .hover\:text-slate-700:hover):not(.theme-preserve-light) {
+  color: #f8fafc;
+}
+
+html.dark :where(.shadow-slate-100, .shadow-slate-200\/50, .shadow-slate-200\/80) {
+  --tw-shadow-color: rgb(0 0 0 / 0.35);
+}
+
+html.dark :where(.card) {
+  background-color: #172235;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+html.dark :where(.input-field) {
+  background-color: #111c2f;
+  border-color: #475569;
+  color: #f8fafc;
+}
+
+html.dark :where(.input-field:hover) {
+  border-color: #64748b;
+}
+
+html.dark :where(.input-field:focus) {
+  background-color: #172235;
+  border-color: #2dd4bf;
+}
+
+html.dark :where(input, textarea, select) {
+  color-scheme: dark;
+}
+
+html.dark :where(input::placeholder, textarea::placeholder) {
+  color: #64748b;
+}
+
+html.dark :where(input:-webkit-autofill, textarea:-webkit-autofill, select:-webkit-autofill) {
+  -webkit-text-fill-color: #f8fafc;
+  -webkit-box-shadow: 0 0 0 1000px #111c2f inset;
+  transition: background-color 9999s ease-out 0s;
+}
+
+html.dark :where(.bg-emerald-50, .bg-emerald-100) {
+  background-color: rgb(6 78 59 / 0.45);
+}
+
+html.dark :where(.bg-amber-50, .bg-amber-100, .bg-yellow-50, .bg-yellow-100) {
+  background-color: rgb(120 53 15 / 0.45);
+}
+
+html.dark :where(.bg-rose-50, .bg-rose-100, .bg-red-50, .bg-red-100) {
+  background-color: rgb(127 29 29 / 0.42);
+}
+
+html.dark :where(.bg-blue-50, .bg-blue-100, .bg-indigo-50, .bg-indigo-100, .bg-violet-50, .bg-violet-100, .bg-purple-50, .bg-purple-100) {
+  background-color: rgb(49 46 129 / 0.38);
+}
+
+html.dark :where(.bg-teal-50, .bg-teal-100) {
+  background-color: rgb(19 78 74 / 0.5);
+}
+
+html.dark :where(.text-emerald-700, .text-emerald-600) { color: #6ee7b7; }
+html.dark :where(.text-amber-700, .text-amber-600) { color: #fcd34d; }
+html.dark :where(.text-rose-700, .text-rose-600, .text-red-500) { color: #fda4af; }
+html.dark :where(.text-blue-700, .text-blue-600, .text-indigo-700, .text-indigo-600, .text-violet-700, .text-violet-600, .text-purple-700, .text-purple-600) { color: #c4b5fd; }
+html.dark :where(.text-teal-800, .text-teal-700, .text-teal-600) { color: #5eead4; }
+
+html.dark :where(.border-emerald-100, .border-emerald-200, .border-amber-100, .border-amber-200, .border-rose-100, .border-rose-200, .border-indigo-100, .border-indigo-200, .border-violet-100, .border-violet-200) {
+  border-color: #475569;
+}
+
+html.dark :where(.hover\:bg-emerald-50:hover, .hover\:bg-emerald-100:hover, .hover\:bg-amber-50:hover, .hover\:bg-amber-100:hover, .hover\:bg-rose-50:hover, .hover\:bg-rose-100:hover, .hover\:bg-indigo-50:hover, .hover\:bg-indigo-100:hover, .hover\:bg-violet-50:hover, .hover\:bg-violet-100:hover) {
+  background-color: #334155;
+}
+
+html.dark :where(.hover\:bg-teal-50:hover, .hover\:bg-teal-100:hover) {
+  background-color: rgb(19 78 74 / 0.7);
+}
+
+html.dark :where(.disabled\:hover\:bg-slate-200:hover:disabled, .disabled\:hover\:bg-slate-50:hover:disabled) {
+  background-color: #1e293b;
+}
+
+html.dark :where(.mix-blend-multiply) {
+  mix-blend-mode: normal;
+}
+
+html.dark .range-slider::-webkit-slider-thumb {
+  background: #1e293b;
+  border-color: #a78bfa;
+  box-shadow: 0 1px 5px rgb(0 0 0 / 0.45);
+}
+
+html.dark .range-slider::-moz-range-thumb {
+  background: #1e293b;
+  border-color: #a78bfa;
+  box-shadow: 0 1px 5px rgb(0 0 0 / 0.45);
+}
+
+html.dark ::selection {
+  background-color: #5b21b6;
+  color: #f5f3ff;
+}
+
+html.dark * {
+  scrollbar-color: #475569 #0f172a;
+}
+
+html.dark ::-webkit-scrollbar-track { background: #0f172a; }
+html.dark ::-webkit-scrollbar-thumb { background: #475569; border-radius: 999px; }
+html.dark ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+html.dark :where(.theme-toggle) {
+  color: #cbd5e1;
+}

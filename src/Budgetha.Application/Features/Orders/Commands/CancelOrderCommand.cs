@@ -14,21 +14,25 @@ public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, boo
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUserService;
     private readonly IIdentityService _identityService;
+    private readonly IOrderCommunicationService _communications;
 
     public CancelOrderCommandHandler(
         IApplicationDbContext context,
         ICurrentUserService currentUserService,
-        IIdentityService identityService)
+        IIdentityService identityService,
+        IOrderCommunicationService communications)
     {
         _context = context;
         _currentUserService = currentUserService;
         _identityService = identityService;
+        _communications = communications;
     }
 
     public async Task<bool> Handle(CancelOrderCommand request, CancellationToken cancellationToken)
     {
         var order = await _context.Orders
             .Include(o => o.Payment)
+            .Include(o => o.User)
             .Include(o => o.Items)
             .ThenInclude(i => i.Product)
             .Include(o => o.Items)
@@ -70,6 +74,9 @@ public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, boo
             }
         }
 
+        var sellerIds = order.Items.Select(item => item.Product.SellerId)
+            .Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>();
+        await _communications.QueueStatusAsync(order, "cancelled", sellerIds, cancellationToken);
         await _context.SaveChangesAsync(cancellationToken);
         return true;
     }

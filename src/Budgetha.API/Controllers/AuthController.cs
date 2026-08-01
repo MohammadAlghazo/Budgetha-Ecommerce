@@ -4,6 +4,8 @@ using Google.Apis.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Budgetha.API.Controllers;
 
@@ -15,12 +17,18 @@ public class AuthController : ControllerBase
     private readonly IIdentityService _identityService;
     private readonly IConfiguration _configuration;
     private readonly IEmailService _emailService;
+    private readonly IApplicationDbContext _context;
 
-    public AuthController(IIdentityService identityService, IConfiguration configuration, IEmailService emailService)
+    public AuthController(
+        IIdentityService identityService,
+        IConfiguration configuration,
+        IEmailService emailService,
+        IApplicationDbContext context)
     {
         _identityService = identityService;
         _configuration = configuration;
         _emailService = emailService;
+        _context = context;
     }
 
     [HttpPost("register")]
@@ -67,8 +75,16 @@ public class AuthController : ControllerBase
             var baseUrl = _configuration["FrontendBaseUrl"] ?? "http://localhost:4200";
             var resetLink = $"{baseUrl}/reset-password?email={Uri.EscapeDataString(request.Email)}&token={Uri.EscapeDataString(token)}";
             var emailBody = $"<p>You requested a password reset.</p><p>Please click the link below to reset your password:</p><p><a href='{resetLink}'>Reset Password</a></p>";
-            
-            await _emailService.SendEmailAsync(request.Email, "Password Reset", emailBody);
+            var resetKey = Convert.ToHexString(SHA256.HashData(
+                Encoding.UTF8.GetBytes($"{request.Email.ToUpperInvariant()}:{token}")));
+
+            await _emailService.QueueEmailAsync(
+                request.Email,
+                "Password Reset",
+                emailBody,
+                $"password-reset:{resetKey}",
+                HttpContext.RequestAborted);
+            await _context.SaveChangesAsync(HttpContext.RequestAborted);
             
             return Ok(new { Message = "If an account with that email exists, a reset link has been sent." });
         }

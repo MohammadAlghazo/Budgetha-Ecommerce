@@ -42,7 +42,7 @@ import { AuthService } from '../../core/services/auth.service';
               Manage Users
             </a>
           }
-          <a routerLink="/admin/products" class="px-4 py-2 bg-white text-teal-800 text-sm font-bold rounded-xl hover:bg-teal-50 transition-colors shadow-sm">
+          <a routerLink="/admin/products" class="theme-preserve-light px-4 py-2 bg-white text-teal-800 text-sm font-bold rounded-xl hover:bg-teal-50 transition-colors shadow-sm">
             View Products
           </a>
         </div>

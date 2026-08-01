@@ -84,7 +84,7 @@ import { ToastService } from '../../core/services/toast.service';
                 (click)="togglePref(pref.key)"
                 class="relative h-6 w-11 rounded-full transition-colors duration-300 shrink-0"
                 [class]="pref.enabled ? 'bg-violet-600' : 'bg-slate-200'">
-                <span class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all duration-300"
+                <span class="theme-preserve-light absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all duration-300"
                       [class]="pref.enabled ? 'start-[1.375rem]' : 'start-0.5'"></span>
               </button>
             </div>

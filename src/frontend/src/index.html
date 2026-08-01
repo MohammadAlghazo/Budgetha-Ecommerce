@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light" data-theme-mode="system">
 <head>
   <meta charset="utf-8">
   <title>Budgetha — Shop smarter, spend wiser</title>
@@ -10,7 +10,7 @@
   <!-- PWA -->
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#0f766e">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="light dark">
   <meta name="application-name" content="Budgetha">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,6 +23,24 @@
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
   <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-96x96.png">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
+
+  <script>
+    (function () {
+      var key = 'budgetha-theme';
+      var stored;
+      try { stored = localStorage.getItem(key); } catch (_) { stored = null; }
+      var mode = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
+      var dark = mode === 'dark' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      var resolved = dark ? 'dark' : 'light';
+      var root = document.documentElement;
+      root.classList.toggle('dark', dark);
+      root.dataset.theme = resolved;
+      root.dataset.themeMode = mode;
+      root.style.colorScheme = resolved;
+      document.querySelector('meta[name="color-scheme"]').setAttribute('content', resolved);
+      document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#0f172a' : '#0f766e');
+    })();
+  </script>
 
   <!-- Social preview -->
   <meta property="og:type" content="website">

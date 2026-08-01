@@ -34,7 +34,7 @@ import { PwaService } from '../../core/services/pwa.service';
       <div class="max-w-7xl mx-auto px-4 sm:px-6 py-12 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-8">
         <div class="col-span-2 lg:col-span-2">
           <div class="flex items-center gap-3 mb-6">
-            <div class="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg flex-shrink-0 overflow-hidden">
+            <div class="theme-preserve-light w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg flex-shrink-0 overflow-hidden">
               <img src="/images/logo.png" alt="Budgetha" class="h-10 w-auto object-contain" />
             </div>
             <span class="text-3xl font-black text-white tracking-tighter" style="font-family: 'Outfit', sans-serif;">Budgetha</span>

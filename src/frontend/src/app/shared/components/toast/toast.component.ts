@@ -20,7 +20,7 @@ import { Toast, ToastService, ToastType } from '../../../core/services/toast.ser
 
       @for (toast of toasts(); track toast.id) {
         <div
-          class="w-full pointer-events-auto rounded-2xl border bg-white/95 shadow-lg shadow-slate-900/10 backdrop-blur
+          class="w-full pointer-events-auto rounded-2xl border bg-white/95 shadow-lg shadow-slate-900/10 backdrop-blur dark:bg-slate-900/95 dark:shadow-black/30
                  animate-[toastIn_0.28s_cubic-bezier(0.21,1.02,0.73,1)]"
           [class]="shell(toast.type)">
           <div class="flex items-start gap-3 p-4">
@@ -31,7 +31,7 @@ import { Toast, ToastService, ToastType } from '../../../core/services/toast.ser
             </span>
 
             <div class="min-w-0 flex-1">
-              <p class="text-sm font-medium leading-snug text-slate-800">{{ toast.message }}</p>
+              <p class="text-sm font-medium leading-snug text-slate-800 dark:text-slate-100">{{ toast.message }}</p>
               @if (toast.action; as action) {
                 <button
                   type="button"
@@ -46,7 +46,7 @@ import { Toast, ToastService, ToastType } from '../../../core/services/toast.ser
               type="button"
               (click)="dismiss(toast.id)"
               aria-label="Dismiss notification"
-              class="-me-1 -mt-1 shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600
+               class="-me-1 -mt-1 shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200
                      focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600
                      transition-colors duration-200">
               <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">

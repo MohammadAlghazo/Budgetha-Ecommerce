@@ -13,21 +13,26 @@ public class WebhooksController : ControllerBase
 {
     private readonly IApplicationDbContext _context;
     private readonly IPaymentService _paymentService;
+    private readonly IOrderCompletionService _completionService;
     private readonly ILogger<WebhooksController> _logger;
 
     public WebhooksController(
         IApplicationDbContext context,
         IPaymentService paymentService,
+        IOrderCompletionService completionService,
         ILogger<WebhooksController> logger)
     {
         _context = context;
         _paymentService = paymentService;
+        _completionService = completionService;
         _logger = logger;
     }
 
     [HttpPost("paypal")]
     public async Task<IActionResult> PayPalWebhook(CancellationToken cancellationToken)
     {
+        Guid? paymentId = null;
+        string? verifiedCaptureId = null;
         if (!Request.Headers.TryGetValue("PAYPAL-TRANSMISSION-ID", out var transmissionId) ||
             !Request.Headers.TryGetValue("PAYPAL-TRANSMISSION-TIME", out var transmissionTime) ||
             !Request.Headers.TryGetValue("PAYPAL-TRANSMISSION-SIG", out var transmissionSignature) ||
@@ -51,9 +56,13 @@ public class WebhooksController : ControllerBase
             var payment = await _context.Payments
                 .Include(p => p.Order)
                 .ThenInclude(o => o.Items)
+                .ThenInclude(item => item.Product)
+                .Include(p => p.Order)
+                .ThenInclude(o => o.User)
                 .FirstOrDefaultAsync(p => p.ExternalTransactionId == paypalOrderId, cancellationToken);
             if (payment == null)
                 return Ok();
+            paymentId = payment.Id;
 
             if (payment.Provider != PaymentProvider.PayPal ||
                 payment.Status is not (PaymentStatus.Pending or PaymentStatus.Processing) ||
@@ -69,18 +78,19 @@ public class WebhooksController : ControllerBase
                 string.IsNullOrWhiteSpace(verification.CaptureId) ||
                 verification.OrderId != payment.ExternalTransactionId)
                 return Unauthorized();
+            verifiedCaptureId = verification.CaptureId;
 
             if (payment.LastWebhookEventId == verification.EventId || payment.Status == PaymentStatus.Completed)
                 return Ok();
 
-            payment.Status = PaymentStatus.Completed;
-            payment.ExternalCaptureId = verification.CaptureId;
-            payment.LastWebhookEventId = verification.EventId;
             if (payment.Order != null)
             {
-                payment.Order.Status = OrderStatus.Processing;
-                payment.Order.ReservationExpiresAt = null;
-                RemoveUnchangedOrderItemsFromCart(payment.Order);
+                await _completionService.CompletePayPalAsync(
+                    payment.Order,
+                    payment,
+                    verification.CaptureId,
+                    verification.EventId,
+                    cancellationToken);
             }
 
             await _context.SaveChangesAsync(cancellationToken);
@@ -90,32 +100,19 @@ public class WebhooksController : ControllerBase
         {
             return BadRequest();
         }
-        catch (DbUpdateConcurrencyException)
+        catch (DbUpdateException)
         {
-            // A duplicate delivery racing the first delivery is already safe to acknowledge.
-            _logger.LogInformation("Concurrent PayPal webhook delivery acknowledged.");
-            return Ok();
-        }
-    }
-
-    private void RemoveUnchangedOrderItemsFromCart(Order order)
-    {
-        var cartItems = _context.CartItems
-            .Where(item => item.Cart.UserId == order.UserId)
-            .ToList();
-
-        foreach (var orderItem in order.Items)
-        {
-            var cartItem = cartItems.FirstOrDefault(item =>
-                item.ProductId == orderItem.ProductId && item.VariantId == orderItem.VariantId &&
-                item.Quantity == orderItem.Quantity && item.Type == orderItem.Type &&
-                item.RentalStartDate == orderItem.RentalStartDate && item.RentalEndDate == orderItem.RentalEndDate &&
-                item.Color == orderItem.Color && item.Size == orderItem.Size);
-            if (cartItem != null)
+            var completedConcurrently = paymentId.HasValue && verifiedCaptureId != null &&
+                await _context.Payments.AsNoTracking().AnyAsync(payment =>
+                    payment.Id == paymentId.Value && payment.Status == PaymentStatus.Completed &&
+                    payment.ExternalCaptureId == verifiedCaptureId, cancellationToken);
+            if (completedConcurrently)
             {
-                _context.CartItems.Remove(cartItem);
-                cartItems.Remove(cartItem);
+                _logger.LogInformation("Concurrent PayPal webhook delivery acknowledged.");
+                return Ok();
             }
+
+            throw;
         }
     }
 }

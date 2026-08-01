@@ -17,7 +17,7 @@ import { CartItem } from '../../core/models/shop.models';
 
       <!-- Drawer panel -->
       <aside
-        class="fixed inset-y-0 end-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col animate-[slideIn_0.3s_ease-out]"
+        class="fixed inset-y-0 end-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col animate-[slideIn_0.3s_ease-out] dark:bg-slate-900 dark:text-slate-100"
         role="dialog"
         aria-modal="true"
         aria-label="Shopping cart">

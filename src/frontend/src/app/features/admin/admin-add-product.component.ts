@@ -113,7 +113,7 @@ interface ProductImageState {
                       class="relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none">
                 <span [class.translate-x-7]="form.get('isAvailableForRent')?.value"
                       [class.translate-x-1]="!form.get('isAvailableForRent')?.value"
-                      class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow inline-block transition-transform duration-200"></span>
+                      class="theme-preserve-light absolute top-0.5 w-5 h-5 bg-white rounded-full shadow inline-block transition-transform duration-200"></span>
               </button>
             </div>
 

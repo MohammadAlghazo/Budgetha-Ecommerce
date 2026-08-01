@@ -12,10 +12,11 @@ import { NotificationService } from '../../core/services/notification.service';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { DatePipe } from '@angular/common';
+import { ThemeToggleComponent } from '../../shared/components/theme-toggle/theme-toggle.component';
 
 @Component({
   selector: 'app-header',
-  imports: [RouterLink, RouterLinkActive, FormsModule, InstallButtonComponent, DatePipe],
+  imports: [RouterLink, RouterLinkActive, FormsModule, InstallButtonComponent, DatePipe, ThemeToggleComponent],
   template: `
     <!-- Announcement bar -->
     @if (announcement()) {
@@ -72,6 +73,8 @@ import { DatePipe } from '@angular/common';
 
           <!-- Right: search + actions -->
           <div class="flex items-center gap-1 sm:gap-2">
+            <app-theme-toggle />
+
             <!-- Install as app (hidden once installed or dismissed) -->
             <app-install-button variant="header" />
 

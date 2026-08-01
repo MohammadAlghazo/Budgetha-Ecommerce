@@ -31,6 +31,7 @@ public interface IApplicationDbContext
     DbSet<PromoCode> PromoCodes { get; }
     DbSet<PendingImageUpload> PendingImageUploads { get; }
     DbSet<PendingImageDeletion> PendingImageDeletions { get; }
+    DbSet<OutboxDelivery> OutboxDeliveries { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }

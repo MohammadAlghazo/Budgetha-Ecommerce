@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Budgetha.Infrastructure.DependencyInjection;
@@ -89,14 +90,19 @@ public static class InfrastructureServiceRegistration
         services.AddScoped<IInventoryLockService, PostgresInventoryLockService>();
         services.Configure<CheckoutPricingOptions>(configuration.GetSection(CheckoutPricingOptions.SectionName));
         services.AddScoped<ICheckoutPricingService, CheckoutPricingService>();
-        services.AddScoped<IEmailService, SmtpEmailService>();
-        services.AddScoped<INotificationService, NotificationService>();
+        services.AddSingleton<IValidateOptions<EmailSettings>, EmailSettingsValidator>();
+        services.AddOptions<EmailSettings>()
+            .Bind(configuration.GetSection(EmailSettings.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddScoped<IEmailSender, SmtpEmailSender>();
 
         services.Configure<CloudinarySettings>(configuration.GetSection(CloudinarySettings.SectionName));
         services.AddScoped<IImageService, ImageService>();
 
         services.AddHttpClient<IPaymentService, PaymentService>();
         services.AddHostedService<ExpiredPayPalReservationService>();
+        services.AddHostedService<OutboxDeliveryWorker>();
         services.AddHostedService<PendingImageCleanupService>();
         services.AddHostedService<PendingImageDeletionService>();
 

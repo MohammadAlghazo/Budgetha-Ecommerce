@@ -1,4 +1,6 @@
 using Budgetha.Application.Common.Behaviours;
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Application.Services;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
@@ -14,6 +16,9 @@ public static class ApplicationServiceRegistration
             cfg.RegisterServicesFromAssembly(Assembly.GetExecutingAssembly());
             cfg.AddBehavior(typeof(IPipelineBehavior<,>), typeof(UnhandledExceptionBehaviour<,>));
         });
+        services.AddScoped<IEmailService, OutboxEmailService>();
+        services.AddScoped<IOrderCommunicationService, OrderCommunicationService>();
+        services.AddScoped<IOrderCompletionService, OrderCompletionService>();
 
         return services;
     }

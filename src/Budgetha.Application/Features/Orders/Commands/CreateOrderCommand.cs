@@ -19,23 +19,20 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUserService;
-    private readonly INotificationService _notificationService;
-    private readonly IEmailService _emailService;
+    private readonly IOrderCommunicationService _communications;
     private readonly IInventoryLockService _inventoryLockService;
     private readonly ICheckoutPricingService _pricingService;
 
     public CreateOrderCommandHandler(
         IApplicationDbContext context, 
         ICurrentUserService currentUserService,
-        INotificationService notificationService,
-        IEmailService emailService,
+        IOrderCommunicationService communications,
         IInventoryLockService inventoryLockService,
         ICheckoutPricingService pricingService)
     {
         _context = context;
         _currentUserService = currentUserService;
-        _notificationService = notificationService;
-        _emailService = emailService;
+        _communications = communications;
         _inventoryLockService = inventoryLockService;
         _pricingService = pricingService;
     }
@@ -210,6 +207,20 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         if (!isPayPal)
             _context.CartItems.RemoveRange(cart.Items);
 
+        if (!isPayPal)
+        {
+            var sellerIds = cart.Items
+                .Select(item => item.Product.SellerId)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Cast<string>();
+            await _communications.QueueSaleAsync(
+                order,
+                user?.FirstName ?? string.Empty,
+                sellerIds,
+                "Cash on Delivery",
+                cancellationToken);
+        }
+
         try
         {
             await _context.SaveChangesAsync(cancellationToken);
@@ -218,65 +229,6 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         catch (DbUpdateConcurrencyException)
         {
             throw new InvalidOperationException("One or more products in your cart were just sold out or updated. Please try again.");
-        }
-
-        // 6. Send Notifications & Emails
-        if (user != null && !string.IsNullOrEmpty(user.Email))
-        {
-            var invoiceHtml = $@"
-            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;'>
-                <div style='background-color: #0f172a; color: white; padding: 20px; text-align: center;'>
-                    <h2 style='margin: 0;'>Order Confirmation</h2>
-                    <p style='margin: 5px 0 0 0; color: #94a3b8;'>Thank you for shopping at Budgetha!</p>
-                </div>
-                <div style='padding: 20px;'>
-                    <p>Hi {user.FirstName},</p>
-                    <p>We've received your order <strong>#{order.Id.ToString().Substring(0, 8).ToUpper()}</strong>. We will notify you once it's shipped.</p>
-                    <h3 style='border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; margin-top: 30px;'>Order Summary</h3>
-                    <table style='width: 100%; border-collapse: collapse; margin-top: 15px;'>
-                        <tbody>
-                            <tr>
-                                <td style='padding: 8px 0; color: #475569;'>Total Amount:</td>
-                                <td style='padding: 8px 0; text-align: right; font-weight: bold;'>${order.TotalAmount:F2}</td>
-                            </tr>
-                            <tr>
-                                <td style='padding: 8px 0; color: #475569;'>Payment Method:</td>
-                                <td style='padding: 8px 0; text-align: right;'>{request.PaymentMethod}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div style='background-color: #f8fafc; padding: 15px; text-align: center; font-size: 12px; color: #64748b;'>
-                    &copy; {DateTime.UtcNow.Year} Budgetha. All rights reserved.
-                </div>
-            </div>";
-
-            try
-            {
-                await _emailService.SendEmailAsync(user.Email, $"Order Confirmation #{order.Id.ToString().Substring(0, 8).ToUpper()}", invoiceHtml);
-                await _notificationService.SendNotificationAsync(userId, "Order Placed Successfully", $"Your order #{order.Id.ToString().Substring(0, 8).ToUpper()} has been received.", "Order", order.Id.ToString());
-            }
-            catch
-            {
-                // The order is committed; delivery failures must not turn success into an API error.
-            }
-        }
-
-        // Notify sellers
-        var sellerIds = cart.Items.Where(i => i.Product.SellerId != null).Select(i => i.Product.SellerId).Distinct().ToList();
-        foreach (var sellerId in sellerIds)
-        {
-            if (sellerId != null)
-            {
-                try
-                {
-                    await _notificationService.SendNotificationAsync(sellerId, "New Sale!", "One or more of your products have been sold.", "Sale", order.Id.ToString());
-                }
-                catch
-                {
-                    // Notifications are post-commit best effort.
-                }
-            }
         }
 
         return order.Id;

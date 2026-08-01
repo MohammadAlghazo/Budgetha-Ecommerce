@@ -14,15 +14,18 @@ public class CapturePayPalOrderCommandHandler : IRequestHandler<CapturePayPalOrd
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUserService;
     private readonly IPaymentService _paymentService;
+    private readonly IOrderCompletionService _completionService;
 
     public CapturePayPalOrderCommandHandler(
         IApplicationDbContext context,
         ICurrentUserService currentUserService,
-        IPaymentService paymentService)
+        IPaymentService paymentService,
+        IOrderCompletionService completionService)
     {
         _context = context;
         _currentUserService = currentUserService;
         _paymentService = paymentService;
+        _completionService = completionService;
     }
 
     public async Task<bool> Handle(CapturePayPalOrderCommand request, CancellationToken cancellationToken)
@@ -34,6 +37,8 @@ public class CapturePayPalOrderCommandHandler : IRequestHandler<CapturePayPalOrd
         var order = await _context.Orders
             .Include(o => o.Payment)
             .Include(o => o.Items)
+            .ThenInclude(item => item.Product)
+            .Include(o => o.User)
             .FirstOrDefaultAsync(o => o.Id == request.OrderId && o.UserId == userId, cancellationToken);
         if (order == null)
             throw new NotFoundException(nameof(Order), request.OrderId);
@@ -75,17 +80,14 @@ public class CapturePayPalOrderCommandHandler : IRequestHandler<CapturePayPalOrd
                 "PayPal capture status is being reconciled. Do not retry or cancel this order until its status is updated.");
         }
 
-        payment.Status = PaymentStatus.Completed;
-            payment.ExternalCaptureId = result.CaptureId;
-            order.Status = OrderStatus.Processing;
-            order.ReservationExpiresAt = null;
-            RemoveUnchangedOrderItemsFromCart(order);
+        await _completionService.CompletePayPalAsync(
+            order, payment, result.CaptureId, null, cancellationToken);
 
         try
         {
             await _context.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateConcurrencyException)
+        catch (DbUpdateException)
         {
             var completedByWebhook = await _context.Payments.AsNoTracking()
                 .AnyAsync(candidate => candidate.Id == payment.Id && candidate.Status == PaymentStatus.Completed &&
@@ -96,23 +98,5 @@ public class CapturePayPalOrderCommandHandler : IRequestHandler<CapturePayPalOrd
         }
 
         return true;
-    }
-
-    private void RemoveUnchangedOrderItemsFromCart(Order order)
-    {
-        var cartItems = _context.CartItems.Where(item => item.Cart.UserId == order.UserId).ToList();
-        foreach (var orderItem in order.Items)
-        {
-            var cartItem = cartItems.FirstOrDefault(item =>
-                item.ProductId == orderItem.ProductId && item.VariantId == orderItem.VariantId &&
-                item.Quantity == orderItem.Quantity &&
-                item.Type == orderItem.Type && item.RentalStartDate == orderItem.RentalStartDate &&
-                item.RentalEndDate == orderItem.RentalEndDate && item.Color == orderItem.Color && item.Size == orderItem.Size);
-            if (cartItem != null)
-            {
-                _context.CartItems.Remove(cartItem);
-                cartItems.Remove(cartItem);
-            }
-        }
     }
 }

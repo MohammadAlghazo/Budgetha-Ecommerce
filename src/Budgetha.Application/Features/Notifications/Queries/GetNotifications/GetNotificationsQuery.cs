@@ -30,7 +30,7 @@ public class GetNotificationsQueryHandler : IRequestHandler<GetNotificationsQuer
         return await _context.Notifications
             .Where(n => n.UserId == userId)
             .OrderByDescending(n => n.Created)
-            .Take(request.Limit)
+            .Take(Math.Clamp(request.Limit, 1, 100))
             .Select(n => new NotificationDto
             {
                 Id = n.Id.ToString(),

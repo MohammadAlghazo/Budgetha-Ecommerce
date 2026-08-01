@@ -24,7 +24,7 @@ public class NotificationsController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetNotifications([FromQuery] int limit = 20)
     {
-        var result = await _mediator.Send(new GetNotificationsQuery(limit));
+        var result = await _mediator.Send(new GetNotificationsQuery(Math.Clamp(limit, 1, 100)));
         return Ok(result);
     }
 

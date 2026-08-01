@@ -1,11 +1,11 @@
 namespace Budgetha.Application.Common.Interfaces;
 
-public interface IEmailService
+public interface IEmailSender
 {
-    Task QueueEmailAsync(
-        string to,
+    bool IsEnabled { get; }
+    Task SendAsync(
+        string recipient,
         string subject,
         string body,
-        string idempotencyKey,
         CancellationToken cancellationToken = default);
 }

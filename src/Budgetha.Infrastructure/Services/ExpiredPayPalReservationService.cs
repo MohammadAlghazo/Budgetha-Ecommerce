@@ -47,6 +47,7 @@ public sealed class ExpiredPayPalReservationService : BackgroundService
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var orders = await context.Orders
             .Include(order => order.Payment)
+            .Include(order => order.User)
             .Include(order => order.Items)
             .ThenInclude(item => item.Product)
             .Include(order => order.Items)
@@ -73,12 +74,17 @@ public sealed class ExpiredPayPalReservationService : BackgroundService
 
             try
             {
+                var communications = scope.ServiceProvider.GetRequiredService<IOrderCommunicationService>();
+                var sellerIds = order.Items.Select(item => item.Product.SellerId)
+                    .Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>();
+                await communications.QueueStatusAsync(order, "expired", sellerIds, cancellationToken);
                 await context.SaveChangesAsync(cancellationToken);
             }
             catch (DbUpdateConcurrencyException)
             {
                 // Capture or cancellation won the race; their row-version prevents double release.
                 context.ChangeTracker.Clear();
+                break;
             }
         }
     }

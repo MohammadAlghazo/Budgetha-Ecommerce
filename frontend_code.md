@@ -12412,13 +12412,13 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 import { HttpInterceptorFn, HttpErrorResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { catchError, switchMap, throwError, BehaviorSubject, filter, take } from 'rxjs';
+import { catchError, switchMap, throwError, ReplaySubject, take } from 'rxjs';
 import { ToastService } from '../services/toast.service';
 import { AuthService } from '../services/auth.service';
 import { HttpClient } from '@angular/common/http';
 
 let isRefreshing = false;
-const refreshTokenSubject = new BehaviorSubject<any>(null);
+let refreshTokenSubject = new ReplaySubject<string>(1);
 
 export const errorInterceptor: HttpInterceptorFn = (req, next) => {
   const toast = inject(ToastService);
@@ -12438,7 +12438,7 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
         if (token && user?.refreshToken) {
           if (!isRefreshing) {
             isRefreshing = true;
-            refreshTokenSubject.next(null);
+            refreshTokenSubject = new ReplaySubject<string>(1);
 
             return auth.refreshToken(token, user.refreshToken).pipe(
               switchMap((authResponse) => {
@@ -12450,6 +12450,7 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
               }),
               catchError((err) => {
                 isRefreshing = false;
+                refreshTokenSubject.error(err);
                 auth.clearSession();
                 router.navigate(['/auth/login'], { queryParams: { returnUrl: router.url } });
                 return throwError(() => err);
@@ -12457,7 +12458,6 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
             );
           } else {
             return refreshTokenSubject.pipe(
-              filter(token => token != null),
               take(1),
               switchMap(jwt => {
                 return next(req.clone({
@@ -12877,6 +12877,17 @@ export interface ProductSpec {
   value: string;
 }
 
+export interface ProductVariant {
+  id: string;
+  sku: string;
+  color?: string;
+  size?: string;
+  stockQuantity: number;
+  price?: number;
+  rentalPricePerDay?: number;
+  isActive: boolean;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -12893,6 +12904,7 @@ export interface Product {
   features: string[];
   specs: ProductSpec[];
   images: string[];
+  imageDetails?: ProductImage[];
   colors: ProductColor[];
   sizes: string[];
   stock: number;
@@ -12901,6 +12913,12 @@ export interface Product {
   approvalStatus?: string;
   isAvailableForRent?: boolean;
   rentalPricePerDay?: number;
+  variants: ProductVariant[];
+}
+
+export interface ProductImage {
+  url: string;
+  publicId?: string | null;
 }
 
 export interface Review {
@@ -12925,6 +12943,7 @@ export interface RatingBucket {
 export interface CartItem {
   id?: string;
   productId: string;
+  variantId?: string;
   name: string;
   slug: string;
   brand: string;
@@ -12946,6 +12965,8 @@ export interface PromoCode {
   value: number;
   description: string;
   maxDiscountAmount?: number;
+  scope?: 'Platform' | 'Seller';
+  sellerId?: string;
 }
 
 export interface Address {
@@ -12976,6 +12997,7 @@ export type OrderStatus = 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | '
 
 export interface OrderItem {
   productId: string;
+  variantId?: string;
   name: string;
   image: string;
   price: number;
@@ -13085,7 +13107,7 @@ export class AccountService {
             state: a.state,
             zip: a.postalCode,
             country: a.country,
-            phone: '', // API missing phone, just stub
+            phone: a.phone,
             isDefault: a.isDefault
           }));
           this._addresses.set(mapped);
@@ -13099,9 +13121,10 @@ export class AccountService {
     });
   }
 
-  createCheckoutAddress(address: Omit<Address, 'id' | 'label' | 'phone'>): Observable<string> {
+  createCheckoutAddress(address: Omit<Address, 'id' | 'label'>): Observable<string> {
     return this.http.post<string>(this.apiUrl, {
       fullName: address.fullName,
+      phone: address.phone,
       line1: address.line1,
       line2: address.line2,
       city: address.city,
@@ -13122,6 +13145,7 @@ export class AccountService {
         this.http.put(`${this.apiUrl}/${address.id}`, {
           id: address.id,
           fullName: address.fullName,
+          phone: address.phone,
           line1: address.line1,
           line2: address.line2,
           city: address.city,
@@ -13133,6 +13157,7 @@ export class AccountService {
       } else {
         this.http.post(this.apiUrl, {
           fullName: address.fullName,
+          phone: address.phone,
           line1: address.line1,
           line2: address.line2,
           city: address.city,
@@ -13178,6 +13203,7 @@ export class AccountService {
         this.http.put(`${this.apiUrl}/${id}`, {
           id: address.id,
           fullName: address.fullName,
+          phone: address.phone,
           line1: address.line1,
           line2: address.line2,
           city: address.city,
@@ -13601,6 +13627,7 @@ export class CartService {
   private readonly _items = signal<CartItem[]>(this.load());
   private readonly _promo = signal<PromoCode | null>(this.loadPromo());
   private readonly _drawerOpen = signal(false);
+  private authenticatedCartLoaded = false;
 
   readonly items = this._items.asReadonly();
   readonly promo = this._promo.asReadonly();
@@ -13610,7 +13637,7 @@ export class CartService {
   readonly subtotal = computed(() => this._items().reduce((sum, i) => sum + i.price * i.quantity, 0));
   readonly discount = computed(() => {
     const promo = this._promo();
-    if (!promo || promo.type !== 'percent') return 0;
+    if (!promo || promo.type !== 'percent' || promo.scope === 'Seller') return 0;
     const percentageDiscount = (this.subtotal() * promo.value) / 100;
     return promo.maxDiscountAmount == null
       ? percentageDiscount
@@ -13621,7 +13648,9 @@ export class CartService {
 
   constructor() {
     effect(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this._items()));
+      if (!this.auth.isAuthenticated() && !this.authenticatedCartLoaded) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(this._items()));
+      }
       const promo = this._promo();
       if (promo) {
         localStorage.setItem(PROMO_KEY, JSON.stringify(promo));
@@ -13632,18 +13661,24 @@ export class CartService {
 
     effect(() => {
       if (this.auth.isAuthenticated()) {
-        this.syncWithBackend();
+        if (!this.authenticatedCartLoaded) {
+          this.authenticatedCartLoaded = true;
+          this.mergeGuestCartIntoBackend();
+        }
       } else {
+        this.authenticatedCartLoaded = false;
         this._items.set(this.load());
       }
     }, { allowSignalWrites: true });
   }
 
   private syncWithBackend() {
+    this.fetchFromBackend();
+  }
+
+  private mergeGuestCartIntoBackend() {
     const localItems = this.load();
     if (localItems.length > 0) {
-      // Temporarily clear local items so we don't push them again
-      localStorage.removeItem(STORAGE_KEY);
       this.pushLocalToBackend(localItems);
     } else {
       this.fetchFromBackend();
@@ -13657,6 +13692,7 @@ export class CartService {
           const mappedItems: CartItem[] = cart.items.map((i: any) => ({
             id: i.id,
             productId: i.productId,
+            variantId: i.variantId,
             name: i.productName,
             slug: '', // missing in backend dto, can add if needed
             brand: '',
@@ -13682,6 +13718,7 @@ export class CartService {
   private pushLocalToBackend(localItems: CartItem[]) {
     const items = localItems.map(item => ({
       productId: item.productId,
+      variantId: item.variantId,
       quantity: item.quantity,
       color: item.color,
       size: item.size,
@@ -13691,8 +13728,14 @@ export class CartService {
     }));
 
     this.http.post(`${this.apiUrl}/sync`, { items }).subscribe({
-      next: () => this.fetchFromBackend(),
-      error: (err) => console.error('Failed to bulk sync cart', err)
+      next: () => {
+        localStorage.removeItem(STORAGE_KEY);
+        this.fetchFromBackend();
+      },
+      error: (err) => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(localItems));
+        console.error('Failed to bulk sync cart', err);
+      }
     });
   }
 
@@ -13703,11 +13746,29 @@ export class CartService {
     size?: string,
     type: 'Purchase' | 'Rental' = 'Purchase',
     rentalStartDate?: string,
-    rentalEndDate?: string
+    rentalEndDate?: string,
+    variantId?: string
   ): void {
+    const variant = product.variants?.find(v => v.id === variantId && v.isActive);
+    if (product.variants?.some(v => v.isActive) && !variant) {
+      this.toast.error('Select an available product variant');
+      return;
+    }
+    if (type === 'Rental' && (!rentalStartDate || !rentalEndDate || rentalEndDate <= rentalStartDate)) {
+      this.toast.error('Rental end date must be after the start date');
+      return;
+    }
+    const stock = variant?.stockQuantity ?? product.stock;
+    const days = type === 'Rental' && rentalStartDate && rentalEndDate
+      ? (Date.parse(rentalEndDate) - Date.parse(rentalStartDate)) / 86400000
+      : 1;
+    const price = type === 'Rental'
+      ? (variant?.rentalPricePerDay ?? product.rentalPricePerDay ?? variant?.price ?? product.price) * days
+      : variant?.price ?? product.price;
     if (this.auth.isAuthenticated()) {
       this.http.post(`${this.apiUrl}/items`, {
         productId: product.id,
+        variantId: variant?.id ?? null,
         quantity: quantity,
         type: type === 'Rental' ? 1 : 0,
         rentalStartDate: rentalStartDate ?? null,
@@ -13716,7 +13777,7 @@ export class CartService {
         size
       }).subscribe({
         next: () => {
-          this.syncWithBackend();
+          this.fetchFromBackend();
           this.toast.success(`${product.name} added to cart`);
         },
         error: () => this.toast.error('Failed to add to cart')
@@ -13725,7 +13786,7 @@ export class CartService {
       // Local logic
       this._items.update(items => {
         const existing = items.find(
-          i => i.productId === product.id && i.color === color && i.size === size &&
+          i => i.productId === product.id && i.variantId === variant?.id &&
             i.type === type && i.rentalStartDate === rentalStartDate && i.rentalEndDate === rentalEndDate
         );
         if (existing) {
@@ -13741,11 +13802,12 @@ export class CartService {
             slug: product.slug,
             brand: product.brand,
             image: product.images?.[0] || '',
-            price: product.price,
-            quantity: Math.min(quantity, product.stock),
-            stock: product.stock,
-            color,
-            size,
+            variantId: variant?.id,
+            price,
+            quantity: Math.min(quantity, stock),
+            stock,
+            color: variant?.color,
+            size: variant?.size,
             type,
             rentalStartDate,
             rentalEndDate,
@@ -13768,13 +13830,14 @@ export class CartService {
         itemId: item.id,
         quantity: quantity
       }).subscribe({
-        next: () => this.syncWithBackend(),
+        next: () => this.fetchFromBackend(),
         error: () => this.toast.error('Failed to update quantity')
       });
     } else {
       this._items.update(items =>
         items.map(i =>
-          i.productId === item.productId && i.color === item.color && i.size === item.size
+          i.productId === item.productId && i.variantId === item.variantId &&
+            i.type === item.type && i.rentalStartDate === item.rentalStartDate && i.rentalEndDate === item.rentalEndDate
             ? { ...i, quantity: Math.min(quantity, i.stock) }
             : i
         )
@@ -13786,7 +13849,7 @@ export class CartService {
     if (this.auth.isAuthenticated() && item.id) {
       this.http.delete(`${this.apiUrl}/items/${item.id}`).subscribe({
         next: () => {
-          this.syncWithBackend();
+          this.fetchFromBackend();
           this.toast.success('Item removed');
         },
         error: () => this.toast.error('Failed to remove item')
@@ -13794,7 +13857,8 @@ export class CartService {
     } else {
       this._items.update(items =>
         items.filter(
-          i => !(i.productId === item.productId && i.color === item.color && i.size === item.size)
+          i => !(i.productId === item.productId && i.variantId === item.variantId &&
+            i.type === item.type && i.rentalStartDate === item.rentalStartDate && i.rentalEndDate === item.rentalEndDate)
         )
       );
       this.toast.success('Item removed');
@@ -13827,7 +13891,9 @@ export class CartService {
             description: promo.maxDiscountAmount == null
               ? `${promo.discountPercentage}% off your order`
               : `${promo.discountPercentage}% off, up to $${Number(promo.maxDiscountAmount).toFixed(2)}`,
-            maxDiscountAmount: promo.maxDiscountAmount ?? undefined
+            maxDiscountAmount: promo.maxDiscountAmount ?? undefined,
+            scope: promo.scope ?? 'Platform',
+            sellerId: promo.sellerId ?? undefined
           });
           this.toast.success(`Promo applied â€” ${promo.discountPercentage}% off`);
           subscriber.next(true);
@@ -13900,6 +13966,10 @@ export class CloudinaryService {
     
     return this.http.post<CloudinaryUploadResponse>(this.uploadEndpoint, formData);
   }
+
+  deleteImage(publicId: string): Observable<void> {
+    return this.http.delete<void>(`${environment.apiUrl}/images?publicId=${encodeURIComponent(publicId)}`);
+  }
 }
 
 ``
@@ -13936,7 +14006,7 @@ export class NotificationService {
   private unreadCountSubject = new BehaviorSubject<number>(0);
   public unreadCount$ = this.unreadCountSubject.asObservable();
 
-  private readonly apiUrl = `${environment.apiUrl}/api/notifications`;
+  private readonly apiUrl = `${environment.apiUrl}/notifications`;
 
   constructor(private http: HttpClient, private authService: AuthService) {
     effect(() => {
@@ -13966,9 +14036,10 @@ export class NotificationService {
     const token = this.authService.getToken();
     if (!token) return;
 
+    this.stopConnection();
     this.hubConnection = new signalR.HubConnectionBuilder()
-      .withUrl(`${environment.apiUrl}/hubs/notifications`, {
-        accessTokenFactory: () => token
+      .withUrl(`${environment.hubUrl}/notifications`, {
+        accessTokenFactory: () => this.authService.getToken() ?? ''
       })
       .withAutomaticReconnect()
       .build();
@@ -14036,12 +14107,29 @@ export interface PlaceOrderInput {
   promoCode?: string;
 }
 
+export interface CheckoutQuote {
+  subtotal: number;
+  discountAmount: number;
+  shippingAmount: number;
+  taxAmount: number;
+  totalAmount: number;
+  currency: string;
+  promoCode?: string;
+  promoScope?: string;
+  promoSellerId?: string;
+}
+
 interface CustomerOrderResponse {
   id: string;
   orderNumber: string;
   date: string;
   status: Order['status'];
+  subtotal: number;
+  discountAmount: number;
+  shippingAmount: number;
+  taxAmount: number;
   totalAmount: number;
+  currency: string;
   items: Array<{
     productId: string;
     productName: string;
@@ -14054,7 +14142,7 @@ interface CustomerOrderResponse {
     color?: string;
     size?: string;
   }>;
-  shippingAddress?: { fullName: string; line1: string; line2?: string; city: string; state: string; postalCode: string; country: string };
+  shippingAddress?: { fullName: string; phone: string; line1: string; line2?: string; city: string; state: string; postalCode: string; country: string };
   paymentProvider?: string;
   paymentStatus?: string;
 }
@@ -14086,6 +14174,10 @@ export class OrderService {
       map(order => this.toOrder(order)),
       tap(order => this._orders.update(orders => [...orders.filter(existing => existing.id !== order.id), order]))
     );
+  }
+
+  getQuote(country: string, state: string, promoCode?: string): Observable<CheckoutQuote> {
+    return this.http.post<CheckoutQuote>(`${this.apiUrl}/quote`, { country, state, promoCode: promoCode || null });
   }
 
   placeOrder(input: PlaceOrderInput): Observable<string> {
@@ -14134,6 +14226,10 @@ export class OrderService {
     return this.http.post<void>(`${this.apiUrl}/${orderId}/capture-paypal-order`, { paypalOrderId });
   }
 
+  cancelOrder(orderId: string): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/${orderId}/cancel`, {});
+  }
+
   private toOrder(response: CustomerOrderResponse): Order {
     const address = response.shippingAddress;
     return {
@@ -14153,10 +14249,10 @@ export class OrderService {
         color: item.color,
         size: item.size,
       })),
-      subtotal: response.totalAmount,
-      shipping: 0,
-      tax: 0,
-      discount: 0,
+      subtotal: response.subtotal,
+      shipping: response.shippingAmount,
+      tax: response.taxAmount,
+      discount: response.discountAmount,
       total: response.totalAmount,
       shippingAddress: address ? [address.line1, address.line2, `${address.city}, ${address.state} ${address.postalCode}`, address.country].filter(Boolean).join(', ') : 'Not provided',
       paymentSummary: response.paymentProvider ?? 'Not provided',
@@ -15773,9 +15869,9 @@ export class AccountSupportComponent implements OnInit {
 ## src\app\features\admin\admin-add-product.component.ts
 
 ``typescript
-import { Component, inject, signal, OnInit } from '@angular/core';
-import { FormBuilder, Validators, ReactiveFormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { Component, inject, signal, OnDestroy, OnInit } from '@angular/core';
+import { FormArray, FormBuilder, Validators, ReactiveFormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { ToastService } from '../../core/services/toast.service';
 import { ProductService } from '../../core/services/product.service';
@@ -15784,9 +15880,14 @@ import { Category } from '../../core/models/shop.models';
 import { environment } from '../../../environments/environment';
 import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 
+interface ProductImageState {
+  url: string;
+  publicId: string | null;
+}
+
 @Component({
   selector: 'app-admin-add-product',
-  imports: [ReactiveFormsModule, RouterLink],
+  imports: [ReactiveFormsModule],
   template: `
     <div class="max-w-4xl mx-auto space-y-6 pb-20">
       <div>
@@ -15902,6 +16003,30 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
           <!-- Variants & Features -->
           <div class="space-y-6">
             <h3 class="text-base font-semibold text-slate-900 border-b border-slate-100 pb-2">Variants & Specifications</h3>
+
+            <div class="space-y-3" formArrayName="variants">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm font-semibold text-slate-800">Inventory variants</p>
+                  <p class="text-xs text-slate-500">Each SKU owns its stock and may override product prices.</p>
+                </div>
+                <button type="button" (click)="addVariant()" class="px-3 py-2 text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50">Add variant</button>
+              </div>
+              @for (variant of variants.controls; track $index; let i = $index) {
+                <div [formGroupName]="i" class="grid grid-cols-2 md:grid-cols-8 gap-3 p-4 rounded-xl border border-slate-200 bg-slate-50">
+                  <input formControlName="sku" placeholder="SKU" class="md:col-span-2 px-3 py-2 bg-white border border-slate-200 rounded-lg">
+                  <input formControlName="color" placeholder="Color" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
+                  <input formControlName="size" placeholder="Size" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
+                  <input type="number" min="0" formControlName="stockQuantity" placeholder="Stock" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
+                  <input type="number" min="0.01" step="0.01" formControlName="price" placeholder="Price override" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
+                  <input type="number" min="0.01" step="0.01" formControlName="rentalPricePerDay" placeholder="Rental/day" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
+                  <div class="flex items-center gap-2">
+                    <label class="flex items-center gap-1 text-xs text-slate-600"><input type="checkbox" formControlName="isActive"> Active</label>
+                    <button type="button" (click)="removeVariant(i)" class="px-2 py-2 text-xs font-semibold text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-50">Remove</button>
+                  </div>
+                </div>
+              }
+            </div>
             
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div class="space-y-2">
@@ -15970,7 +16095,7 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
               <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-6">
                 @for (img of uploadedImages(); track img; let i = $index) {
                   <div class="group relative aspect-square rounded-2xl overflow-hidden bg-white border border-slate-200 shadow-sm p-1">
-                    <img [src]="img" alt="Product Image" class="w-full h-full object-contain rounded-xl">
+                    <img [src]="img.url" alt="Product Image" class="w-full h-full object-contain rounded-xl">
                     <!-- Delete Button -->
                     <button type="button" (click)="removeImage(i)" 
                             class="absolute top-2 end-2 w-8 h-8 rounded-full bg-white/90 text-rose-500 shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-50 hover:text-rose-600 focus:outline-none">
@@ -15994,9 +16119,9 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 
           <!-- Submit -->
           <div class="pt-6 border-t border-slate-100 flex items-center justify-end gap-4">
-            <a routerLink="/seller/products" class="px-6 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+            <button type="button" (click)="cancel()" class="px-6 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
               Cancel
-            </a>
+            </button>
             <button type="submit" [disabled]="form.invalid || isSubmitting || uploadedImages().length === 0"
                     class="px-8 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-all shadow-sm shadow-indigo-200">
               @if (isSubmitting) {
@@ -16029,7 +16154,7 @@ import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
     }
   `
 })
-export class AdminAddProductComponent implements OnInit {
+export class AdminAddProductComponent implements OnInit, OnDestroy {
   private fb = inject(FormBuilder);
   private http = inject(HttpClient);
   private router = inject(Router);
@@ -16043,7 +16168,8 @@ export class AdminAddProductComponent implements OnInit {
   isEditMode = signal(false);
   editProductId = signal<string | null>(null);
 
-  uploadedImages = signal<string[]>([]);
+  uploadedImages = signal<ProductImageState[]>([]);
+  private readonly pendingImageIds = new Set<string>();
   categories = signal<Category[]>([]);
   editingFile = signal<File | null>(null);
   editorInstance: any = null;
@@ -16061,8 +16187,13 @@ export class AdminAddProductComponent implements OnInit {
     colors: [''],
     sizes: [''],
     features: [''],
-    specs: ['']
+    specs: [''],
+    variants: this.fb.array([])
   });
+
+  get variants(): FormArray {
+    return this.form.controls.variants;
+  }
 
   ngOnInit() {
     this.productService.getCategories().subscribe(res => {
@@ -16097,8 +16228,17 @@ export class AdminAddProductComponent implements OnInit {
           features: product.features ? product.features.map((f: any) => f.value).join('\n') : '',
           specs: product.specs ? product.specs.map((s: any) => `${s.key}: ${s.value}`).join('\n') : ''
         });
-        if (product.images) {
-          this.uploadedImages.set(product.images);
+        if (product.imageDetails?.length) {
+          this.uploadedImages.set(product.imageDetails.map(image => ({
+            url: image.url,
+            publicId: image.publicId ?? null
+          })));
+        } else if (product.images) {
+          this.uploadedImages.set(product.images.map(url => ({ url, publicId: null })));
+        }
+        this.variants.clear();
+        for (const variant of product.variants ?? []) {
+          this.variants.push(this.createVariantGroup(variant));
         }
         if (product.isAvailableForRent) {
           this.form.get('rentalPricePerDay')?.setValidators([Validators.required, Validators.min(0.01)]);
@@ -16126,6 +16266,27 @@ export class AdminAddProductComponent implements OnInit {
       }
       rentPriceControl?.updateValueAndValidity();
     }
+  }
+
+  addVariant(): void {
+    this.variants.push(this.createVariantGroup());
+  }
+
+  removeVariant(index: number): void {
+    this.variants.removeAt(index);
+  }
+
+  private createVariantGroup(variant?: any) {
+    return this.fb.group({
+      id: [variant?.id ?? null],
+      sku: [variant?.sku ?? '', Validators.required],
+      color: [variant?.color ?? null],
+      size: [variant?.size ?? null],
+      stockQuantity: [variant?.stockQuantity ?? 0, [Validators.required, Validators.min(0)]],
+      price: [variant?.price ?? null, Validators.min(0.01)],
+      rentalPricePerDay: [variant?.rentalPricePerDay ?? null, Validators.min(0.01)],
+      isActive: [variant?.isActive ?? true]
+    });
   }
 
   onFileSelected(event: any): void {
@@ -16214,7 +16375,11 @@ export class AdminAddProductComponent implements OnInit {
         this.isUploadingImage.set(true);
         this.cloudinary.uploadImage(newFile).subscribe({
           next: (response) => {
-            this.uploadedImages.update(images => [...images, response.url]);
+            this.uploadedImages.update(images => [...images, {
+              url: response.url,
+              publicId: response.publicId
+            }]);
+            this.pendingImageIds.add(response.publicId);
             this.isUploadingImage.set(false);
             this.toast.success('Image edited and uploaded successfully!');
           },
@@ -16228,10 +16393,32 @@ export class AdminAddProductComponent implements OnInit {
   }
 
   removeImage(index: number): void {
+    const image = this.uploadedImages()[index];
     this.uploadedImages.update(images => images.filter((_, i) => i !== index));
+    if (image?.publicId && this.pendingImageIds.has(image.publicId)) {
+      this.deletePendingImage(image.publicId);
+    }
   }
 
-  
+  cancel(): void {
+    this.cleanupPendingImages();
+    this.router.navigate(['/admin/products']);
+  }
+
+  ngOnDestroy(): void {
+    this.cleanupPendingImages();
+  }
+
+  private deletePendingImage(publicId: string): void {
+    this.pendingImageIds.delete(publicId);
+    this.cloudinary.deleteImage(publicId).subscribe({
+      error: error => console.warn('Failed to remove abandoned product image', error)
+    });
+  }
+
+  private cleanupPendingImages(): void {
+    for (const publicId of [...this.pendingImageIds]) this.deletePendingImage(publicId);
+  }
 
   onSubmit(): void {
     if (this.form.invalid) {
@@ -16272,18 +16459,24 @@ export class AdminAddProductComponent implements OnInit {
       originalPrice: val.originalPrice,
       stockQuantity: val.stockQuantity,
       categoryId: categoryId,
-      imageUrls: this.uploadedImages(),
+      images: this.uploadedImages(),
       isAvailableForRent: val.isAvailableForRent,
       rentalPricePerDay: val.rentalPricePerDay,
       colors: colors.length > 0 ? colors : null,
       sizes: sizes.length > 0 ? sizes : null,
       features: features.length > 0 ? features : null,
-      specs: Object.keys(specsDict).length > 0 ? specsDict : null
+      specs: Object.keys(specsDict).length > 0 ? specsDict : null,
+      variants: this.variants.getRawValue().map(variant => ({
+        ...variant,
+        color: variant.color?.trim() || null,
+        size: variant.size?.trim() || null
+      }))
     };
 
     if (this.isEditMode() && this.editProductId()) {
       this.http.put<void>(`${environment.apiUrl}/products/${this.editProductId()}`, payload).subscribe({
         next: () => {
+          this.pendingImageIds.clear();
           this.toast.success('Product updated successfully!');
           this.router.navigate(['/admin/products']);
         },
@@ -16296,6 +16489,7 @@ export class AdminAddProductComponent implements OnInit {
     } else {
       this.http.post<string>(`${environment.apiUrl}/products`, payload).subscribe({
         next: () => {
+          this.pendingImageIds.clear();
           this.toast.success('Product added successfully!');
           this.router.navigate(['/admin/products']);
         },
@@ -21094,19 +21288,21 @@ export class CatalogComponent {
 ## src\app\features\checkout\checkout.component.ts
 
 ``typescript
-import { Component, OnInit, effect, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, effect, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { CartService } from '../../core/services/cart.service';
-import { OrderService } from '../../core/services/order.service';
+import { CheckoutQuote, OrderService } from '../../core/services/order.service';
 import { AccountService } from '../../core/services/account.service';
 import { AuthService } from '../../core/services/auth.service';
 import { ToastService } from '../../core/services/toast.service';
 import { Address } from '../../core/models/shop.models';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
 import { NgxPayPalModule, IPayPalConfig, ICreateOrderRequest } from 'ngx-paypal';
-import { Observable, switchMap } from 'rxjs';
+import { debounceTime, Observable, switchMap } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { environment } from '../../../environments/environment';
 
 type PaymentMethod = 'paypal' | 'cod';
 
@@ -21359,17 +21555,27 @@ type PaymentMethod = 'paypal' | 'cod';
             <dl class="mt-6 space-y-3 text-sm border-t border-slate-100 pt-5">
               <div class="flex justify-between">
                 <dt class="text-slate-500">Subtotal</dt>
-                <dd class="font-semibold text-slate-900">{{ cart.subtotal() | currency }}</dd>
+                <dd class="font-semibold text-slate-900">{{ (quote()?.subtotal ?? cart.subtotal()) | currency }}</dd>
               </div>
-              @if (cart.discount() > 0) {
+              @if ((quote()?.discountAmount ?? cart.discount()) > 0) {
                 <div class="flex justify-between">
                   <dt class="text-emerald-600">Discount ({{ cart.promo()?.code }})</dt>
-                  <dd class="font-semibold text-emerald-600">-{{ cart.discount() | currency }}</dd>
+                  <dd class="font-semibold text-emerald-600">-{{ (quote()?.discountAmount ?? cart.discount()) | currency }}</dd>
+                </div>
+              }
+              @if (quote()) {
+                <div class="flex justify-between">
+                  <dt class="text-slate-500">Shipping</dt>
+                  <dd class="font-semibold text-slate-900">{{ quote()!.shippingAmount === 0 ? 'Free' : (quote()!.shippingAmount | currency) }}</dd>
+                </div>
+                <div class="flex justify-between">
+                  <dt class="text-slate-500">Tax</dt>
+                  <dd class="font-semibold text-slate-900">{{ quote()!.taxAmount | currency }}</dd>
                 </div>
               }
               <div class="flex justify-between border-t border-slate-100 pt-4 text-lg">
                 <dt class="font-bold text-slate-900">{{ cart.hasRental() ? 'Estimated total' : 'Total' }}</dt>
-                <dd class="font-extrabold text-slate-900">{{ cart.total() | currency }}</dd>
+                <dd class="font-extrabold text-slate-900">{{ (quote()?.totalAmount ?? cart.total()) | currency }}</dd>
               </div>
             </dl>
             @if (cart.hasRental()) {
@@ -21394,7 +21600,7 @@ type PaymentMethod = 'paypal' | 'cod';
                   </svg>
                   Placing orderâ€¦
                 } @else {
-                  Place Order â€” {{ cart.total() | currency }}
+                  Place Order â€” {{ (quote()?.totalAmount ?? cart.total()) | currency }}
                 }
               </button>
             }
@@ -21419,6 +21625,7 @@ export class CheckoutComponent implements OnInit {
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
   private readonly fb = inject(FormBuilder);
+  private readonly destroyRef = inject(DestroyRef);
 
   public payPalConfig?: IPayPalConfig;
 
@@ -21426,6 +21633,7 @@ export class CheckoutComponent implements OnInit {
   readonly placing = signal(false);
   readonly submitted = signal(false);
   readonly selectedAddressId = signal<number | string | null>(null);
+  readonly quote = signal<CheckoutQuote | null>(null);
 
   readonly savedAddresses = this.account.addresses;
 
@@ -21448,16 +21656,42 @@ export class CheckoutComponent implements OnInit {
         this.useAddress(defaultAddress, false);
       }
     });
+
+    this.form.valueChanges.pipe(
+      debounceTime(300),
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(() => this.refreshQuote());
+
+    effect(() => {
+      this.cart.items();
+      this.cart.promo();
+      this.refreshQuote();
+    });
   }
 
   ngOnInit(): void {
     this.initConfig();
+    this.refreshQuote();
+  }
+
+  private refreshQuote(): void {
+    const country = this.form.controls.country.value?.trim();
+    const state = this.form.controls.state.value?.trim() ?? '';
+    if (!country || this.cart.items().length === 0) {
+      this.quote.set(null);
+      return;
+    }
+
+    this.orders.getQuote(country, state, this.cart.promo()?.code).subscribe({
+      next: quote => this.quote.set(quote),
+      error: () => this.quote.set(null)
+    });
   }
 
   private initConfig(): void {
     this.payPalConfig = {
       currency: 'USD',
-      clientId: 'Adhr3wKyo-vITBWdrUb94-pNgeWVsSeVc9lsjlTP9nISPfq057uwt5ZACGZxot9nNbZzcpb7jxYNc2AQ', 
+      clientId: environment.payPalClientId,
       createOrderOnServer: (data) => {
         // Place the Budgetha order first
         return new Promise<string>((resolve, reject) => {
@@ -21532,10 +21766,19 @@ export class CheckoutComponent implements OnInit {
       },
       onCancel: (data, actions) => {
         this.placing.set(false);
+        const orderId = (window as any)._currentBudgethaOrderId as string | undefined;
+        if (orderId) {
+          this.orders.cancelOrder(orderId).subscribe({
+            next: () => delete (window as any)._currentBudgethaOrderId,
+            error: () => this.toast.error('Payment was cancelled, but the pending order could not be released yet.')
+          });
+        }
         this.toast.info('PayPal payment cancelled');
       },
       onError: err => {
         this.placing.set(false);
+        const orderId = (window as any)._currentBudgethaOrderId as string | undefined;
+        if (orderId) this.orders.cancelOrder(orderId).subscribe();
         this.toast.error('An error occurred during PayPal payment');
         console.log('PayPal Error', err);
       }
@@ -21556,7 +21799,6 @@ export class CheckoutComponent implements OnInit {
       state: address.state,
       zip: address.zip,
       country: address.country,
-      // The current address DTO has no phone field; keep the checkout contact phone.
       phone: address.phone || this.form.controls.phone.value || '',
     });
     this.selectedAddressId.set(address.id);
@@ -21631,6 +21873,7 @@ export class CheckoutComponent implements OnInit {
     const v = this.form.getRawValue();
     return this.account.createCheckoutAddress({
       fullName: v.fullName!,
+      phone: v.phone!,
       line1: v.line1!,
       line2: v.line2 || undefined,
       city: v.city!,
@@ -21645,7 +21888,8 @@ export class CheckoutComponent implements OnInit {
     const v = this.form.getRawValue();
     return address.fullName === v.fullName && address.line1 === v.line1 &&
       (address.line2 ?? '') === (v.line2 ?? '') && address.city === v.city &&
-      address.state === v.state && address.zip === v.zip && address.country === v.country;
+      address.state === v.state && address.zip === v.zip && address.country === v.country &&
+      address.phone === v.phone;
   }
 
   private defaultName(): string {
@@ -22245,7 +22489,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                   @for (color of (p.colors || []); track color.name) {
                     <button
                       type="button"
-                      (click)="selectedColor.set(color.name)"
+                       (click)="selectColor(color.name)"
                       [attr.aria-label]="'Select color ' + color.name"
                       [attr.aria-pressed]="selectedColor() === color.name"
                       class="h-10 w-10 rounded-full ring-2 ring-offset-2 transition-all duration-300 border border-slate-200"
@@ -22267,7 +22511,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                   @for (size of p.sizes; track size) {
                     <button
                       type="button"
-                      (click)="selectedSize.set(size)"
+                       (click)="selectSize(size)"
                       [attr.aria-pressed]="selectedSize() === size"
                       class="min-w-[3rem] px-4 py-2.5 rounded-xl border text-sm font-semibold transition-all duration-300"
                       [class]="selectedSize() === size
@@ -22305,16 +22549,16 @@ type Tab = 'description' | 'specs' | 'reviews';
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" d="M5 12h14" /></svg>
                 </button>
                 <span class="w-12 text-center text-base font-bold text-slate-900" aria-live="polite">{{ quantity() }}</span>
-                <button type="button" (click)="increment()" [disabled]="quantity() >= p.stock" aria-label="Increase quantity" class="qty-btn">
+                 <button type="button" (click)="increment()" [disabled]="quantity() >= selectedStock()" aria-label="Increase quantity" class="qty-btn">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 5v14M5 12h14" /></svg>
                 </button>
               </div>
 
-              <button type="button" (click)="addToCart()" [disabled]="p.stock === 0" class="btn-primary flex-1 py-3.5 text-base gap-2">
+               <button type="button" (click)="addToCart()" [disabled]="selectedStock() === 0" class="btn-primary flex-1 py-3.5 text-base gap-2">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
                 </svg>
-                {{ p.stock === 0 ? 'Out of stock' : 'Add to Cart — ' + (p.price * quantity() | currency) }}
+                 {{ selectedStock() === 0 ? 'Out of stock' : 'Add to Cart — ' + (selectedPrice() * quantity() | currency) }}
               </button>
 
               <button
@@ -22589,6 +22833,7 @@ export class ProductDetailComponent implements OnDestroy {
   readonly activeIndex = signal(0);
   readonly selectedColor = signal('');
   readonly selectedSize = signal('');
+  readonly selectedVariantId = signal<string | undefined>(undefined);
   readonly quantity = signal(1);
   readonly purchaseType = signal<'Purchase' | 'Rental'>('Purchase');
   readonly rentalStartDate = signal('');
@@ -22607,6 +22852,12 @@ export class ProductDetailComponent implements OnDestroy {
     const p = this.product();
     return p && p.images && p.images.length ? p.images[Math.min(this.activeIndex(), p.images.length - 1)] : '';
   });
+
+  readonly selectedVariant = computed(() => this.product()?.variants?.find(v => v.id === this.selectedVariantId()));
+  readonly selectedStock = computed(() => this.selectedVariant()?.stockQuantity ?? this.product()?.stock ?? 0);
+  readonly selectedPrice = computed(() => this.purchaseType() === 'Rental'
+    ? (this.selectedVariant()?.rentalPricePerDay ?? this.product()?.rentalPricePerDay ?? this.selectedVariant()?.price ?? this.product()?.price ?? 0)
+    : (this.selectedVariant()?.price ?? this.product()?.price ?? 0));
 
   readonly inWishlist = computed(() => {
     const p = this.product();
@@ -22678,8 +22929,10 @@ export class ProductDetailComponent implements OnDestroy {
            this.rentalStartDate.set('');
            this.rentalEndDate.set('');
           this.activeTab.set('description');
-          this.selectedColor.set(product?.colors?.[0]?.name ?? '');
-          this.selectedSize.set(product?.sizes?.[0] ?? '');
+           const firstVariant = product?.variants?.find(variant => variant.isActive);
+           this.selectedColor.set(firstVariant?.color ?? '');
+           this.selectedSize.set(firstVariant?.size ?? '');
+           this.selectedVariantId.set(firstVariant?.id);
           window.scrollTo({ top: 0 });
 
           if (product) {
@@ -22703,7 +22956,7 @@ export class ProductDetailComponent implements OnDestroy {
               this.hubConnection.stop();
             }
             this.hubConnection = new signalR.HubConnectionBuilder()
-              .withUrl(`${environment.apiUrl.replace('/api', '')}/hubs/reviews`, {
+              .withUrl(`${environment.hubUrl}/reviews`, {
                 accessTokenFactory: () => this.authService.getToken() || ''
               })
               .withAutomaticReconnect()
@@ -22734,7 +22987,7 @@ export class ProductDetailComponent implements OnDestroy {
   }
 
   increment(): void {
-    const stock = this.product()?.stock ?? 1;
+    const stock = this.selectedStock();
     this.quantity.update(q => Math.min(q + 1, stock));
   }
 
@@ -22744,13 +22997,38 @@ export class ProductDetailComponent implements OnDestroy {
 
   addToCart(): void {
     const p = this.product();
-    if (!p || p.stock === 0) return;
+    if (!p || this.selectedStock() === 0) return;
     if (this.purchaseType() === 'Rental' && (!this.rentalStartDate() || !this.rentalEndDate())) {
       this.toastService.error('Select rental start and end dates first.');
       return;
     }
+    if (this.purchaseType() === 'Rental' && this.rentalEndDate() <= this.rentalStartDate()) {
+      this.toastService.error('Rental end date must be after the start date.');
+      return;
+    }
     this.cart.add(p, this.quantity(), this.selectedColor() || undefined, this.selectedSize() || undefined,
-      this.purchaseType(), this.rentalStartDate() || undefined, this.rentalEndDate() || undefined);
+      this.purchaseType(), this.rentalStartDate() || undefined, this.rentalEndDate() || undefined,
+      this.selectedVariantId());
+  }
+
+  selectColor(color: string): void {
+    this.selectedColor.set(color);
+    const variant = this.product()?.variants?.find(v => v.color === color && (!this.selectedSize() || v.size === this.selectedSize()))
+      ?? this.product()?.variants?.find(v => v.color === color);
+    if (variant) {
+      this.selectedVariantId.set(variant.id);
+      this.selectedSize.set(variant.size ?? '');
+    }
+  }
+
+  selectSize(size: string): void {
+    this.selectedSize.set(size);
+    const variant = this.product()?.variants?.find(v => v.size === size && (!this.selectedColor() || v.color === this.selectedColor()))
+      ?? this.product()?.variants?.find(v => v.size === size);
+    if (variant) {
+      this.selectedVariantId.set(variant.id);
+      this.selectedColor.set(variant.color ?? '');
+    }
   }
 
   toggleWishlist(): void {
@@ -24150,7 +24428,8 @@ export class ProductCardComponent {
 
   addToCart(): void {
     const p = this.product();
-    this.cart.add(p, 1, p.colors[0]?.name, p.sizes[0]);
+    const variant = p.variants?.find(item => item.isActive);
+    this.cart.add(p, 1, variant?.color, variant?.size, 'Purchase', undefined, undefined, variant?.id);
   }
 
   toggleWishlist(): void {
@@ -24241,7 +24520,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
                     @for (color of p.colors; track color.name) {
                       <button
                         type="button"
-                        (click)="selectedColor.set(color.name)"
+                        (click)="selectColor(color.name)"
                         [attr.aria-label]="color.name"
                         class="h-8 w-8 rounded-full ring-2 ring-offset-2 transition-all duration-300"
                         [class]="selectedColor() === color.name ? 'ring-violet-600 scale-110' : 'ring-transparent hover:ring-slate-300'"
@@ -24258,7 +24537,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
                     @for (size of p.sizes; track size) {
                       <button
                         type="button"
-                        (click)="selectedSize.set(size)"
+                        (click)="selectSize(size)"
                         class="min-w-[2.75rem] px-3 py-2 rounded-lg border text-sm font-medium transition-all duration-300"
                         [class]="selectedSize() === size
                           ? 'border-violet-600 bg-violet-50 text-violet-700'
@@ -24298,6 +24577,7 @@ export class QuickViewComponent {
   readonly activeIndex = signal(0);
   readonly selectedColor = signal<string>('');
   readonly selectedSize = signal<string>('');
+  readonly selectedVariantId = signal<string | undefined>(undefined);
 
   readonly activeImage = computed(() => {
     const p = this.product();
@@ -24310,8 +24590,10 @@ export class QuickViewComponent {
     effect(() => {
       const p = this.product();
       this.activeIndex.set(0);
-      this.selectedColor.set(p?.colors[0]?.name ?? '');
-      this.selectedSize.set(p?.sizes[0] ?? '');
+      const variant = p?.variants?.find(item => item.isActive);
+      this.selectedColor.set(variant?.color ?? '');
+      this.selectedSize.set(variant?.size ?? '');
+      this.selectedVariantId.set(variant?.id);
     });
   }
 
@@ -24325,10 +24607,31 @@ export class QuickViewComponent {
     this.cart.add(
       p,
       1,
-      this.selectedColor() || p.colors[0]?.name,
-      this.selectedSize() || p.sizes[0]
+      this.selectedColor(),
+      this.selectedSize(),
+      'Purchase', undefined, undefined, this.selectedVariantId()
     );
     this.close();
+  }
+
+  selectColor(color: string): void {
+    this.selectedColor.set(color);
+    const variant = this.product()?.variants?.find(v => v.color === color && (!this.selectedSize() || v.size === this.selectedSize()))
+      ?? this.product()?.variants?.find(v => v.color === color);
+    if (variant) {
+      this.selectedVariantId.set(variant.id);
+      this.selectedSize.set(variant.size ?? '');
+    }
+  }
+
+  selectSize(size: string): void {
+    this.selectedSize.set(size);
+    const variant = this.product()?.variants?.find(v => v.size === size && (!this.selectedColor() || v.color === this.selectedColor()))
+      ?? this.product()?.variants?.find(v => v.size === size);
+    if (variant) {
+      this.selectedVariantId.set(variant.id);
+      this.selectedColor.set(variant.color ?? '');
+    }
   }
 
   viewFullDetails(): void {
@@ -24522,6 +24825,8 @@ export class ToastComponent {
 export const environment = {
   production: true,
   apiUrl: '/api',
+  hubUrl: '/hubs',
+  payPalClientId: '',
   googleClientId: '617748704610-fkb78ghi924ucdutur23971k003gsmg8.apps.googleusercontent.com'
 };
 
@@ -24533,6 +24838,8 @@ export const environment = {
 export const environment = {
   production: false,
   apiUrl: 'http://localhost:5272/api',
+  hubUrl: 'http://localhost:5272/hubs',
+  payPalClientId: 'sb',
   googleClientId: '617748704610-fkb78ghi924ucdutur23971k003gsmg8.apps.googleusercontent.com'
 };
 
