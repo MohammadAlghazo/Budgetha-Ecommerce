@@ -7,18 +7,32 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Budgetha.Application.Features.Cart.Commands;
 
-public record AddToCartCommand(Guid ProductId, int Quantity, OrderItemType Type, DateOnly? RentalStartDate,
-    DateOnly? RentalEndDate, Guid? VariantId = null, string? Color = null, string? Size = null) : IRequest;
+public class AddToCartCommand : IRequest
+{
+    public Guid ProductId { get; set; }
+    public int Quantity { get; set; }
+    public OrderItemType Type { get; set; }
+    public DateOnly? RentalStartDate { get; set; }
+    public DateOnly? RentalEndDate { get; set; }
+    public Guid? VariantId { get; set; }
+    public string? Color { get; set; }
+    public string? Size { get; set; }
+}
 
 public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUserService;
+    private readonly IInventoryLockService _inventoryLockService;
 
-    public AddToCartCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    public AddToCartCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUserService,
+        IInventoryLockService inventoryLockService)
     {
         _context = context;
         _currentUserService = currentUserService;
+        _inventoryLockService = inventoryLockService;
     }
 
     public async Task Handle(AddToCartCommand request, CancellationToken cancellationToken)
@@ -28,6 +42,11 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
         var userId = _currentUserService.UserId;
         if (string.IsNullOrEmpty(userId))
             throw new UnauthorizedAccessException();
+
+        if (!Guid.TryParse(userId, out var userLockId))
+            throw new InvalidOperationException("The current user ID is invalid.");
+
+        await using var cartTransaction = await _inventoryLockService.BeginTransactionAsync([userLockId], cancellationToken);
 
         var cart = await _context.Carts
             .Include(c => c.Items)
@@ -54,13 +73,28 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
             i.Type == request.Type && 
             i.RentalStartDate == request.RentalStartDate && 
             i.RentalEndDate == request.RentalEndDate &&
-            i.Color == variant?.Color &&
-            i.Size == variant?.Size);
+            i.Color == (variant?.Color ?? request.Color) &&
+            i.Size == (variant?.Size ?? request.Size));
 
         if (existingItem != null)
         {
             var mergedQuantity = checked(existingItem.Quantity + request.Quantity);
             CartRules.ValidateQuantity(mergedQuantity);
+
+            if (request.Type == OrderItemType.Purchase)
+            {
+                if (mergedQuantity > (variant?.StockQuantity ?? product.StockQuantity))
+                    throw new InvalidOperationException("Not enough stock available.");
+            }
+            else if (request.Type == OrderItemType.Rental)
+            {
+                var totalRented = await InventoryRules.GetMaximumReservedQuantityAsync(
+                    _context, request.ProductId, variant?.Id, request.RentalStartDate!.Value,
+                    request.RentalEndDate!.Value, cancellationToken);
+                if (mergedQuantity > (variant?.StockQuantity ?? product.StockQuantity) - totalRented)
+                    throw new InvalidOperationException("Not enough rental stock available.");
+            }
+
             existingItem.Quantity = mergedQuantity;
         }
         else
@@ -73,8 +107,8 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
                 Type = request.Type,
                 RentalStartDate = request.RentalStartDate,
                 RentalEndDate = request.RentalEndDate,
-                Color = variant?.Color,
-                Size = variant?.Size
+                Color = variant?.Color ?? request.Color,
+                Size = variant?.Size ?? request.Size
             };
             cart.Items.Add(newItem);
         }
@@ -105,5 +139,6 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
         }
 
         await _context.SaveChangesAsync(cancellationToken);
+        await cartTransaction.CommitAsync(cancellationToken);
     }
 }

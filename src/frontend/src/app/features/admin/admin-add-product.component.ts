@@ -1,5 +1,5 @@
 ﻿import { Component, inject, signal, OnDestroy, OnInit } from '@angular/core';
-import { FormArray, FormBuilder, Validators, ReactiveFormsModule } from '@angular/forms';
+import { FormBuilder, Validators, ReactiveFormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { ToastService } from '../../core/services/toast.service';
@@ -7,7 +7,6 @@ import { ProductService } from '../../core/services/product.service';
 import { CloudinaryService } from '../../core/services/cloudinary.service';
 import { Category } from '../../core/models/shop.models';
 import { environment } from '../../../environments/environment';
-import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 
 interface ProductImageState {
   url: string;
@@ -129,61 +128,6 @@ interface ProductImageState {
             }
           </div>
 
-          <!-- Variants & Features -->
-          <div class="space-y-6">
-            <h3 class="text-base font-semibold text-slate-900 border-b border-slate-100 pb-2">Variants & Specifications</h3>
-
-            <div class="space-y-3" formArrayName="variants">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="text-sm font-semibold text-slate-800">Inventory variants</p>
-                  <p class="text-xs text-slate-500">Each SKU owns its stock and may override product prices.</p>
-                </div>
-                <button type="button" (click)="addVariant()" class="px-3 py-2 text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50">Add variant</button>
-              </div>
-              @for (variant of variants.controls; track $index; let i = $index) {
-                <div [formGroupName]="i" class="grid grid-cols-2 md:grid-cols-8 gap-3 p-4 rounded-xl border border-slate-200 bg-slate-50">
-                  <input formControlName="sku" placeholder="SKU" class="md:col-span-2 px-3 py-2 bg-white border border-slate-200 rounded-lg">
-                  <input formControlName="color" placeholder="Color" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
-                  <input formControlName="size" placeholder="Size" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
-                  <input type="number" min="0" formControlName="stockQuantity" placeholder="Stock" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
-                  <input type="number" min="0.01" step="0.01" formControlName="price" placeholder="Price override" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
-                  <input type="number" min="0.01" step="0.01" formControlName="rentalPricePerDay" placeholder="Rental/day" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
-                  <div class="flex items-center gap-2">
-                    <label class="flex items-center gap-1 text-xs text-slate-600"><input type="checkbox" formControlName="isActive"> Active</label>
-                    <button type="button" (click)="removeVariant(i)" class="px-2 py-2 text-xs font-semibold text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-50">Remove</button>
-                  </div>
-                </div>
-              }
-            </div>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div class="space-y-2">
-                <label for="colors" class="block text-sm font-semibold text-slate-700">Colors <span class="text-xs text-slate-500 font-normal">(Comma separated)</span></label>
-                <input type="text" id="colors" formControlName="colors" placeholder="e.g. Red, Blue, Black"
-                       class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400">
-              </div>
-
-              <div class="space-y-2">
-                <label for="sizes" class="block text-sm font-semibold text-slate-700">Sizes <span class="text-xs text-slate-500 font-normal">(Comma separated)</span></label>
-                <input type="text" id="sizes" formControlName="sizes" placeholder="e.g. S, M, L, XL"
-                       class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400">
-              </div>
-
-              <div class="space-y-2">
-                <label for="features" class="block text-sm font-semibold text-slate-700">Key Features <span class="text-xs text-slate-500 font-normal">(One per line)</span></label>
-                <textarea id="features" formControlName="features" rows="4" placeholder="e.g. Noise Cancelling&#10;Waterproof IP68"
-                          class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 resize-none"></textarea>
-              </div>
-
-              <div class="space-y-2">
-                <label for="specs" class="block text-sm font-semibold text-slate-700">Specifications <span class="text-xs text-slate-500 font-normal">(Key: Value per line)</span></label>
-                <textarea id="specs" formControlName="specs" rows="4" placeholder="e.g. Weight: 200g&#10;Battery Life: 24h"
-                          class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 resize-none"></textarea>
-              </div>
-            </div>
-          </div>
-
           <!-- Product Images -->
           <div class="space-y-6">
             <div class="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -290,7 +234,6 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
   private toast = inject(ToastService);
   private cloudinary = inject(CloudinaryService);
   private productService = inject(ProductService);
-  private sanitizer = inject(DomSanitizer);
 
   isSubmitting = false;
   isUploadingImage = signal(false);
@@ -312,17 +255,8 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
     stockQuantity: [null as number | null, [Validators.required, Validators.min(0)]],
     categoryId: ['', [Validators.required]],
     isAvailableForRent: [false],
-    rentalPricePerDay: [null as number | null],
-    colors: [''],
-    sizes: [''],
-    features: [''],
-    specs: [''],
-    variants: this.fb.array([])
+    rentalPricePerDay: [null as number | null]
   });
-
-  get variants(): FormArray {
-    return this.form.controls.variants;
-  }
 
   ngOnInit() {
     this.productService.getCategories().subscribe(res => {
@@ -351,11 +285,7 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
           stockQuantity: product.stock,
           categoryId: product.categoryId,
           isAvailableForRent: product.isAvailableForRent,
-          rentalPricePerDay: product.rentalPricePerDay,
-          colors: product.colors ? product.colors.map((c: any) => c.name).join(', ') : '',
-          sizes: product.sizes ? product.sizes.map((s: any) => s.name).join(', ') : '',
-          features: product.features ? product.features.map((f: any) => f.value).join('\n') : '',
-          specs: product.specs ? product.specs.map((s: any) => `${s.key}: ${s.value}`).join('\n') : ''
+          rentalPricePerDay: product.rentalPricePerDay
         });
         if (product.imageDetails?.length) {
           this.uploadedImages.set(product.imageDetails.map(image => ({
@@ -364,10 +294,6 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
           })));
         } else if (product.images) {
           this.uploadedImages.set(product.images.map(url => ({ url, publicId: null })));
-        }
-        this.variants.clear();
-        for (const variant of product.variants ?? []) {
-          this.variants.push(this.createVariantGroup(variant));
         }
         if (product.isAvailableForRent) {
           this.form.get('rentalPricePerDay')?.setValidators([Validators.required, Validators.min(0.01)]);
@@ -395,27 +321,6 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
       }
       rentPriceControl?.updateValueAndValidity();
     }
-  }
-
-  addVariant(): void {
-    this.variants.push(this.createVariantGroup());
-  }
-
-  removeVariant(index: number): void {
-    this.variants.removeAt(index);
-  }
-
-  private createVariantGroup(variant?: any) {
-    return this.fb.group({
-      id: [variant?.id ?? null],
-      sku: [variant?.sku ?? '', Validators.required],
-      color: [variant?.color ?? null],
-      size: [variant?.size ?? null],
-      stockQuantity: [variant?.stockQuantity ?? 0, [Validators.required, Validators.min(0)]],
-      price: [variant?.price ?? null, Validators.min(0.01)],
-      rentalPricePerDay: [variant?.rentalPricePerDay ?? null, Validators.min(0.01)],
-      isActive: [variant?.isActive ?? true]
-    });
   }
 
   onFileSelected(event: any): void {
@@ -566,20 +471,6 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
 
     const categoryId = val.categoryId || '00000000-0000-0000-0000-000000000001';
 
-    // Parse Variants
-    const colors = val.colors ? val.colors.split(',').map((c: string) => c.trim()).filter((c: string) => c.length > 0) : [];
-    const sizes = val.sizes ? val.sizes.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0) : [];
-    const features = val.features ? val.features.split('\n').map((f: string) => f.trim()).filter((f: string) => f.length > 0) : [];
-    const specsDict: { [key: string]: string } = {};
-    if (val.specs) {
-      val.specs.split('\n').forEach((line: string) => {
-        const parts = line.split(':');
-        if (parts.length === 2) {
-          specsDict[parts[0].trim()] = parts[1].trim();
-        }
-      });
-    }
-
     const payload = {
       name: val.name,
       brand: val.brand,
@@ -591,15 +482,11 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
       images: this.uploadedImages(),
       isAvailableForRent: val.isAvailableForRent,
       rentalPricePerDay: val.rentalPricePerDay,
-      colors: colors.length > 0 ? colors : null,
-      sizes: sizes.length > 0 ? sizes : null,
-      features: features.length > 0 ? features : null,
-      specs: Object.keys(specsDict).length > 0 ? specsDict : null,
-      variants: this.variants.getRawValue().map(variant => ({
-        ...variant,
-        color: variant.color?.trim() || null,
-        size: variant.size?.trim() || null
-      }))
+      colors: [],
+      sizes: [],
+      features: [],
+      specs: {},
+      variants: []
     };
 
     if (this.isEditMode() && this.editProductId()) {

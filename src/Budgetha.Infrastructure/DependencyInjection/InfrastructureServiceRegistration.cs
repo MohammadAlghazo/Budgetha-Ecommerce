@@ -11,6 +11,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using System.Security.Claims;
 
 namespace Budgetha.Infrastructure.DependencyInjection;
 
@@ -79,6 +80,24 @@ public static class InfrastructureServiceRegistration
                             context.Token = accessToken;
 
                         return Task.CompletedTask;
+                    },
+                    OnTokenValidated = async context =>
+                    {
+                        var userId = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+                        var tokenSecurityStamp = context.Principal?.FindFirstValue("security_stamp");
+                        if (string.IsNullOrWhiteSpace(userId))
+                        {
+                            context.Fail("Invalid user token.");
+                            return;
+                        }
+
+                        var userManager = context.HttpContext.RequestServices.GetRequiredService<UserManager<ApplicationUser>>();
+                        var user = await userManager.FindByIdAsync(userId);
+                        if (user is null || (user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTimeOffset.UtcNow) ||
+                            !string.Equals(user.SecurityStamp ?? string.Empty, tokenSecurityStamp ?? string.Empty, StringComparison.Ordinal))
+                        {
+                            context.Fail("The account session is no longer valid.");
+                        }
                     }
                 };
             });

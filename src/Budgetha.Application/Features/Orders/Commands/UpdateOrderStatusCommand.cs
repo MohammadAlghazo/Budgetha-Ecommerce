@@ -38,6 +38,7 @@ public class UpdateOrderStatusCommandHandler : IRequestHandler<UpdateOrderStatus
             .ThenInclude(i => i.Product)
             .Include(o => o.Items)
             .ThenInclude(i => i.Variant)
+            .Include(o => o.Payment)
             .FirstOrDefaultAsync(o => o.Id == request.OrderId, cancellationToken);
 
         if (order == null)
@@ -64,6 +65,8 @@ public class UpdateOrderStatusCommandHandler : IRequestHandler<UpdateOrderStatus
         };
         if (!validTransition)
             throw new InvalidOperationException($"Order status cannot transition from {order.Status} to {request.Status}.");
+        if (request.Status == OrderStatus.Failed && order.Payment?.Status == PaymentStatus.Completed)
+            throw new InvalidOperationException("A completed payment must be refunded before the order can be marked as failed.");
 
         var previousStatus = order.Status;
         if (previousStatus == request.Status)

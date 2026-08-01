@@ -6,27 +6,37 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Budgetha.Application.Features.Cart.Commands;
 
-public record SyncCartItemDto(
-    Guid ProductId,
-    Guid? VariantId,
-    int Quantity,
-    string? Color,
-    string? Size,
-    OrderItemType Type = OrderItemType.Purchase,
-    DateOnly? RentalStartDate = null,
-    DateOnly? RentalEndDate = null);
+public class SyncCartItemDto
+{
+    public Guid ProductId { get; set; }
+    public Guid? VariantId { get; set; }
+    public int Quantity { get; set; }
+    public string? Color { get; set; }
+    public string? Size { get; set; }
+    public OrderItemType Type { get; set; } = OrderItemType.Purchase;
+    public DateOnly? RentalStartDate { get; set; }
+    public DateOnly? RentalEndDate { get; set; }
+}
 
-public record SyncCartCommand(List<SyncCartItemDto> Items) : IRequest;
+public class SyncCartCommand : IRequest
+{
+    public List<SyncCartItemDto> Items { get; set; } = new();
+}
 
 public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUserService;
+    private readonly IInventoryLockService _inventoryLockService;
 
-    public SyncCartCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    public SyncCartCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUserService,
+        IInventoryLockService inventoryLockService)
     {
         _context = context;
         _currentUserService = currentUserService;
+        _inventoryLockService = inventoryLockService;
     }
 
     public async Task Handle(SyncCartCommand request, CancellationToken cancellationToken)
@@ -34,6 +44,11 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
         var userId = _currentUserService.UserId;
         if (string.IsNullOrEmpty(userId))
             throw new UnauthorizedAccessException();
+
+        if (!Guid.TryParse(userId, out var userLockId))
+            throw new InvalidOperationException("The current user ID is invalid.");
+
+        await using var cartTransaction = await _inventoryLockService.BeginTransactionAsync([userLockId], cancellationToken);
 
         if (request.Items == null)
             throw new InvalidOperationException("Cart items are required.");
@@ -53,15 +68,17 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
 
         var syncedItems = request.Items
             .GroupBy(i => new { i.ProductId, i.VariantId, i.Type, i.RentalStartDate, i.RentalEndDate })
-            .Select(group => new SyncCartItemDto(
-                group.Key.ProductId,
-                group.Key.VariantId,
-                group.Sum(i => i.Quantity),
-                group.First().Color,
-                group.First().Size,
-                group.Key.Type,
-                group.Key.RentalStartDate,
-                group.Key.RentalEndDate))
+            .Select(group => new SyncCartItemDto
+            {
+                ProductId = group.Key.ProductId,
+                VariantId = group.Key.VariantId,
+                Quantity = group.Sum(i => i.Quantity),
+                Color = group.First().Color,
+                Size = group.First().Size,
+                Type = group.Key.Type,
+                RentalStartDate = group.Key.RentalStartDate,
+                RentalEndDate = group.Key.RentalEndDate
+            })
             .ToList();
 
         foreach (var itemDto in syncedItems)
@@ -134,5 +151,6 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
         }
 
         await _context.SaveChangesAsync(cancellationToken);
+        await cartTransaction.CommitAsync(cancellationToken);
     }
 }

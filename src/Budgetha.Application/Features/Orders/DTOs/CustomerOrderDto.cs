@@ -16,6 +16,10 @@ public class CustomerOrderDto
     public CustomerShippingAddressDto? ShippingAddress { get; set; }
     public string? PaymentProvider { get; set; }
     public string? PaymentStatus { get; set; }
+    public bool CanConfirmReceipt { get; set; }
+    public bool CanReportNotReceived { get; set; }
+    public List<CustomerFulfillmentDto> Fulfillments { get; set; } = new();
+    public List<CustomerDeliveryReportDto> DeliveryReports { get; set; } = new();
 }
 
 public class CustomerOrderItemDto
@@ -32,6 +36,33 @@ public class CustomerOrderItemDto
     public DateOnly? RentalEndDate { get; set; }
     public string? Color { get; set; }
     public string? Size { get; set; }
+    public Guid? FulfillmentId { get; set; }
+    public string SellerName { get; set; } = string.Empty;
+}
+
+public class CustomerFulfillmentDto
+{
+    public Guid Id { get; set; }
+    public string SellerId { get; set; } = string.Empty;
+    public string SellerName { get; set; } = string.Empty;
+    public decimal Amount { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? Carrier { get; set; }
+    public string? TrackingNumber { get; set; }
+    public DateTimeOffset? ShippedAt { get; set; }
+    public DateTimeOffset? DeliveredAt { get; set; }
+    public DateTimeOffset? RejectedAt { get; set; }
+    public string? RejectionReason { get; set; }
+}
+
+public class CustomerDeliveryReportDto
+{
+    public Guid Id { get; set; }
+    public Guid? FulfillmentId { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? Reason { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public string? AdminNote { get; set; }
 }
 
 public class CustomerShippingAddressDto

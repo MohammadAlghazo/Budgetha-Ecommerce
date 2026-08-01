@@ -23,6 +23,7 @@ public class AdminController : ControllerBase
     }
 
     [HttpGet("stats")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> GetStats()
     {
         var stats = await _adminService.GetStatsAsync();
@@ -43,6 +44,8 @@ public class AdminController : ControllerBase
     [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> GetAllUsers([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
         var result = await _adminService.GetAllUsersAsync(page, pageSize);
         return Ok(result);
     }
@@ -51,6 +54,7 @@ public class AdminController : ControllerBase
     [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> GetRecentUsers([FromQuery] int count = 5)
     {
+        count = Math.Clamp(count, 1, 50);
         var users = await _adminService.GetRecentUsersAsync(count);
         return Ok(users);
     }
@@ -58,22 +62,25 @@ public class AdminController : ControllerBase
     [HttpGet("products")]
     public async Task<IActionResult> GetAllProducts([FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] string? sort = "newest", [FromQuery] string? category = null)
     {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
         var isSuperAdminOrAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         
-        var query = new GetProductsQuery(
-            Search: null,
-            Categories: string.IsNullOrEmpty(category) ? null : new List<string> { category },
-            Brands: null,
-            MinPrice: 0,
-            MaxPrice: int.MaxValue,
-            MinRating: 0,
-            Sort: sort,
-            Page: page,
-            PageSize: pageSize,
-            SellerId: isSuperAdminOrAdmin ? null : userId,
-            IncludeUnapproved: true
-        );
+        var query = new GetProductsQuery
+        {
+            Search = null,
+            Categories = string.IsNullOrEmpty(category) ? null : new List<string> { category },
+            Brands = null,
+            MinPrice = 0,
+            MaxPrice = int.MaxValue,
+            MinRating = 0,
+            Sort = sort,
+            Page = page,
+            PageSize = pageSize,
+            SellerId = isSuperAdminOrAdmin ? null : userId,
+            IncludeUnapproved = true
+        };
 
         var result = await _mediator.Send(query);
         return Ok(result);

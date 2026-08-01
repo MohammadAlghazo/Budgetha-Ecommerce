@@ -1,4 +1,5 @@
 using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
@@ -22,7 +23,7 @@ public class GetBrandsQueryHandler : IRequestHandler<GetBrandsQuery, List<string
     public async Task<List<string>> Handle(GetBrandsQuery request, CancellationToken cancellationToken)
     {
         var brands = await _context.Products
-            .Where(p => !string.IsNullOrEmpty(p.Brand))
+            .Where(p => p.IsActive && p.ApprovalStatus == ApprovalStatus.Approved && !string.IsNullOrEmpty(p.Brand))
             .Select(p => p.Brand)
             .Distinct()
             .OrderBy(b => b)

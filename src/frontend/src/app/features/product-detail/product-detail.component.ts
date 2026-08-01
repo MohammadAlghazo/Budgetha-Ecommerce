@@ -1,4 +1,4 @@
-﻿import { Component, computed, inject, signal, OnDestroy } from '@angular/core';
+import { Component, computed, inject, signal, OnDestroy } from '@angular/core';
 import { CurrencyPipe, DatePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Title, Meta } from '@angular/platform-browser';
@@ -60,7 +60,9 @@ type Tab = 'description' | 'specs' | 'reviews';
           <!-- Buy panel -->
           <div class="flex flex-col">
             <div class="flex items-center gap-2">
-              <span class="text-xs font-medium uppercase tracking-wider text-slate-400">{{ p.brand }}</span>
+              <span class="text-xs font-medium uppercase tracking-wider text-slate-400">
+                Sold by: <a [routerLink]="['/sellers', p.sellerId]" class="hover:text-violet-600 hover:underline transition-colors duration-300">{{ p.sellerName || 'Seller' }}</a>
+              </span>
               @if (p.isNew) {
                 <span class="badge bg-violet-100 text-violet-700">New</span>
               }
@@ -309,7 +311,7 @@ type Tab = 'description' | 'specs' | 'reviews';
                         }
                       </div>
 
-                      @if (authService.isAuthenticated()) {
+                      @if (canReview()) {
                         <div class="mt-8 border-t border-slate-100 pt-6">
                           <h3 class="font-bold text-sm mb-3">Write a Review</h3>
                           <div class="flex items-center gap-1 mb-4">
@@ -320,8 +322,10 @@ type Tab = 'description' | 'specs' | 'reviews';
                           <textarea [(ngModel)]="newReviewComment" rows="3" class="w-full rounded-xl border-slate-200 text-sm focus:border-violet-500 focus:ring-violet-500 mb-3" placeholder="Share your thoughts..."></textarea>
                           <button type="button" (click)="submitReview()" [disabled]="isSubmittingReview()" class="btn-primary w-full disabled:opacity-50">Submit Review</button>
                         </div>
-                      } @else {
+                      } @else if (!authService.isAuthenticated()) {
                         <button type="button" routerLink="/login" class="btn-primary w-full mt-6">Log in to Review</button>
+                      } @else if (!hasReviewed()) {
+                        <p class="mt-6 text-sm text-slate-500">You can review this product after your order has been delivered.</p>
                       }
                     </div>
                   </div>
@@ -396,6 +400,20 @@ type Tab = 'description' | 'specs' | 'reviews';
           </div>
         </section>
       </div>
+    } @else if (isLoading()) {
+      <div class="max-w-2xl mx-auto px-4 py-16">
+        <div class="card overflow-hidden animate-pulse" aria-label="Loading product" role="status">
+          <div class="h-64 bg-slate-200"></div>
+          <div class="p-8 space-y-4">
+            <div class="h-3 w-24 rounded bg-slate-200"></div>
+            <div class="h-7 w-3/4 rounded bg-slate-200"></div>
+            <div class="h-4 w-full rounded bg-slate-200"></div>
+            <div class="h-4 w-5/6 rounded bg-slate-200"></div>
+            <div class="h-12 w-full rounded-xl bg-violet-100"></div>
+          </div>
+        </div>
+        <p class="mt-4 text-center text-sm text-slate-500">Preparing your product details...</p>
+      </div>
     } @else {
       <!-- Product not found -->
       <div class="max-w-2xl mx-auto px-4 py-16">
@@ -453,6 +471,7 @@ export class ProductDetailComponent implements OnDestroy {
   private readonly metaService = inject(Meta);
 
   readonly product = signal<Product | undefined>(undefined);
+  readonly isLoading = signal(true);
   readonly confirmDeleteReviewId = signal<string | number | null>(null);
   readonly activeIndex = signal(0);
   readonly selectedColor = signal('');
@@ -507,6 +526,8 @@ export class ProductDetailComponent implements OnDestroy {
 
   readonly reviews = signal<Review[]>([]);
   readonly isSubmittingReview = signal(false);
+  readonly canReview = signal(false);
+  readonly hasReviewed = signal(false);
   readonly newReviewRating = signal(5);
   readonly newReviewComment = signal('');
   
@@ -545,63 +566,76 @@ export class ProductDetailComponent implements OnDestroy {
     this.route.paramMap.pipe(takeUntilDestroyed()).subscribe(params => {
       const slug = params.get('slug') ?? '';
       if (slug) {
-        this.productService.getBySlug(slug).subscribe(product => {
+        const cachedProduct = this.productService.getCachedProduct(slug);
+        this.isLoading.set(!cachedProduct);
+        this.product.set(cachedProduct);
+        this.productService.getBySlug(slug).subscribe({ next: product => {
+          this.isLoading.set(false);
           this.product.set(product);
-          this.activeIndex.set(0);
-           this.quantity.set(1);
-           this.purchaseType.set('Purchase');
-           this.rentalStartDate.set('');
-           this.rentalEndDate.set('');
-          this.activeTab.set('description');
-           const firstVariant = product?.variants?.find(variant => variant.isActive);
-           this.selectedColor.set(firstVariant?.color ?? '');
-           this.selectedSize.set(firstVariant?.size ?? '');
-           this.selectedVariantId.set(firstVariant?.id);
-          window.scrollTo({ top: 0 });
-
-          if (product) {
-            this.titleService.setTitle(`${product.name} - Budgetha`);
-            this.metaService.updateTag({ name: 'description', content: product.shortDescription || product.description.substring(0, 160) });
-            this.metaService.updateTag({ property: 'og:title', content: product.name });
-            this.metaService.updateTag({ property: 'og:description', content: product.shortDescription || product.description.substring(0, 160) });
-            if (product.images?.length > 0) {
-              this.metaService.updateTag({ property: 'og:image', content: product.images[0] });
-            }
-
-            this.productService.getRelated(product).subscribe(related => {
-              this.relatedProducts.set(related);
-            });
-            this.reviewService.getReviews(product.id.toString()).subscribe(revs => {
-              this.reviews.set(revs);
-            });
-            
-            // Setup SignalR
-            if (this.hubConnection) {
-              this.hubConnection.stop();
-            }
-            this.hubConnection = new signalR.HubConnectionBuilder()
-              .withUrl(`${environment.hubUrl}/reviews`, {
-                accessTokenFactory: () => this.authService.getToken() || ''
-              })
-              .withAutomaticReconnect()
-              .build();
-              
-            this.hubConnection.on('ReviewsUpdated', () => {
-              this.reviewService.getReviews(product.id.toString()).subscribe(revs => {
-                this.reviews.set(revs);
-              });
-            });
-            
-            this.hubConnection.start().then(() => {
-              this.hubConnection?.invoke('JoinProductGroup', product.id.toString());
-            }).catch(err => console.error('Error connecting to SignalR', err));
-
-          } else {
-             this.relatedProducts.set([]);
-          }
-        });
+          this.prepareProduct(product);
+        }, error: () => {
+          this.isLoading.set(false);
+          this.relatedProducts.set([]);
+          this.reviews.set([]);
+        }});
       }
     });
+  }
+
+  private prepareProduct(product: Product): void {
+    this.activeIndex.set(0);
+    this.quantity.set(1);
+    this.purchaseType.set('Purchase');
+    this.rentalStartDate.set('');
+    this.rentalEndDate.set('');
+    this.activeTab.set('description');
+    const firstVariant = product.variants?.find(variant => variant.isActive && variant.stockQuantity > 0)
+      ?? product.variants?.find(variant => variant.isActive);
+    this.selectedColor.set(firstVariant?.color ?? '');
+    this.selectedSize.set(firstVariant?.size ?? '');
+    this.selectedVariantId.set(firstVariant?.id);
+    window.scrollTo({ top: 0 });
+
+    this.titleService.setTitle(`${product.name} - Budgetha`);
+    this.metaService.updateTag({ name: 'description', content: product.shortDescription || product.description.substring(0, 160) });
+    this.metaService.updateTag({ property: 'og:title', content: product.name });
+    this.metaService.updateTag({ property: 'og:description', content: product.shortDescription || product.description.substring(0, 160) });
+    if (product.images?.length > 0) {
+      this.metaService.updateTag({ property: 'og:image', content: product.images[0] });
+    }
+
+    this.productService.getRelated(product).subscribe(related => this.relatedProducts.set(related));
+    this.reviewService.getReviews(product.id.toString()).subscribe(revs => this.reviews.set(revs));
+    if (this.authService.isAuthenticated()) {
+      this.reviewService.getEligibility(product.id.toString()).subscribe(eligibility => {
+        this.canReview.set(eligibility.canReview);
+        this.hasReviewed.set(eligibility.hasReviewed);
+      });
+    } else {
+      this.canReview.set(false);
+      this.hasReviewed.set(false);
+    }
+            
+    // Setup SignalR after cached content is already visible.
+    if (this.hubConnection) {
+      this.hubConnection.stop();
+    }
+    this.hubConnection = new signalR.HubConnectionBuilder()
+      .withUrl(`${environment.hubUrl}/reviews`, {
+        accessTokenFactory: () => this.authService.getToken() || ''
+      })
+      .withAutomaticReconnect()
+      .build();
+
+    this.hubConnection.on('ReviewsUpdated', () => {
+      this.reviewService.getReviews(product.id.toString()).subscribe(revs => {
+        this.reviews.set(revs);
+      });
+    });
+
+    this.hubConnection.start().then(() => {
+      this.hubConnection?.invoke('JoinProductGroup', product.id.toString());
+    }).catch(err => console.error('Error connecting to SignalR', err));
   }
 
   ngOnDestroy(): void {
@@ -676,6 +710,8 @@ export class ProductDetailComponent implements OnDestroy {
       next: () => {
         this.newReviewComment.set('');
         this.newReviewRating.set(5);
+        this.canReview.set(false);
+        this.hasReviewed.set(true);
         this.isSubmittingReview.set(false);
         this.reviewService.getReviews(p.id.toString()).subscribe(revs => this.reviews.set(revs));
       },

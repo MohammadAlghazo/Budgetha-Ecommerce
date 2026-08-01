@@ -1,4 +1,5 @@
 using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -24,7 +25,7 @@ public class GetCategoriesQueryHandler : IRequestHandler<GetCategoriesQuery, Lis
                 Name = c.Name,
                 Slug = c.Slug,
                 Image = c.ImageUrl ?? "",
-                ProductCount = c.Products.Count(p => p.IsActive)
+                ProductCount = c.Products.Count(p => p.IsActive && p.ApprovalStatus == ApprovalStatus.Approved)
             })
             .AsNoTracking()
             .ToListAsync(cancellationToken);

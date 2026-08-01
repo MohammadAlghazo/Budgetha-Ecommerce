@@ -157,7 +157,7 @@ public class AuthController : ControllerBase
             if (!result.Succeeded)
                 return BadRequest(new AuthResponse(false, null, null, null, null, null, null, null, result.Errors));
 
-            return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, result.Email, result.FirstName, result.LastName, result.Roles, null));
+            return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, result.Email, result.FirstName, result.LastName, result.Roles, null, result.RefreshToken));
         }
         catch (InvalidJwtException)
         {

@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { DatePipe, CurrencyPipe, UpperCasePipe } from '@angular/common';
 import { environment } from '../../../environments/environment';
 import { ToastService } from '../../core/services/toast.service';
+import { AuthService } from '../../core/services/auth.service';
 
 @Component({
   selector: 'app-admin-orders',
@@ -77,16 +78,16 @@ import { ToastService } from '../../core/services/toast.service';
                     </td>
                     <td class="px-6 py-4">
                       <span class="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider rounded-full"
-                            [class.bg-amber-100]="order.status === 0"
-                            [class.text-amber-700]="order.status === 0"
-                            [class.bg-blue-100]="order.status === 1"
-                            [class.text-blue-700]="order.status === 1"
-                            [class.bg-indigo-100]="order.status === 2"
-                            [class.text-indigo-700]="order.status === 2"
-                            [class.bg-emerald-100]="order.status === 3"
-                            [class.text-emerald-700]="order.status === 3"
-                            [class.bg-rose-100]="order.status === 4 || order.status === 6"
-                            [class.text-rose-700]="order.status === 4 || order.status === 6">
+                             [class.bg-amber-100]="order.status === 'Pending'"
+                             [class.text-amber-700]="order.status === 'Pending'"
+                             [class.bg-blue-100]="order.status === 'Processing'"
+                             [class.text-blue-700]="order.status === 'Processing'"
+                             [class.bg-indigo-100]="order.status === 'Shipped'"
+                             [class.text-indigo-700]="order.status === 'Shipped'"
+                             [class.bg-emerald-100]="order.status === 'Delivered'"
+                             [class.text-emerald-700]="order.status === 'Delivered'"
+                             [class.bg-rose-100]="order.status === 'Cancelled' || order.status === 'Failed'"
+                             [class.text-rose-700]="order.status === 'Cancelled' || order.status === 'Failed'">
                         {{ getStatusText(order.status) }}
                       </span>
                     </td>
@@ -95,18 +96,25 @@ import { ToastService } from '../../core/services/toast.service';
                     </td>
                     <td class="px-6 py-4 text-center">
                       <div class="flex items-center justify-center gap-2">
-                      <select (change)="updateStatus(order.id, $event)" [value]="order.status" class="text-sm bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-500">
-                        <option [value]="0">Pending</option>
-                        <option [value]="1">Processing</option>
-                         <option [value]="2">Shipped</option>
-                         <option [value]="3">Delivered</option>
-                         <option [value]="4">Cancelled</option>
-                         <option [value]="5">Refunded</option>
-                       <option [value]="6">Failed</option>
-                       </select>
-                       @if (order.status !== 3 && order.status !== 4) {
-                         <button type="button" (click)="cancelOrder(order.id)" class="text-xs font-semibold text-rose-600 hover:text-rose-500">Cancel</button>
+                       @for (fulfillment of order.fulfillments ?? []; track fulfillment.id) {
+                          <div class="flex items-center gap-1 text-xs">
+                            <span class="text-slate-500">{{ fulfillment.sellerName }}: {{ fulfillment.status }}</span>
+                            @if (fulfillment.canShip) {
+                              <button type="button" (click)="shipOrder(order.id)" class="font-semibold text-indigo-600 hover:text-indigo-500">Ship</button>
+                              <button type="button" (click)="rejectOrder(order.id)" class="font-semibold text-rose-600 hover:text-rose-500">Reject</button>
                        }
+                       @for (report of order.deliveryReports ?? []; track report.id) {
+                         <div class="mt-2 rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-800 text-start">
+                           <p class="font-semibold">Delivery report: {{ report.status }}</p>
+                           <p>{{ report.reason }}</p>
+                           @if (report.status === 'Open' && isAdmin()) {
+                             <button type="button" (click)="resolveReport(report.id, false)" class="mt-1 font-semibold text-teal-700">Resolve</button>
+                             <button type="button" (click)="resolveReport(report.id, true)" class="mt-1 ms-2 font-semibold text-slate-600">Dismiss</button>
+                           }
+                         </div>
+                       }
+                          </div>
+                        }
                        </div>
                     </td>
                   </tr>
@@ -123,16 +131,16 @@ import { ToastService } from '../../core/services/toast.service';
               <div class="flex items-center justify-between mb-2">
                 <span class="font-mono font-medium text-indigo-600">#{{ order.id.substring(0, 8) | uppercase }}</span>
                 <span class="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider rounded-full"
-                      [class.bg-amber-100]="order.status === 0"
-                      [class.text-amber-700]="order.status === 0"
-                       [class.bg-blue-100]="order.status === 1"
-                       [class.text-blue-700]="order.status === 1"
-                       [class.bg-indigo-100]="order.status === 2"
-                       [class.text-indigo-700]="order.status === 2"
-                       [class.bg-emerald-100]="order.status === 3"
-                       [class.text-emerald-700]="order.status === 3"
-                       [class.bg-rose-100]="order.status === 4 || order.status === 6"
-                       [class.text-rose-700]="order.status === 4 || order.status === 6">
+                       [class.bg-amber-100]="order.status === 'Pending'"
+                       [class.text-amber-700]="order.status === 'Pending'"
+                        [class.bg-blue-100]="order.status === 'Processing'"
+                        [class.text-blue-700]="order.status === 'Processing'"
+                        [class.bg-indigo-100]="order.status === 'Shipped'"
+                        [class.text-indigo-700]="order.status === 'Shipped'"
+                        [class.bg-emerald-100]="order.status === 'Delivered'"
+                        [class.text-emerald-700]="order.status === 'Delivered'"
+                        [class.bg-rose-100]="order.status === 'Cancelled' || order.status === 'Failed'"
+                        [class.text-rose-700]="order.status === 'Cancelled' || order.status === 'Failed'">
                   {{ getStatusText(order.status) }}
                 </span>
               </div>
@@ -142,20 +150,16 @@ import { ToastService } from '../../core/services/toast.service';
               </div>
               <div class="flex items-center justify-between pt-3 border-t border-slate-100">
                 <span class="font-bold text-slate-900">{{ order.totalAmount | currency }}</span>
-                 <div class="flex items-center gap-2">
-                 <select (change)="updateStatus(order.id, $event)" [value]="order.status" class="text-sm bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-500">
-                  <option [value]="0">Pending</option>
-                  <option [value]="1">Processing</option>
-                   <option [value]="2">Shipped</option>
-                   <option [value]="3">Delivered</option>
-                   <option [value]="4">Cancelled</option>
-                   <option [value]="5">Refunded</option>
-                   <option [value]="6">Failed</option>
-                 </select>
-                 @if (order.status !== 3 && order.status !== 4) {
-                   <button type="button" (click)="cancelOrder(order.id)" class="text-xs font-semibold text-rose-600">Cancel</button>
-                 }
-                 </div>
+                  <div class="flex flex-col items-end gap-1">
+                    @for (fulfillment of order.fulfillments ?? []; track fulfillment.id) {
+                      @if (fulfillment.canShip) {
+                        <div class="flex items-center gap-2 text-xs">
+                          <button type="button" (click)="shipOrder(order.id)" class="font-semibold text-indigo-600">Ship</button>
+                          <button type="button" (click)="rejectOrder(order.id)" class="font-semibold text-rose-600">Reject</button>
+                        </div>
+                      }
+                    }
+                  </div>
               </div>
             </div>
           }
@@ -192,22 +196,21 @@ import { ToastService } from '../../core/services/toast.service';
 export class AdminOrdersComponent implements OnInit {
   private http = inject(HttpClient);
   private toast = inject(ToastService);
+  private auth = inject(AuthService);
 
   orders = signal<any[]>([]);
   isLoading = signal(true);
   
-  statuses = ['All', 'Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Refunded', 'Failed'];
+  statuses = ['All', 'Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Refunded', 'Failed', 'PartiallyFulfilled'];
   filterStatus = signal('All');
   currentPage = signal(1);
   pageSize = signal(10);
+  isAdmin = computed(() => this.auth.user()?.roles?.some((role: string) => role === 'Admin' || role === 'SuperAdmin') ?? false);
 
   filteredOrders = computed(() => {
     const statusStr = this.filterStatus();
     if (statusStr === 'All') return this.orders();
-    const statusMap: Record<string, number> = {
-      'Pending': 0, 'Processing': 1, 'Shipped': 2, 'Delivered': 3, 'Cancelled': 4, 'Refunded': 5, 'Failed': 6
-    };
-    return this.orders().filter(o => o.status === statusMap[statusStr]);
+    return this.orders().filter(o => o.status === statusStr);
   });
 
   totalPages = computed(() => Math.max(1, Math.ceil(this.filteredOrders().length / this.pageSize())));
@@ -246,34 +249,35 @@ export class AdminOrdersComponent implements OnInit {
     });
   }
 
-  getStatusText(status: number): string {
-    const map = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Refunded', 'Failed'];
-    return map[status] || 'Unknown';
+  getStatusText(status: string): string {
+    return status || 'Unknown';
   }
 
-  updateStatus(orderId: string, event: Event) {
-    const select = event.target as HTMLSelectElement;
-    const newStatus = parseInt(select.value, 10);
-    
-    this.http.put(`${environment.apiUrl}/orders/${orderId}/status`, { status: newStatus }).subscribe({
-      next: () => {
-        this.toast.success('Order status updated.');
-        this.orders.update(orders => orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
-      },
-      error: () => {
-        this.toast.error('Failed to update order status.');
-        this.loadOrders(); // reload to revert select
-      }
+  shipOrder(orderId: string): void {
+    const carrier = prompt('Carrier (optional):') ?? '';
+    const trackingNumber = prompt('Tracking number (optional):') ?? '';
+    this.http.post(`${environment.apiUrl}/orders/${orderId}/ship`, { carrier, trackingNumber }).subscribe({
+      next: () => { this.toast.success('Shipment marked as shipped.'); this.loadOrders(); },
+      error: () => this.toast.error('The shipment could not be updated.')
     });
   }
 
-  cancelOrder(orderId: string): void {
-    this.http.post(`${environment.apiUrl}/orders/${orderId}/cancel`, {}).subscribe({
-      next: () => {
-        this.toast.success('Order cancelled.');
-        this.loadOrders();
-      },
-      error: () => this.toast.error('Order could not be cancelled.')
+  rejectOrder(orderId: string): void {
+    const reason = prompt('Why is this order being rejected?')?.trim();
+    if (!reason) return;
+    this.http.post(`${environment.apiUrl}/orders/${orderId}/reject`, { reason }).subscribe({
+      next: () => { this.toast.success('Order fulfillment rejected.'); this.loadOrders(); },
+      error: () => this.toast.error('The order could not be rejected.')
     });
   }
+
+  resolveReport(reportId: string, dismiss: boolean): void {
+    const note = prompt(dismiss ? 'Why is this report being dismissed?' : 'How was this report resolved?')?.trim();
+    if (!note) return;
+    this.http.post(`${environment.apiUrl}/orders/delivery-reports/${reportId}/resolve`, { dismiss, note }).subscribe({
+      next: () => { this.toast.success('Delivery report updated.'); this.loadOrders(); },
+      error: () => this.toast.error('The delivery report could not be updated.')
+    });
+  }
+
 }

@@ -11,7 +11,7 @@ namespace Budgetha.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin,SuperAdmin,Seller")]
+[Authorize]
 public class ImagesController : ControllerBase
 {
     private readonly IImageService _imageService;
@@ -35,7 +35,7 @@ public class ImagesController : ControllerBase
         if (file.Length > 5 * 1024 * 1024)
             return BadRequest("File size exceeds 5MB limit.");
             
-        var allowedMimeTypes = new[] { "image/jpeg", "image/png", "image/webp", "application/pdf" };
+        var allowedMimeTypes = new[] { "image/jpeg", "image/png", "image/webp" };
         if (!allowedMimeTypes.Contains(file.ContentType.ToLowerInvariant()))
             return BadRequest("Invalid file type.");
 

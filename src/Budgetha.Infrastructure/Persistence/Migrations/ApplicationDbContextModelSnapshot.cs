@@ -268,7 +268,12 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("VariantId");
 
-                    b.ToTable("CartItems");
+                    b.ToTable("CartItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_CartItems_Quantity_Positive", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_CartItems_RentalDates", "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+                        });
                 });
 
             modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
@@ -318,6 +323,68 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Categories");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.DeliveryReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AdminNote")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("BuyerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("FulfillmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ResolvedById")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<bool>("WasReceived")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BuyerId");
+
+                    b.HasIndex("FulfillmentId");
+
+                    b.HasIndex("OrderId", "BuyerId", "Status");
+
+                    b.ToTable("DeliveryReports");
                 });
 
             modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
@@ -517,6 +584,68 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.ToTable("Orders");
                 });
 
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderFulfillment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Carrier")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("RejectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset?>("ShippedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset?>("StockReleasedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TrackingNumber")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId", "SellerId")
+                        .IsUnique();
+
+                    b.HasIndex("SellerId", "Status");
+
+                    b.ToTable("OrderFulfillments");
+                });
+
             modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -529,6 +658,9 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.Property<decimal>("DiscountAmount")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("FulfillmentId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("OrderId")
                         .HasColumnType("uuid");
@@ -544,6 +676,11 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
                     b.Property<DateOnly?>("RentalStartDate")
                         .HasColumnType("date");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
 
                     b.Property<string>("Size")
                         .HasColumnType("text");
@@ -562,13 +699,24 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("FulfillmentId");
+
                     b.HasIndex("OrderId");
 
                     b.HasIndex("ProductId");
 
+                    b.HasIndex("SellerId");
+
                     b.HasIndex("VariantId");
 
-                    b.ToTable("OrderItems");
+                    b.ToTable("OrderItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_OrderItems_Prices_NonNegative", "\"UnitPrice\" >= 0 AND \"DiscountAmount\" >= 0");
+
+                            t.HasCheckConstraint("CK_OrderItems_Quantity_Positive", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_OrderItems_RentalDates", "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+                        });
                 });
 
             modelBuilder.Entity("Budgetha.Domain.Entities.OutboxDelivery", b =>
@@ -708,7 +856,10 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.HasIndex("OrderId")
                         .IsUnique();
 
-                    b.ToTable("Payments");
+                    b.ToTable("Payments", t =>
+                        {
+                            t.HasCheckConstraint("CK_Payments_Amount_Positive", "\"Amount\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("Budgetha.Domain.Entities.PendingImageDeletion", b =>
@@ -1541,6 +1692,32 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.Navigation("Parent");
                 });
 
+            modelBuilder.Entity("Budgetha.Domain.Entities.DeliveryReport", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Buyer")
+                        .WithMany("DeliveryReports")
+                        .HasForeignKey("BuyerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.OrderFulfillment", "Fulfillment")
+                        .WithMany("DeliveryReports")
+                        .HasForeignKey("FulfillmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("DeliveryReports")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Buyer");
+
+                    b.Navigation("Fulfillment");
+
+                    b.Navigation("Order");
+                });
+
             modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
                 {
                     b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
@@ -1570,8 +1747,32 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderFulfillment", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("Fulfillments")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany("Fulfillments")
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+
+                    b.Navigation("Seller");
+                });
+
             modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
                 {
+                    b.HasOne("Budgetha.Domain.Entities.OrderFulfillment", "Fulfillment")
+                        .WithMany("Items")
+                        .HasForeignKey("FulfillmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Budgetha.Domain.Entities.Order", "Order")
                         .WithMany("Items")
                         .HasForeignKey("OrderId")
@@ -1584,14 +1785,24 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany()
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Budgetha.Domain.Entities.ProductVariant", "Variant")
                         .WithMany("OrderItems")
                         .HasForeignKey("VariantId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.Navigation("Fulfillment");
+
                     b.Navigation("Order");
 
                     b.Navigation("Product");
+
+                    b.Navigation("Seller");
 
                     b.Navigation("Variant");
                 });
@@ -1830,6 +2041,10 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
                     b.Navigation("Cart");
 
+                    b.Navigation("DeliveryReports");
+
+                    b.Navigation("Fulfillments");
+
                     b.Navigation("Orders");
 
                     b.Navigation("Products");
@@ -1857,9 +2072,20 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
                 {
+                    b.Navigation("DeliveryReports");
+
+                    b.Navigation("Fulfillments");
+
                     b.Navigation("Items");
 
                     b.Navigation("Payment");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderFulfillment", b =>
+                {
+                    b.Navigation("DeliveryReports");
+
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>

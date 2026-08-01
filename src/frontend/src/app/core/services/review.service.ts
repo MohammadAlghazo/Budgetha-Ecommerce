@@ -25,6 +25,10 @@ export class ReviewService {
     return this.http.get<Review[]>(`${this.apiUrl}/${productId}`);
   }
 
+  getEligibility(productId: string): Observable<{ canReview: boolean; hasReviewed: boolean }> {
+    return this.http.get<{ canReview: boolean; hasReviewed: boolean }>(`${this.apiUrl}/${productId}/eligibility`);
+  }
+
   addReview(dto: AddReviewDto): Observable<string> {
     return this.http.post<string>(this.apiUrl, dto);
   }

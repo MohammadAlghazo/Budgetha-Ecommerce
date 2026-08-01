@@ -45,15 +45,33 @@ public class SubmitSellerRequestCommandHandler : IRequestHandler<SubmitSellerReq
         };
         _context.SellerRequests.Add(sellerRequest);
 
-        var verification = new SellerVerification
+        var verification = await _context.SellerVerifications
+            .SingleOrDefaultAsync(candidate => candidate.UserId == userId, cancellationToken);
+        if (verification?.Status == Budgetha.Domain.Enums.VerificationStatus.Approved)
+            throw new InvalidOperationException("This account is already an approved seller.");
+
+        if (verification is null)
         {
-            UserId = userId,
-            BusinessName = string.IsNullOrWhiteSpace(request.BusinessName) ? "Unknown" : request.BusinessName,
-            BusinessDescription = request.BusinessDescription,
-            DocumentUrl = request.DocumentUrl,
-            Status = Budgetha.Domain.Enums.VerificationStatus.Pending
-        };
-        _context.SellerVerifications.Add(verification);
+            verification = new SellerVerification { UserId = userId };
+            _context.SellerVerifications.Add(verification);
+        }
+
+        var documentUrl = string.IsNullOrWhiteSpace(request.DocumentUrl) ? null : request.DocumentUrl.Trim();
+        if (documentUrl is not null && !string.Equals(documentUrl, verification.DocumentUrl, StringComparison.Ordinal))
+        {
+            var pendingDocument = await _context.PendingImageUploads.SingleOrDefaultAsync(upload =>
+                upload.UserId == userId && upload.Url == documentUrl, cancellationToken);
+            if (pendingDocument is null)
+                throw new UnauthorizedAccessException("The verification document was not uploaded by the current user.");
+            _context.PendingImageUploads.Remove(pendingDocument);
+        }
+
+        verification.BusinessName = string.IsNullOrWhiteSpace(request.BusinessName) ? "Unknown" : request.BusinessName.Trim();
+        verification.BusinessDescription = request.BusinessDescription?.Trim() ?? string.Empty;
+        verification.DocumentUrl = documentUrl;
+        verification.Status = Budgetha.Domain.Enums.VerificationStatus.Pending;
+        verification.ReviewedBy = null;
+        verification.RejectionReason = null;
 
         await _context.SaveChangesAsync(cancellationToken);
 

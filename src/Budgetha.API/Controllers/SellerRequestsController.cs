@@ -33,6 +33,20 @@ public class SellerRequestsController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("mine")]
+    [Authorize]
+    public async Task<IActionResult> GetMyRequest([FromServices] Budgetha.Application.Common.Interfaces.IApplicationDbContext context)
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
+
+        var request = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(
+            context.SellerRequests
+                .Where(candidate => candidate.UserId == userId)
+                .OrderByDescending(candidate => candidate.Created));
+        return Ok(request is null ? null : new { request.Id, request.Status, request.Created });
+    }
+
     [HttpPost("{id:guid}/approve")]
     [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> ApproveRequest(Guid id)

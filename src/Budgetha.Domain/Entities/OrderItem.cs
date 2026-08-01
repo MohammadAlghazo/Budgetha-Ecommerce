@@ -8,6 +8,12 @@ public class OrderItem : BaseEntity
     public Guid OrderId { get; set; }
     public Order Order { get; set; } = null!;
 
+    public Guid? FulfillmentId { get; set; }
+    public OrderFulfillment? Fulfillment { get; set; }
+
+    public string SellerId { get; set; } = string.Empty;
+    public ApplicationUser Seller { get; set; } = null!;
+
     public Guid ProductId { get; set; }
     public Product Product { get; set; } = null!;
 

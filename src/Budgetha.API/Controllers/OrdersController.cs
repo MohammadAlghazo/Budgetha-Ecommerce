@@ -102,12 +102,41 @@ public class OrdersController : ControllerBase
         return Ok(result);
     }
 
-    [HttpPut("{id:guid}/status")]
-    [Authorize(Roles = "Seller,Admin,SuperAdmin")]
-    public async Task<ActionResult> UpdateStatus(Guid id, [FromBody] UpdateOrderStatusRequest request)
+    [HttpPost("{id:guid}/ship")]
+    [Authorize(Roles = "Seller")]
+    public async Task<ActionResult> Ship(Guid id, [FromBody] ShipOrderRequest request)
     {
-        var success = await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.UpdateOrderStatusCommand(id, request.Status));
-        if (!success) return BadRequest("Failed to update status.");
+        await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.ShipOrderCommand(id, request.Carrier, request.TrackingNumber));
+        return Ok();
+    }
+
+    [HttpPost("{id:guid}/reject")]
+    [Authorize(Roles = "Seller")]
+    public async Task<ActionResult> Reject(Guid id, [FromBody] ReasonRequest request)
+    {
+        await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.RejectOrderCommand(id, request.Reason));
+        return Ok();
+    }
+
+    [HttpPost("{id:guid}/confirm-received")]
+    public async Task<ActionResult> ConfirmReceived(Guid id)
+    {
+        await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.ConfirmOrderReceivedCommand(id));
+        return Ok();
+    }
+
+    [HttpPost("{id:guid}/report-not-received")]
+    public async Task<ActionResult> ReportNotReceived(Guid id, [FromBody] ReasonRequest request)
+    {
+        await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.ReportOrderNotReceivedCommand(id, request.Reason));
+        return Ok();
+    }
+
+    [HttpPost("delivery-reports/{reportId:guid}/resolve")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    public async Task<ActionResult> ResolveDeliveryReport(Guid reportId, [FromBody] ResolveDeliveryReportRequest request)
+    {
+        await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.ResolveDeliveryReportCommand(reportId, request.Dismiss, request.Note));
         return Ok();
     }
 
@@ -120,12 +149,24 @@ public class OrdersController : ControllerBase
     }
 }
 
-public class UpdateOrderStatusRequest
-{
-    public Budgetha.Domain.Enums.OrderStatus Status { get; set; }
-}
-
 public class CapturePayPalOrderRequest
 {
     public string PayPalOrderId { get; set; } = string.Empty;
+}
+
+public class ShipOrderRequest
+{
+    public string? Carrier { get; set; }
+    public string? TrackingNumber { get; set; }
+}
+
+public class ReasonRequest
+{
+    public string Reason { get; set; } = string.Empty;
+}
+
+public class ResolveDeliveryReportRequest
+{
+    public bool Dismiss { get; set; }
+    public string Note { get; set; } = string.Empty;
 }

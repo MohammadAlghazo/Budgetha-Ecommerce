@@ -2,6 +2,9 @@ import { Component, inject, computed, signal, effect, OnDestroy } from '@angular
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { NgTemplateOutlet } from '@angular/common';
 import { AuthService } from '../../core/services/auth.service';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { Notification, NotificationService } from '../../core/services/notification.service';
+import { Router } from '@angular/router';
 
 @Component({
   selector: 'app-admin-layout',
@@ -124,6 +127,15 @@ import { AuthService } from '../../core/services/auth.service';
             <span class="text-sm font-medium">Transaction Logs</span>
           </a>
 
+          <a routerLink="/admin/orders" (click)="mobileMenuOpen.set(false)"
+             routerLinkActive="bg-teal-700/60 text-white border-teal-600/40"
+             class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-teal-200 hover:bg-white/10 hover:text-white border border-transparent group">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-white/5">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5h6M7 9h10m-8 4h6m-9 6h10a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+            </div>
+            <span class="text-sm font-medium">Orders</span>
+          </a>
+
           @if (isAdminOrSuperAdmin()) {
             <a routerLink="/admin/categories" (click)="mobileMenuOpen.set(false)"
                routerLinkActive="bg-teal-700/60 text-white border-teal-600/40"
@@ -172,6 +184,29 @@ import { AuthService } from '../../core/services/auth.service';
             <h1 class="text-lg font-bold text-slate-800">{{ authService.user()?.roles?.includes('Seller') && !authService.user()?.roles?.includes('Admin') && !authService.user()?.roles?.includes('SuperAdmin') ? 'Seller Dashboard' : 'Budgetha Admin' }}</h1>
           </div>
           <div class="flex items-center gap-3">
+            <div class="relative">
+              <button type="button" (click)="toggleNotifications()" class="relative p-2 rounded-lg hover:bg-slate-100 text-slate-600" aria-label="Notifications">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" /></svg>
+                @if (unreadCount() > 0) {
+                  <span class="absolute -top-1 -end-1 min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">{{ unreadCount() }}</span>
+                }
+              </button>
+              @if (notificationsOpen()) {
+                <div class="absolute end-0 mt-2 w-80 max-w-[85vw] bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden">
+                  <div class="px-4 py-3 border-b border-slate-100 font-bold text-sm text-slate-800">Notifications</div>
+                  <div class="max-h-80 overflow-y-auto">
+                    @for (notification of notifications(); track notification.id) {
+                      <button type="button" (click)="openNotification(notification)" class="w-full text-start px-4 py-3 border-b border-slate-100 hover:bg-slate-50" [class.bg-teal-50]="!notification.isRead">
+                        <p class="text-sm font-semibold text-slate-800">{{ notification.title }}</p>
+                        <p class="text-xs text-slate-500 mt-1">{{ notification.message }}</p>
+                      </button>
+                    } @empty {
+                      <p class="px-4 py-8 text-center text-sm text-slate-400">No notifications yet.</p>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
             <span class="text-sm font-medium text-slate-600 hidden sm:block">
               {{ authService.user()?.firstName }} {{ authService.user()?.lastName }}
             </span>
@@ -189,6 +224,11 @@ import { AuthService } from '../../core/services/auth.service';
 export class AdminLayoutComponent implements OnDestroy {
   readonly authService = inject(AuthService);
   readonly mobileMenuOpen = signal(false);
+  readonly notificationsOpen = signal(false);
+  private readonly notificationService = inject(NotificationService);
+  private readonly router = inject(Router);
+  readonly notifications = toSignal(this.notificationService.notifications$, { initialValue: [] });
+  readonly unreadCount = toSignal(this.notificationService.unreadCount$, { initialValue: 0 });
 
   readonly isSuperAdmin = computed(() =>
     this.authService.user()?.roles?.includes('SuperAdmin') ?? false
@@ -210,5 +250,17 @@ export class AdminLayoutComponent implements OnDestroy {
 
   ngOnDestroy() {
     document.body.classList.remove('overflow-hidden');
+  }
+
+  openNotification(notification: Notification): void {
+    this.notificationService.markAsRead(notification.id);
+    this.notificationsOpen.set(false);
+    if (notification.relatedEntityId && notification.type === 'Order') {
+      void this.router.navigate(['/admin/orders'], { queryParams: { orderId: notification.relatedEntityId } });
+    }
+  }
+
+  toggleNotifications(): void {
+    this.notificationsOpen.update(isOpen => !isOpen);
   }
 }

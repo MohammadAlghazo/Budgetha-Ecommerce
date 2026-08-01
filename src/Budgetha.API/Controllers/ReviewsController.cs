@@ -29,6 +29,12 @@ public class ReviewsController : ControllerBase
         return await _mediator.Send(new GetProductReviewsQuery(productId));
     }
 
+    [HttpGet("{productId:guid}/eligibility")]
+    public async Task<ActionResult<ReviewEligibilityDto>> GetEligibility(Guid productId)
+    {
+        return await _mediator.Send(new GetReviewEligibilityQuery(productId));
+    }
+
     [HttpPost]
     public async Task<ActionResult<Guid>> AddReview(AddReviewCommand command)
     {

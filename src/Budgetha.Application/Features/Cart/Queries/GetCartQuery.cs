@@ -26,24 +26,25 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, CartDto>
         var cart = await _context.Carts
             .Include(c => c.Items)
             .ThenInclude(i => i.Product)
+            .ThenInclude(p => p.Images)
+            .Include(c => c.Items)
+            .ThenInclude(i => i.Product)
+            .ThenInclude(p => p.Category)
             .Include(c => c.Items)
             .ThenInclude(i => i.Variant)
             .FirstOrDefaultAsync(c => c.UserId == userId, cancellationToken);
 
         if (cart == null)
-        {
-            // Create cart for user if not exists
-            cart = new Domain.Entities.Cart { UserId = userId };
-            _context.Carts.Add(cart);
-            await _context.SaveChangesAsync(cancellationToken);
-        }
+            return new CartDto(Guid.Empty, []);
 
         var items = cart.Items.Select(i => new CartItemDto(
             i.Id,
             i.ProductId,
             i.VariantId,
             i.Product.Name,
-            i.Product.Images.FirstOrDefault() != null ? i.Product.Images.FirstOrDefault()!.Url : null,
+            i.Product.Slug,
+            i.Product.Brand,
+            i.Product.ThumbnailUrl ?? i.Product.Images.OrderBy(image => image.DisplayOrder).Select(image => image.Url).FirstOrDefault(),
             i.Product.Category != null ? i.Product.Category.Name : string.Empty,
             GetItemPrice(i),
             i.Quantity,

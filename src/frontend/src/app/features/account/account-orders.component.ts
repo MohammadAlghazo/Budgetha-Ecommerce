@@ -58,7 +58,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                   <td class="px-6 py-4">
                     <span class="badge" [class]="statusClasses(order.status)">
                       <span class="h-1.5 w-1.5 rounded-full" [class]="dotClasses(order.status)"></span>
-                      {{ order.status }}
+                       {{ order.status }}
                     </span>
                   </td>
                   <td class="px-6 py-4 text-end">
@@ -128,10 +128,35 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                 <span class="text-sm font-bold text-slate-900">{{ item.price * item.quantity | currency }}</span>
               </div>
             }
-            <div class="pt-3 border-t border-slate-200 grid sm:grid-cols-2 gap-3 text-xs text-slate-500">
-              <p><span class="font-semibold text-slate-700">Ships to:</span> {{ order.shippingAddress }}</p>
-              <p><span class="font-semibold text-slate-700">Payment:</span> {{ order.paymentSummary }}</p>
-            </div>
+             <div class="pt-3 border-t border-slate-200 grid sm:grid-cols-2 gap-3 text-xs text-slate-500">
+               <p><span class="font-semibold text-slate-700">Ships to:</span> {{ order.shippingAddress }}</p>
+               <p><span class="font-semibold text-slate-700">Payment:</span> {{ order.paymentSummary }}</p>
+             </div>
+             @if (order.fulfillments?.length) {
+               <div class="pt-3 border-t border-slate-200 space-y-2">
+                 <p class="text-xs font-bold uppercase tracking-wide text-slate-400">Delivery tracking</p>
+                 @for (fulfillment of order.fulfillments; track fulfillment.id) {
+                   <div class="rounded-xl bg-white border border-slate-200 px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2">
+                     <span class="font-semibold text-slate-700">{{ fulfillment.sellerName }}</span>
+                     <span class="text-slate-500">{{ fulfillment.status }}{{ fulfillment.trackingNumber ? ' · ' + fulfillment.trackingNumber : '' }}</span>
+                     @if (fulfillment.rejectionReason) {
+                       <span class="basis-full text-rose-600">Reason: {{ fulfillment.rejectionReason }}</span>
+                     }
+                   </div>
+                 }
+               </div>
+             }
+             @if (order.canConfirmReceipt) {
+               <button type="button" class="btn-primary text-sm" (click)="confirmReceived(order.id)">I received my order</button>
+             }
+             @if (order.canReportNotReceived) {
+               <button type="button" class="text-sm font-semibold text-rose-600 hover:text-rose-500" (click)="reportNotReceived(order.id)">I did not receive it</button>
+             }
+             @for (report of order.deliveryReports ?? []; track report.id) {
+               @if (report.status === 'Open') {
+                 <p class="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">Your delivery report is being reviewed by Budgetha support.</p>
+               }
+             }
           </div>
         </ng-template>
       }
@@ -152,6 +177,17 @@ export class AccountOrdersComponent {
     this.expandedId.update(current => (current === id ? null : id));
   }
 
+  confirmReceived(orderId: string): void {
+    if (!confirm('Confirm that you received this order?')) return;
+    this.orderService.confirmReceived(orderId).subscribe();
+  }
+
+  reportNotReceived(orderId: string): void {
+    const reason = prompt('Please explain what went wrong with delivery:')?.trim();
+    if (!reason) return;
+    this.orderService.reportNotReceived(orderId, reason).subscribe();
+  }
+
   statusClasses(status: OrderStatus): string {
     switch (status) {
       case 'Delivered':
@@ -168,6 +204,10 @@ export class AccountOrdersComponent {
         return 'bg-violet-50 text-violet-700 ring-1 ring-violet-100';
       case 'Failed':
         return 'bg-rose-50 text-rose-600 ring-1 ring-rose-100';
+      case 'PartiallyFulfilled':
+        return 'bg-orange-50 text-orange-700 ring-1 ring-orange-100';
+      default:
+        return 'bg-slate-100 text-slate-600 ring-1 ring-slate-200';
     }
   }
 
@@ -187,6 +227,10 @@ export class AccountOrdersComponent {
         return 'bg-violet-500';
       case 'Failed':
         return 'bg-rose-500';
+      case 'PartiallyFulfilled':
+        return 'bg-orange-500';
+      default:
+        return 'bg-slate-500';
     }
   }
 }

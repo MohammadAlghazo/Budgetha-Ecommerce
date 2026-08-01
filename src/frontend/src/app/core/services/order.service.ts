@@ -51,10 +51,16 @@ interface CustomerOrderResponse {
     rentalEndDate?: string;
     color?: string;
     size?: string;
+    fulfillmentId?: string;
+    sellerName?: string;
   }>;
   shippingAddress?: { fullName: string; phone: string; line1: string; line2?: string; city: string; state: string; postalCode: string; country: string };
   paymentProvider?: string;
   paymentStatus?: string;
+  canConfirmReceipt: boolean;
+  canReportNotReceived: boolean;
+  fulfillments: NonNullable<Order['fulfillments']>;
+  deliveryReports: NonNullable<Order['deliveryReports']>;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -140,6 +146,30 @@ export class OrderService {
     return this.http.post<void>(`${this.apiUrl}/${orderId}/cancel`, {});
   }
 
+  shipOrder(orderId: string, carrier?: string, trackingNumber?: string): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/${orderId}/ship`, { carrier: carrier || null, trackingNumber: trackingNumber || null });
+  }
+
+  rejectOrder(orderId: string, reason: string): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/${orderId}/reject`, { reason });
+  }
+
+  confirmReceived(orderId: string): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/${orderId}/confirm-received`, {}).pipe(tap(() => this.refresh().subscribe()));
+  }
+
+  reportNotReceived(orderId: string, reason: string): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/${orderId}/report-not-received`, { reason }).pipe(tap(() => this.refresh().subscribe()));
+  }
+
+  resolveDeliveryReport(reportId: string, dismiss: boolean, note: string): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/delivery-reports/${reportId}/resolve`, { dismiss, note });
+  }
+
+  formatOrderNumber(orderId: string, date = new Date()): string {
+    return `BGT-${date.getFullYear()}-${orderId.substring(0, 4).toUpperCase()}`;
+  }
+
   private toOrder(response: CustomerOrderResponse): Order {
     const address = response.shippingAddress;
     return {
@@ -158,6 +188,8 @@ export class OrderService {
         rentalEndDate: item.rentalEndDate,
         color: item.color,
         size: item.size,
+        fulfillmentId: item.fulfillmentId,
+        sellerName: item.sellerName,
       })),
       subtotal: response.subtotal,
       shipping: response.shippingAmount,
@@ -166,6 +198,12 @@ export class OrderService {
       total: response.totalAmount,
       shippingAddress: address ? [address.line1, address.line2, `${address.city}, ${address.state} ${address.postalCode}`, address.country].filter(Boolean).join(', ') : 'Not provided',
       paymentSummary: response.paymentProvider ?? 'Not provided',
+      paymentStatus: response.paymentStatus,
+      currency: response.currency,
+      canConfirmReceipt: response.canConfirmReceipt,
+      canReportNotReceived: response.canReportNotReceived,
+      fulfillments: response.fulfillments ?? [],
+      deliveryReports: response.deliveryReports ?? [],
     };
   }
 }

@@ -148,6 +148,12 @@ public class IdentityService : IIdentityService
         return await _userManager.IsInRoleAsync(user, role);
     }
 
+    public async Task<IList<string>> GetUserIdsInRoleAsync(string role)
+    {
+        var users = await _userManager.GetUsersInRoleAsync(role);
+        return users.Select(user => user.Id).ToList();
+    }
+
     public async Task<AuthResult> GoogleLoginAsync(string email, string firstName, string lastName)
     {
         var user = await _userManager.FindByEmailAsync(email);
@@ -207,7 +213,19 @@ public class IdentityService : IIdentityService
 
     public async Task<AuthResult> RefreshTokenAsync(string token, string refreshToken)
     {
-        var principal = _tokenService.GetPrincipalFromExpiredToken(token);
+        System.Security.Claims.ClaimsPrincipal? principal;
+        try
+        {
+            principal = _tokenService.GetPrincipalFromExpiredToken(token);
+        }
+        catch (Microsoft.IdentityModel.Tokens.SecurityTokenException)
+        {
+            return AuthResult.Failure("Invalid token.");
+        }
+        catch (ArgumentException)
+        {
+            return AuthResult.Failure("Invalid token.");
+        }
         if (principal == null)
             return AuthResult.Failure("Invalid token.");
 
@@ -216,7 +234,10 @@ public class IdentityService : IIdentityService
             return AuthResult.Failure("Invalid token.");
 
         var user = await _userManager.FindByEmailAsync(email);
-        if (user == null || user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
+        var securityStamp = principal.FindFirst("security_stamp")?.Value;
+        if (user == null || user.LockoutEnd > DateTimeOffset.UtcNow ||
+            !string.Equals(user.SecurityStamp ?? string.Empty, securityStamp ?? string.Empty, StringComparison.Ordinal) ||
+            user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
             return AuthResult.Failure("Invalid refresh token.");
 
         var (newToken, newExpiration) = await _tokenService.GenerateTokenAsync(user);

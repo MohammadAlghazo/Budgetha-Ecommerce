@@ -27,8 +27,8 @@ public class ProductDto
     public decimal? RentalPricePerDay { get; set; }
     public List<ProductVariantDto> Variants { get; set; } = new();
     public string ApprovalStatus { get; set; } = string.Empty;
+    public string SellerId { get; set; } = string.Empty;
     public string SellerName { get; set; } = string.Empty;
-    public string SellerEmail { get; set; } = string.Empty;
 }
 
 public class ProductImageDto

@@ -2,7 +2,7 @@ import { Routes, Router } from '@angular/router';
 import { inject } from '@angular/core';
 import { authGuard } from './core/guards/auth.guard';
 import { adminGuard } from './core/guards/admin.guard';
-import { sellerGuard } from './core/guards/seller.guard';
+import { platformAdminGuard } from './core/guards/platform-admin.guard';
 
 export const routes: Routes = [
   
@@ -13,14 +13,14 @@ export const routes: Routes = [
     children: [
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
       { path: 'dashboard', loadComponent: () => import('./features/admin/admin-dashboard.component').then(m => m.AdminDashboardComponent) },
-      { path: 'users', loadComponent: () => import('./features/admin/admin-users.component').then(m => m.AdminUsersComponent) },
-      { path: 'users/:id', loadComponent: () => import('./features/admin/admin-user-profile.component').then(m => m.AdminUserProfileComponent) },
+      { path: 'users', canActivate: [platformAdminGuard], loadComponent: () => import('./features/admin/admin-users.component').then(m => m.AdminUsersComponent) },
+      { path: 'users/:id', canActivate: [platformAdminGuard], loadComponent: () => import('./features/admin/admin-user-profile.component').then(m => m.AdminUserProfileComponent) },
       { path: 'products', loadComponent: () => import('./features/admin/admin-products.component').then(m => m.AdminProductsComponent) },
       { path: 'add-product', loadComponent: () => import('./features/admin/admin-add-product.component').then(m => m.AdminAddProductComponent) },
       { path: 'edit-product/:id', loadComponent: () => import('./features/admin/admin-add-product.component').then(m => m.AdminAddProductComponent) },
-      { path: 'categories', loadComponent: () => import('./features/admin/admin-categories.component').then(m => m.AdminCategoriesComponent) },
-      { path: 'seller-requests', loadComponent: () => import('./features/admin/admin-seller-requests.component').then(m => m.AdminSellerRequestsComponent) },
-      { path: 'announcements', loadComponent: () => import('./features/admin/admin-announcements.component').then(m => m.AdminAnnouncementsComponent) },
+      { path: 'categories', canActivate: [platformAdminGuard], loadComponent: () => import('./features/admin/admin-categories.component').then(m => m.AdminCategoriesComponent) },
+      { path: 'seller-requests', canActivate: [platformAdminGuard], loadComponent: () => import('./features/admin/admin-seller-requests.component').then(m => m.AdminSellerRequestsComponent) },
+      { path: 'announcements', canActivate: [platformAdminGuard], loadComponent: () => import('./features/admin/admin-announcements.component').then(m => m.AdminAnnouncementsComponent) },
       { path: 'orders', loadComponent: () => import('./features/admin/admin-orders.component').then(m => m.AdminOrdersComponent) },
       { path: 'logs', loadComponent: () => import('./features/admin/admin-logs.component').then(m => m.AdminLogsComponent) }
     ]
@@ -87,6 +87,11 @@ export const routes: Routes = [
       {
         path: 'products/:slug',
         loadComponent: () => import('./features/product-detail/product-detail.component').then(m => m.ProductDetailComponent),
+      },
+      {
+        path: 'sellers/:id',
+        title: 'Seller profile · Budgetha',
+        loadComponent: () => import('./features/seller-profile/seller-profile.component').then(m => m.SellerProfileComponent),
       },
       {
         path: 'cart',

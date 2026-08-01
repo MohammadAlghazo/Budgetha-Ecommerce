@@ -15,6 +15,8 @@ public class ApplicationUser : IdentityUser
 
     public ICollection<Product> Products { get; set; } = new List<Product>();
     public ICollection<Order> Orders { get; set; } = new List<Order>();
+    public ICollection<OrderFulfillment> Fulfillments { get; set; } = new List<OrderFulfillment>();
+    public ICollection<DeliveryReport> DeliveryReports { get; set; } = new List<DeliveryReport>();
     public ICollection<Review> Reviews { get; set; } = new List<Review>();
     public ICollection<Address> Addresses { get; set; } = new List<Address>();
     public Cart? Cart { get; set; }

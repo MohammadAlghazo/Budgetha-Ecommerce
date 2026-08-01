@@ -37,6 +37,8 @@ public class Order : BaseAuditableEntity
     public string ContactPhone { get; set; } = string.Empty;
 
     public ICollection<OrderItem> Items { get; set; } = new List<OrderItem>();
+    public ICollection<OrderFulfillment> Fulfillments { get; set; } = new List<OrderFulfillment>();
+    public ICollection<DeliveryReport> DeliveryReports { get; set; } = new List<DeliveryReport>();
     public Payment? Payment { get; set; }
 
     [System.ComponentModel.DataAnnotations.ConcurrencyCheck]

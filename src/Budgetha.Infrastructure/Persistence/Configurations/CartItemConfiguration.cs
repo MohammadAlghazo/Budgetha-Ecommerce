@@ -9,6 +9,11 @@ public class CartItemConfiguration : IEntityTypeConfiguration<CartItem>
     public void Configure(EntityTypeBuilder<CartItem> builder)
     {
         builder.Property(ci => ci.Type).HasConversion<string>().HasMaxLength(50);
+        builder.ToTable(table =>
+        {
+            table.HasCheckConstraint("CK_CartItems_Quantity_Positive", "\"Quantity\" > 0");
+            table.HasCheckConstraint("CK_CartItems_RentalDates", "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+        });
 
         builder.HasOne(ci => ci.Cart)
             .WithMany(c => c.Items)

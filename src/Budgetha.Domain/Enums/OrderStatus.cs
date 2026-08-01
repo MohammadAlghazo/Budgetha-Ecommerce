@@ -8,5 +8,6 @@ public enum OrderStatus
     Delivered,
     Cancelled,
     Refunded,
-    Failed
+    Failed,
+    PartiallyFulfilled
 }

@@ -1,5 +1,6 @@
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -19,6 +20,8 @@ public record ReviewDto(
 );
 
 public record GetProductReviewsQuery(Guid ProductId) : IRequest<List<ReviewDto>>;
+public record GetReviewEligibilityQuery(Guid ProductId) : IRequest<ReviewEligibilityDto>;
+public record ReviewEligibilityDto(bool CanReview, bool HasReviewed);
 
 public class GetProductReviewsQueryHandler : IRequestHandler<GetProductReviewsQuery, List<ReviewDto>>
 {
@@ -40,6 +43,11 @@ public class GetProductReviewsQueryHandler : IRequestHandler<GetProductReviewsQu
             .Where(r => r.ProductId == request.ProductId)
             .OrderByDescending(r => r.Created)
             .ToListAsync(cancellationToken);
+        var verifiedUserIds = await _context.OrderItems
+            .Where(item => item.ProductId == request.ProductId && item.Order.Status == OrderStatus.Delivered)
+            .Select(item => item.Order.UserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
 
         var dtos = reviews.Select(r =>
         {
@@ -55,12 +63,40 @@ public class GetProductReviewsQueryHandler : IRequestHandler<GetProductReviewsQu
                 r.Created.ToString("MMMM d, yyyy"),
                 r.Rating >= 4 ? "Great Product!" : r.Rating == 3 ? "It's okay" : "Not satisfied", 
                 r.Comment,
-                true, 
+                verifiedUserIds.Contains(r.UserId),
                 0, 
                 r.UserId == currentUserId
             );
         }).ToList();
 
         return dtos;
+    }
+}
+
+public class GetReviewEligibilityQueryHandler : IRequestHandler<GetReviewEligibilityQuery, ReviewEligibilityDto>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public GetReviewEligibilityQueryHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task<ReviewEligibilityDto> Handle(GetReviewEligibilityQuery request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrWhiteSpace(userId)) return new ReviewEligibilityDto(false, false);
+
+        var hasReviewed = await _context.Reviews.AnyAsync(review =>
+            review.ProductId == request.ProductId && review.UserId == userId, cancellationToken);
+        var hasDeliveredOrder = await _context.OrderItems.AnyAsync(item =>
+            item.ProductId == request.ProductId &&
+            item.Order.UserId == userId &&
+            item.Order.Status == Budgetha.Domain.Enums.OrderStatus.Delivered,
+            cancellationToken);
+
+        return new ReviewEligibilityDto(hasDeliveredOrder && !hasReviewed, hasReviewed);
     }
 }

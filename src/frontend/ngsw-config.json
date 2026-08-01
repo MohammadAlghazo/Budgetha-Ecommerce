@@ -65,11 +65,9 @@
         "/api/products/**",
         "/api/categories/**",
         "/api/brands/**",
-        "/api/reviews/**",
         "http://localhost:5272/api/products/**",
         "http://localhost:5272/api/categories/**",
-        "http://localhost:5272/api/brands/**",
-        "http://localhost:5272/api/reviews/**"
+        "http://localhost:5272/api/brands/**"
       ],
       "cacheConfig": {
         "strategy": "performance",

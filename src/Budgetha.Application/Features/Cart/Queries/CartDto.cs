@@ -7,6 +7,8 @@ public record CartItemDto(
     Guid ProductId,
     Guid? VariantId,
     string ProductName,
+    string ProductSlug,
+    string Brand,
     string? ProductImage,
     string Category,
     decimal Price,

@@ -4,5 +4,6 @@ public enum PaymentProvider
 {
     Stripe,
     PayPal,
+    Mock,
     CashOnDelivery
 }

@@ -97,7 +97,7 @@ export class AdminService {
 
   
   deleteProduct(productId: string): Observable<any> {
-    return this.http.delete(`${this.apiUrl}/products/${productId}`);
+    return this.http.delete(`${this.productsUrl}/${productId}`);
   }
 
   

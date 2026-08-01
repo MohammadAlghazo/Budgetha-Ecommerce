@@ -1,6 +1,6 @@
 ﻿import { Component, computed, inject, input } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { Product } from '../../../core/models/shop.models';
 import { CartService } from '../../../core/services/cart.service';
 import { QuickViewService } from '../../../core/services/quick-view.service';
@@ -175,6 +175,7 @@ export class ProductCardComponent {
   private readonly cart = inject(CartService);
   private readonly wishlist = inject(WishlistService);
   private readonly quickViewService = inject(QuickViewService);
+  private readonly router = inject(Router);
 
   readonly inWishlist = computed(() => this.wishlist.ids().includes(this.product().id));
   readonly discountPercent = computed(() => {
@@ -185,7 +186,12 @@ export class ProductCardComponent {
 
   addToCart(): void {
     const p = this.product();
-    const variant = p.variants?.find(item => item.isActive);
+    const activeVariants = p.variants?.filter(item => item.isActive) ?? [];
+    if (activeVariants.length > 1) {
+      this.router.navigate(['/products', p.slug]);
+      return;
+    }
+    const variant = activeVariants[0];
     this.cart.add(p, 1, variant?.color, variant?.size, 'Purchase', undefined, undefined, variant?.id);
   }
 

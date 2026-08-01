@@ -7,7 +7,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Budgetha.Application.Features.Cart.Commands;
 
-public record UpdateCartItemQuantityCommand(Guid ItemId, int Quantity) : IRequest;
+public class UpdateCartItemQuantityCommand : IRequest
+{
+    public Guid ItemId { get; set; }
+    public int Quantity { get; set; }
+}
 
 public class UpdateCartItemQuantityCommandHandler : IRequestHandler<UpdateCartItemQuantityCommand>
 {

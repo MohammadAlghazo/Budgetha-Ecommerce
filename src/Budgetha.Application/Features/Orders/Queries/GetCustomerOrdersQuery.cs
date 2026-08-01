@@ -29,8 +29,11 @@ public class GetCustomerOrdersQueryHandler : IRequestHandler<GetCustomerOrdersQu
         var orders = await _context.Orders
             .AsNoTracking()
             .Include(o => o.Items).ThenInclude(i => i.Product)
+            .Include(o => o.Items).ThenInclude(i => i.Seller)
             .Include(o => o.ShippingAddress)
             .Include(o => o.Payment)
+            .Include(o => o.Fulfillments).ThenInclude(f => f.Seller)
+            .Include(o => o.DeliveryReports)
             .Where(o => o.UserId == userId)
             .OrderByDescending(o => o.Created)
             .ToListAsync(cancellationToken);
@@ -52,6 +55,35 @@ public class GetCustomerOrdersQueryHandler : IRequestHandler<GetCustomerOrdersQu
         Currency = order.Currency,
         PaymentProvider = order.Payment?.Provider.ToString(),
         PaymentStatus = order.Payment?.Status.ToString(),
+        CanConfirmReceipt = order.Fulfillments.Any(f => f.Status != Domain.Enums.FulfillmentStatus.Rejected) &&
+                            order.Fulfillments.Where(f => f.Status != Domain.Enums.FulfillmentStatus.Rejected)
+                                .All(f => f.Status == Domain.Enums.FulfillmentStatus.Shipped) &&
+                            !order.DeliveryReports.Any(r => r.Status == Domain.Enums.DeliveryReportStatus.Open),
+        CanReportNotReceived = order.Fulfillments.Any(f => f.Status == Domain.Enums.FulfillmentStatus.Shipped) &&
+                               !order.DeliveryReports.Any(r => r.Status == Domain.Enums.DeliveryReportStatus.Open),
+        Fulfillments = order.Fulfillments.Select(f => new CustomerFulfillmentDto
+        {
+            Id = f.Id,
+            SellerId = f.SellerId,
+            SellerName = f.Seller == null ? "Seller" : $"{f.Seller.FirstName} {f.Seller.LastName}".Trim(),
+            Amount = f.Amount,
+            Status = f.Status.ToString(),
+            Carrier = f.Carrier,
+            TrackingNumber = f.TrackingNumber,
+            ShippedAt = f.ShippedAt,
+            DeliveredAt = f.DeliveredAt,
+            RejectedAt = f.RejectedAt,
+            RejectionReason = f.RejectionReason
+        }).ToList(),
+        DeliveryReports = order.DeliveryReports.Select(r => new CustomerDeliveryReportDto
+        {
+            Id = r.Id,
+            FulfillmentId = r.FulfillmentId,
+            Status = r.Status.ToString(),
+            Reason = r.Reason,
+            CreatedAt = r.Created,
+            AdminNote = r.AdminNote
+        }).ToList(),
         ShippingAddress = new CustomerShippingAddressDto
         {
             FullName = order.ShippingFullName,
@@ -76,7 +108,9 @@ public class GetCustomerOrdersQueryHandler : IRequestHandler<GetCustomerOrdersQu
             RentalStartDate = item.RentalStartDate,
             RentalEndDate = item.RentalEndDate,
             Color = item.Color,
-            Size = item.Size
+            Size = item.Size,
+            FulfillmentId = item.FulfillmentId,
+            SellerName = item.Seller == null ? "Seller" : $"{item.Seller.FirstName} {item.Seller.LastName}".Trim()
         }).ToList()
     };
 
@@ -104,8 +138,11 @@ public class GetCustomerOrderQueryHandler : IRequestHandler<GetCustomerOrderQuer
         var order = await _context.Orders
             .AsNoTracking()
             .Include(o => o.Items).ThenInclude(i => i.Product)
+            .Include(o => o.Items).ThenInclude(i => i.Seller)
             .Include(o => o.ShippingAddress)
             .Include(o => o.Payment)
+            .Include(o => o.Fulfillments).ThenInclude(f => f.Seller)
+            .Include(o => o.DeliveryReports)
             .SingleOrDefaultAsync(o => o.Id == request.OrderId && o.UserId == userId, cancellationToken);
 
         return order == null ? null : GetCustomerOrdersQueryHandler.ToDto(order);
@@ -132,8 +169,11 @@ public class GetCustomerOrderByNumberQueryHandler : IRequestHandler<GetCustomerO
         var order = await _context.Orders
             .AsNoTracking()
             .Include(o => o.Items).ThenInclude(i => i.Product)
+            .Include(o => o.Items).ThenInclude(i => i.Seller)
             .Include(o => o.ShippingAddress)
             .Include(o => o.Payment)
+            .Include(o => o.Fulfillments).ThenInclude(f => f.Seller)
+            .Include(o => o.DeliveryReports)
             .Where(o => o.UserId == userId)
             .ToListAsync(cancellationToken);
 

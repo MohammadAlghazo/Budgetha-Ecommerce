@@ -15,5 +15,14 @@ public interface IOrderCommunicationService
         Order order,
         string eventName,
         IEnumerable<string> sellerIds,
+        CancellationToken cancellationToken,
+        string? eventScope = null,
+        string? eventDetail = null);
+
+    Task QueueDeliveryReportResolutionAsync(
+        Order order,
+        IEnumerable<string> sellerIds,
+        bool dismissed,
+        string note,
         CancellationToken cancellationToken);
 }

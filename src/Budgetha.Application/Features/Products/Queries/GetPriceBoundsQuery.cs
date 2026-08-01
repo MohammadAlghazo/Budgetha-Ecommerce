@@ -20,7 +20,7 @@ public class GetPriceBoundsQueryHandler : IRequestHandler<GetPriceBoundsQuery, P
 
     public async Task<PriceBoundsDto> Handle(GetPriceBoundsQuery request, CancellationToken cancellationToken)
     {
-        var query = _context.Products.Where(p => p.ApprovalStatus == ApprovalStatus.Approved);
+        var query = _context.Products.Where(p => p.IsActive && p.ApprovalStatus == ApprovalStatus.Approved);
 
         if (request.CategoryId.HasValue)
         {

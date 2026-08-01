@@ -38,7 +38,9 @@ public class ApproveSellerRequestCommandHandler : IRequestHandler<ApproveSellerR
             verification.ReviewedBy = _currentUserService.UserId;
         }
         
-        await _identityService.AssignRoleAsync(sellerRequest.UserId, "Seller");
+        var hasSellerRole = await _identityService.IsInRoleAsync(sellerRequest.UserId, "Seller");
+        if (!hasSellerRole && !await _identityService.AssignRoleAsync(sellerRequest.UserId, "Seller"))
+            throw new InvalidOperationException("The seller role could not be assigned.");
 
         await _context.SaveChangesAsync(cancellationToken);
         return true;

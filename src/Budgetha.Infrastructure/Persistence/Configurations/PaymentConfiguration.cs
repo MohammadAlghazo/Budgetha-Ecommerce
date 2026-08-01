@@ -16,6 +16,7 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         builder.Property(p => p.ExternalCaptureId).HasMaxLength(250);
         builder.Property(p => p.LastWebhookEventId).HasMaxLength(250);
         builder.Property(p => p.RowVersion).IsConcurrencyToken().ValueGeneratedNever();
+        builder.ToTable(table => table.HasCheckConstraint("CK_Payments_Amount_Positive", "\"Amount\" > 0"));
 
         builder.HasIndex(p => p.OrderId).IsUnique();
         builder.HasIndex(p => p.ExternalTransactionId).IsUnique();

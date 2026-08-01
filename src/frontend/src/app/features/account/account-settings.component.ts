@@ -129,7 +129,7 @@ import { ToastService } from '../../core/services/toast.service';
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1.5">Commercial Register / Identity Document</label>
-                    <input type="file" (change)="onSellerDocumentSelected($event)" accept="image/jpeg,image/png,application/pdf"
+                    <input type="file" (change)="onSellerDocumentSelected($event)" accept="image/jpeg,image/png,image/webp"
                            class="block w-full text-sm text-slate-500 file:me-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-all">
                     @if (sellerDocumentUrl()) {
                       <p class="text-xs text-emerald-600 mt-2 font-medium">Document uploaded successfully!</p>
@@ -215,6 +215,12 @@ export class AccountSettingsComponent implements OnInit {
   checkSellerStatus() {
     const roles = this.auth.user()?.roles || [];
     this.isSeller.set(roles.includes('Seller'));
+    if (!this.isSeller()) {
+      this.http.get<{ status: 'Pending' | 'Rejected' | 'Approved' } | null>(`${environment.apiUrl}/sellerrequests/mine`).subscribe({
+        next: request => this.sellerRequestStatus.set(request?.status === 'Pending' || request?.status === 'Rejected' ? request.status : 'None'),
+        error: () => undefined
+      });
+    }
   }
 
   onSellerDocumentSelected(event: any) {
@@ -224,7 +230,7 @@ export class AccountSettingsComponent implements OnInit {
       const formData = new FormData();
       formData.append('file', file);
       
-      this.http.post<{ url: string }>(`${environment.apiUrl}/images`, formData).subscribe({
+      this.http.post<{ url: string }>(`${environment.apiUrl}/images/upload`, formData).subscribe({
         next: (res) => {
           this.sellerDocumentUrl.set(res.url);
           this.uploadingDocument.set(false);

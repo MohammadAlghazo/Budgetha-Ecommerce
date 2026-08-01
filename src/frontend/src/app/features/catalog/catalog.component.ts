@@ -4,7 +4,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../core/services/product.service';
 import { WishlistService } from '../../core/services/wishlist.service';
-import { CatalogResult, Product, SortOption } from '../../core/models/shop.models';
+import { CatalogQuery, CatalogResult, SortOption } from '../../core/models/shop.models';
 import { ProductCardComponent } from '../../shared/components/product-card/product-card.component';
 import { SkeletonCardComponent } from '../../shared/components/skeleton-card/skeleton-card.component';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
@@ -227,7 +227,7 @@ const PAGE_SIZE = 9;
 
         <!-- ══ Results ══ -->
         <div class="flex-1 min-w-0">
-          @if (isLoading()) {
+          @if (isLoading() && result().items.length === 0) {
             @if (view() === 'grid') {
               <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
                 <app-skeleton-card layout="grid" />
@@ -260,6 +260,12 @@ const PAGE_SIZE = 9;
                 ctaLink="/shop" />
             </div>
           } @else {
+            @if (isLoading()) {
+              <div class="mb-4 flex items-center gap-2 text-xs font-medium text-violet-600" role="status" aria-live="polite">
+                <span class="h-2.5 w-2.5 rounded-full border-2 border-violet-200 border-t-violet-600 animate-spin"></span>
+                Updating products...
+              </div>
+            }
             @if (view() === 'grid') {
               <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
                 @for (product of result().items; track product.id) {
@@ -336,7 +342,8 @@ export class CatalogComponent {
   readonly brands = toSignal(this.productService.getBrands(), { initialValue: [] }); 
   
   
-  readonly bounds = toSignal(this.productService.priceBounds(), { initialValue: { min: 0, max: 10000 } });
+  private readonly boundsValue = toSignal(this.productService.priceBounds(), { initialValue: null });
+  readonly bounds = computed(() => this.boundsValue() ?? { min: 0, max: 10000 });
 
   readonly search = signal('');
   readonly selectedCategories = signal<string[]>([]);
@@ -350,17 +357,12 @@ export class CatalogComponent {
   readonly filtersOpen = signal(false);
   readonly dealsOnly = signal(false);
   readonly wishlistOnly = signal(false);
+  readonly sellerId = signal<string | null>(null);
 
-  
-  
-  
-  
-  
-  
-  
   readonly result = signal<CatalogResult>({ items: [], total: 0, totalPages: 1 });
   readonly isLoading = signal(true);
   readonly loadError = signal(false);
+  readonly reload = signal(0);
 
   readonly pages = computed(() => Array.from({ length: this.result().totalPages }, (_, i) => i + 1));
 
@@ -376,6 +378,7 @@ export class CatalogComponent {
   readonly pageTitle = computed(() => {
     if (this.wishlistOnly()) return 'My Wishlist';
     if (this.dealsOnly()) return 'Today’s Deals';
+    if (this.sellerId()) return 'Seller Products';
     if (this.search()) return `Results for “${this.search()}”`;
     if (this.selectedCategories().length === 1) {
       return this.categories().find(c => c.slug === this.selectedCategories()[0])?.name ?? 'Shop';
@@ -407,22 +410,29 @@ export class CatalogComponent {
       this.selectedBrands.set(brand ? [brand] : []);
       this.dealsOnly.set(params.get('deals') === '1');
       this.wishlistOnly.set(params.get('wishlist') === '1');
+      this.sellerId.set(params.get('sellerId'));
+      this.page.set(1);
       const sort = params.get('sort') as SortOption | null;
       if (sort && ['featured', 'newest', 'price-asc', 'price-desc', 'rating'].includes(sort)) {
         this.sort.set(sort);
       }
-      this.page.set(1);
     });
 
-    
     this.productService.priceBounds().pipe(takeUntilDestroyed()).subscribe(b => {
        this.minPrice.set(b.min);
        this.maxPrice.set(b.max);
     });
 
-    
-    effect(() => {
-      const q = {
+    effect(onCleanup => {
+      this.reload();
+      const loadedBounds = this.boundsValue();
+      if (!loadedBounds) return;
+      const currentPage = this.page();
+      const isWishlist = this.wishlistOnly();
+      const isDeals = this.dealsOnly();
+      const currentSellerId = this.sellerId();
+
+      const q: CatalogQuery = {
         search: this.search(),
         categories: this.selectedCategories(),
         brands: this.selectedBrands(),
@@ -430,45 +440,54 @@ export class CatalogComponent {
         maxPrice: this.maxPrice(),
         minRating: this.minRating(),
         sort: this.sort(),
-        page: this.wishlistOnly() || this.dealsOnly() ? 1 : this.page(),
-        pageSize: this.wishlistOnly() || this.dealsOnly() ? 100 : PAGE_SIZE,
+        page: isWishlist || isDeals ? 1 : currentPage,
+        pageSize: isWishlist || isDeals ? 100 : PAGE_SIZE,
       };
-      this.isLoading.set(true);
-      this.productService.query(q).subscribe(res => {
-        let items = res?.items || [];
-        if (this.dealsOnly()) {
-          items = items.filter(p => p.originalPrice && p.originalPrice > p.price);
-        }
-        if (this.wishlistOnly()) {
-          const ids = this.wishlist.ids();
-          items = items.filter(p => ids.includes(p.id));
-        }
-        
-        let total = res.total;
-        let totalPages = res.totalPages;
-        
-        if (this.wishlistOnly() || this.dealsOnly()) {
-          total = items.length;
-          totalPages = Math.ceil(total / PAGE_SIZE);
-          
-          const start = (this.page() - 1) * PAGE_SIZE;
-          items = items.slice(start, start + PAGE_SIZE);
-        }
-        
-        this.result.set({ items, total, totalPages });
+
+      q.sellerId = currentSellerId ?? undefined;
+
+      const cached = this.productService.getCachedQuery(q);
+      if (cached) {
+        this.applyResult(cached, currentPage, isDeals, isWishlist);
+        this.isLoading.set(false);
+      } else {
+        this.isLoading.set(true);
+      }
+      const subscription = this.productService.query(q).subscribe(res => {
+        this.applyResult(res, currentPage, isDeals, isWishlist);
         this.isLoading.set(false);
         this.loadError.set(false);
       }, () => {
         this.isLoading.set(false);
         this.loadError.set(true);
       });
+      onCleanup(() => subscription.unsubscribe());
     });
+  }
+
+  private applyResult(res: CatalogResult, currentPage: number, isDeals: boolean, isWishlist: boolean): void {
+    let items = res?.items || [];
+    if (isDeals) items = items.filter(p => p.originalPrice && p.originalPrice > p.price);
+    if (isWishlist) {
+      const ids = this.wishlist.ids();
+      items = items.filter(p => ids.includes(p.id));
+    }
+
+    let total = res.total;
+    let totalPages = res.totalPages;
+    if (isWishlist || isDeals) {
+      total = items.length;
+      totalPages = Math.ceil(total / PAGE_SIZE);
+      const start = (currentPage - 1) * PAGE_SIZE;
+      items = items.slice(start, start + PAGE_SIZE);
+    }
+    this.result.set({ items, total, totalPages });
   }
 
   retry(): void {
     this.loadError.set(false);
     this.isLoading.set(true);
-    this.page.update(page => page);
+    this.reload.update(value => value + 1);
   }
 
   toggleCategory(slug: string): void {

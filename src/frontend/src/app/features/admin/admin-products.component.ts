@@ -118,6 +118,12 @@ import { ProductService } from '../../core/services/product.service';
                           Delete
                         </button>
                       }
+                      @if (canApproveProducts() && product.approvalStatus !== 'Approved') {
+                        <button (click)="approve(product.id, 'Approved')" [disabled]="processingId() === product.id" class="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 border border-emerald-200 hover:bg-emerald-50 px-3 py-1.5 rounded-lg transition-colors">Approve</button>
+                      }
+                      @if (canApproveProducts() && product.approvalStatus !== 'Rejected') {
+                        <button (click)="approve(product.id, 'Rejected')" [disabled]="processingId() === product.id" class="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 border border-amber-200 hover:bg-amber-50 px-3 py-1.5 rounded-lg transition-colors">Reject</button>
+                      }
                     </div>
                   </td>
                 </tr>
@@ -290,7 +296,7 @@ import { ProductService } from '../../core/services/product.service';
                     </div>
                     <div>
                       <p class="font-semibold text-slate-900">{{ selectedProductDetails()?.sellerName || 'Unknown Seller' }}</p>
-                      <p class="text-sm text-slate-500">{{ selectedProductDetails()?.sellerEmail || 'No email provided' }}</p>
+                      <p class="text-sm text-slate-500">Seller ID: {{ selectedProductDetails()?.sellerId }}</p>
                     </div>
                   </div>
                 </div>
@@ -365,6 +371,11 @@ export class AdminProductsComponent implements OnInit {
     return roles.includes('SuperAdmin') || roles.includes('Seller');
   });
 
+  readonly canApproveProducts = computed(() => {
+    const roles = this.authService.user()?.roles ?? [];
+    return roles.includes('Admin') || roles.includes('SuperAdmin');
+  });
+
   readonly filteredProducts = computed(() => {
     return this.productsResult()?.items ?? [];
   });
@@ -408,6 +419,17 @@ export class AdminProductsComponent implements OnInit {
 
   viewDetails(product: any): void {
     this.selectedProductDetails.set(product);
+  }
+
+  approve(productId: string, status: 'Approved' | 'Rejected'): void {
+    this.processingId.set(productId);
+    this.adminService.approveProduct(productId, status).subscribe({
+      next: () => {
+        this.processingId.set(null);
+        this.loadProducts(this.currentPage());
+      },
+      error: () => this.processingId.set(null)
+    });
   }
 
   confirmDelete(product: any): void {

@@ -23,6 +23,7 @@ public class GetProductBySlugQueryHandler : IRequestHandler<GetProductBySlugQuer
             .Include(x => x.Images)
             .Include(x => x.Reviews)
             .Include(x => x.Variants)
+            .Include(x => x.Seller)
             .Include(x => x.Colors)
             .Include(x => x.Sizes)
             .Include(x => x.Features)
@@ -67,6 +68,12 @@ public class GetProductBySlugQueryHandler : IRequestHandler<GetProductBySlugQuer
             IsNew = isNew,
             IsFeatured = p.IsFeatured,
             ApprovalStatus = p.ApprovalStatus.ToString(),
+            SellerId = p.SellerId,
+            SellerName = p.Seller != null
+                ? (!string.IsNullOrWhiteSpace(p.Seller.FirstName) || !string.IsNullOrWhiteSpace(p.Seller.LastName)
+                    ? $"{p.Seller.FirstName} {p.Seller.LastName}".Trim()
+                    : p.Seller.UserName ?? "")
+                : "",
             Images = imageUrls.Distinct().ToList(),
             ImageDetails = p.Images
                 .OrderBy(image => image.DisplayOrder)

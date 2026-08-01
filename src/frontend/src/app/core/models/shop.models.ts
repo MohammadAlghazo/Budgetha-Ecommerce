@@ -53,6 +53,8 @@ export interface Product {
   isAvailableForRent?: boolean;
   rentalPricePerDay?: number;
   variants: ProductVariant[];
+  sellerId?: string;
+  sellerName?: string;
 }
 
 export interface ProductImage {
@@ -132,7 +134,30 @@ export interface PaymentCard {
   isDefault: boolean;
 }
 
-export type OrderStatus = 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled' | 'Refunded' | 'Failed';
+export type OrderStatus = 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled' | 'Refunded' | 'Failed' | 'PartiallyFulfilled';
+
+export interface OrderFulfillment {
+  id: string;
+  sellerId: string;
+  sellerName: string;
+  amount: number;
+  status: 'Processing' | 'Shipped' | 'Delivered' | 'Rejected';
+  carrier?: string;
+  trackingNumber?: string;
+  shippedAt?: string;
+  deliveredAt?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+}
+
+export interface DeliveryReport {
+  id: string;
+  fulfillmentId?: string;
+  status: 'Open' | 'Resolved' | 'Dismissed';
+  reason?: string;
+  createdAt: string;
+  adminNote?: string;
+}
 
 export interface OrderItem {
   productId: string;
@@ -146,6 +171,8 @@ export interface OrderItem {
   type?: 'Purchase' | 'Rental';
   rentalStartDate?: string;
   rentalEndDate?: string;
+  fulfillmentId?: string;
+  sellerName?: string;
 }
 
 export interface Order {
@@ -161,6 +188,12 @@ export interface Order {
   total: number;
   shippingAddress: string;
   paymentSummary: string;
+  paymentStatus?: string;
+  currency?: string;
+  canConfirmReceipt?: boolean;
+  canReportNotReceived?: boolean;
+  fulfillments?: OrderFulfillment[];
+  deliveryReports?: DeliveryReport[];
 }
 
 export type SortOption = 'featured' | 'newest' | 'price-asc' | 'price-desc' | 'rating';
@@ -175,10 +208,23 @@ export interface CatalogQuery {
   sort: SortOption;
   page: number;
   pageSize: number;
+  sellerId?: string;
 }
 
 export interface CatalogResult {
   items: Product[];
   total: number;
   totalPages: number;
+}
+
+export interface SellerProfile {
+  id: string;
+  displayName: string;
+  avatarUrl?: string;
+  businessName?: string;
+  businessDescription?: string;
+  memberSince: string;
+  activeProductCount: number;
+  reviewCount: number;
+  averageRating: number;
 }

@@ -10,6 +10,8 @@ public interface IApplicationDbContext
     DbSet<Category> Categories { get; }
     DbSet<Order> Orders { get; }
     DbSet<OrderItem> OrderItems { get; }
+    DbSet<OrderFulfillment> OrderFulfillments { get; }
+    DbSet<DeliveryReport> DeliveryReports { get; }
     DbSet<Cart> Carts { get; }
     DbSet<CartItem> CartItems { get; }
     DbSet<Review> Reviews { get; }

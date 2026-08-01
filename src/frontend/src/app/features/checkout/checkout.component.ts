@@ -9,16 +9,14 @@ import { AuthService } from '../../core/services/auth.service';
 import { ToastService } from '../../core/services/toast.service';
 import { Address } from '../../core/models/shop.models';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
-import { NgxPayPalModule, IPayPalConfig, ICreateOrderRequest } from 'ngx-paypal';
 import { debounceTime, Observable, switchMap } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { environment } from '../../../environments/environment';
 
-type PaymentMethod = 'paypal' | 'cod';
+type PaymentMethod = 'mock' | 'cod';
 
 @Component({
   selector: 'app-checkout',
-  imports: [CurrencyPipe, RouterLink, ReactiveFormsModule, EmptyStateComponent, NgxPayPalModule],
+  imports: [CurrencyPipe, RouterLink, ReactiveFormsModule, EmptyStateComponent],
   template: `
     @if (cart.items().length === 0) {
       <div class="max-w-2xl mx-auto px-4 py-16">
@@ -180,16 +178,15 @@ type PaymentMethod = 'paypal' | 'cod';
               </h2>
 
               <div class="mt-5 grid sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Payment method">
-                <!-- PayPal option -->
-                <button type="button" role="radio" [attr.aria-checked]="paymentMethod() === 'paypal'" (click)="paymentMethod.set('paypal')"
-                        class="rounded-2xl border-2 p-4 text-start transition-all duration-300"
-                        [class]="paymentMethod() === 'paypal' ? 'border-violet-600 bg-violet-50/60 shadow-md shadow-violet-100' : 'border-slate-200 hover:border-slate-300'">
+                <!-- Test payment option -->
+                <button type="button" role="radio" [attr.aria-checked]="paymentMethod() === 'mock'" (click)="paymentMethod.set('mock')"
+                         class="rounded-2xl border-2 p-4 text-start transition-all duration-300"
+                         [class]="paymentMethod() === 'mock' ? 'border-violet-600 bg-violet-50/60 shadow-md shadow-violet-100' : 'border-slate-200 hover:border-slate-300'">
                   <svg class="w-7 h-7 mb-2" viewBox="0 0 24 24" fill="none">
-                    <path d="M7.076 21.337H4.13a.64.64 0 01-.633-.74L6.222 3.384a.77.77 0 01.76-.65h6.673c2.217 0 3.916.472 4.933 1.404.95.87 1.322 2.083 1.106 3.72-.023.15-.048.302-.078.458-.71 3.65-3.14 4.913-6.24 4.913h-1.58a.77.77 0 00-.76.65l-.81 5.148-.15 1.31z" [attr.fill]="paymentMethod() === 'paypal' ? '#003087' : '#94a3b8'"/>
-                    <path d="M19.62 7.858c-.023.15-.048.302-.078.458-.71 3.65-3.14 4.913-6.24 4.913h-1.58a.77.77 0 00-.76.65l-1.04 6.6a.54.54 0 00.534.625h2.79a.673.673 0 00.665-.568l.027-.142.526-3.336.034-.183a.673.673 0 01.665-.569h.418c2.712 0 4.835-1.101 5.455-4.288.26-1.33.126-2.442-.56-3.223a2.68 2.68 0 00-.856-.637z" [attr.fill]="paymentMethod() === 'paypal' ? '#0070E0' : '#cbd5e1'"/>
+                    <path d="M3 6.5A2.5 2.5 0 015.5 4h13A2.5 2.5 0 0121 6.5v11a2.5 2.5 0 01-2.5 2.5h-13A2.5 2.5 0 013 17.5v-11zm0 2.5h18M7 15h4" [attr.stroke]="paymentMethod() === 'mock' ? '#7c3aed' : '#94a3b8'" stroke-width="1.8" stroke-linecap="round"/>
                   </svg>
-                  <p class="text-sm font-bold text-slate-900">PayPal</p>
-                  <p class="text-xs text-slate-400 mt-0.5">Fast &amp; buyer protected</p>
+                  <p class="text-sm font-bold text-slate-900">Test Payment</p>
+                  <p class="text-xs text-slate-400 mt-0.5">Development only, no real charge</p>
                 </button>
 
                 <!-- COD option -->
@@ -204,18 +201,10 @@ type PaymentMethod = 'paypal' | 'cod';
                 </button>
               </div>
 
-              @if (paymentMethod() === 'paypal') {
-                <div class="mt-6">
-                  <p class="text-sm text-slate-600 mb-4">Click the button below to log in to PayPal and complete your purchase securely.</p>
-                  
-                  @if (form.valid) {
-                    <!-- Render PayPal Button -->
-                    <ngx-paypal [config]="payPalConfig"></ngx-paypal>
-                  } @else {
-                    <div class="rounded-xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-sm text-amber-700">
-                      Please fill in your Contact Information and Delivery Address above to unlock the PayPal checkout.
-                    </div>
-                  }
+              @if (paymentMethod() === 'mock') {
+                <div class="mt-6 rounded-2xl bg-violet-50 ring-1 ring-violet-100 p-5">
+                  <p class="text-sm font-semibold text-violet-900">Safe test checkout</p>
+                  <p class="text-sm text-violet-700 mt-1">No card details are collected and no money is charged. The order is marked paid for testing the full shipping workflow.</p>
                 </div>
               } @else {
                 <div class="mt-6 rounded-2xl bg-emerald-50 ring-1 ring-emerald-100 p-5 flex items-center gap-4">
@@ -301,7 +290,7 @@ type PaymentMethod = 'paypal' | 'cod';
               </div>
             }
 
-            @if (paymentMethod() === 'cod') {
+            @if (paymentMethod() === 'cod' || paymentMethod() === 'mock') {
               <button type="submit" [disabled]="placing() || form.invalid" class="btn-primary w-full mt-6 py-4 sm:py-5 text-base sm:text-lg shadow-lg shadow-violet-600/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none">
                 @if (placing()) {
                   <svg class="animate-spin -ms-1 me-2.5 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
@@ -310,7 +299,7 @@ type PaymentMethod = 'paypal' | 'cod';
                   </svg>
                   Placing order…
                 } @else {
-                  Place Order — {{ (quote()?.totalAmount ?? cart.total()) | currency }}
+                  {{ paymentMethod() === 'mock' ? 'Complete Test Payment' : 'Place COD Order' }} — {{ (quote()?.totalAmount ?? cart.total()) | currency }}
                 }
               </button>
             }
@@ -337,9 +326,7 @@ export class CheckoutComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
 
-  public payPalConfig?: IPayPalConfig;
-
-  readonly paymentMethod = signal<PaymentMethod>('paypal');
+  readonly paymentMethod = signal<PaymentMethod>('mock');
   readonly placing = signal(false);
   readonly submitted = signal(false);
   readonly selectedAddressId = signal<number | string | null>(null);
@@ -380,7 +367,6 @@ export class CheckoutComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.initConfig();
     this.refreshQuote();
   }
 
@@ -396,103 +382,6 @@ export class CheckoutComponent implements OnInit {
       next: quote => this.quote.set(quote),
       error: () => this.quote.set(null)
     });
-  }
-
-  private initConfig(): void {
-    this.payPalConfig = {
-      currency: 'USD',
-      clientId: environment.payPalClientId,
-      createOrderOnServer: (data) => {
-        // Place the Budgetha order first
-        return new Promise<string>((resolve, reject) => {
-          this.submitted.set(true);
-          if (this.form.invalid) {
-            this.form.markAllAsTouched();
-            this.toast.error('Please complete your delivery address first.');
-            reject('Invalid form');
-            return;
-          }
-
-          const v = this.form.getRawValue();
-          this.placeOrderRequest({
-            items: this.cart.items(),
-            subtotal: this.cart.subtotal(),
-            discount: this.cart.discount(),
-            total: this.cart.total(),
-            address: {
-              id: 0,
-              label: 'Shipping',
-              fullName: v.fullName!,
-              line1: v.line1!,
-              line2: v.line2 || undefined,
-              city: v.city!,
-              state: v.state!,
-              zip: v.zip!,
-              country: v.country!,
-              phone: v.phone!,
-              isDefault: false,
-            },
-            paymentSummary: 'PayPal',
-            paymentMethod: 'CreditCard',
-            promoCode: this.cart.promo()?.code
-          }).subscribe({
-            next: (orderId) => {
-              // Now create the PayPal order on backend
-              this.orders.createPayPalOrder(orderId).subscribe({
-                next: (res) => {
-                  (window as any)._currentBudgethaOrderId = orderId; // Store temporarily for capture
-                  resolve(res.id);
-                },
-                error: (err) => reject(err)
-              });
-            },
-            error: (err) => reject(err)
-          });
-        });
-      },
-      advanced: {
-        commit: 'true'
-      },
-      style: {
-        label: 'paypal',
-        layout: 'vertical'
-      },
-      onApprove: (data, actions) => {
-        this.placing.set(true);
-        const orderId = (window as any)._currentBudgethaOrderId;
-        if (orderId) {
-          this.orders.capturePayPalOrder(orderId, data.orderID).subscribe({
-            next: () => {
-              this.cart.clear();
-              this.placing.set(false);
-              this.router.navigate(['/checkout/success', orderId.substring(0, 8).toUpperCase()]);
-            },
-            error: () => {
-              this.placing.set(false);
-              this.toast.error('Failed to capture PayPal payment.');
-            }
-          });
-        }
-      },
-      onCancel: (data, actions) => {
-        this.placing.set(false);
-        const orderId = (window as any)._currentBudgethaOrderId as string | undefined;
-        if (orderId) {
-          this.orders.cancelOrder(orderId).subscribe({
-            next: () => delete (window as any)._currentBudgethaOrderId,
-            error: () => this.toast.error('Payment was cancelled, but the pending order could not be released yet.')
-          });
-        }
-        this.toast.info('PayPal payment cancelled');
-      },
-      onError: err => {
-        this.placing.set(false);
-        const orderId = (window as any)._currentBudgethaOrderId as string | undefined;
-        if (orderId) this.orders.cancelOrder(orderId).subscribe();
-        this.toast.error('An error occurred during PayPal payment');
-        console.log('PayPal Error', err);
-      }
-    };
   }
 
   invalid(control: string): boolean {
@@ -516,10 +405,6 @@ export class CheckoutComponent implements OnInit {
   }
 
   placeOrder(): void {
-    if (this.paymentMethod() !== 'cod') {
-      return; 
-    }
-
     this.submitted.set(true);
 
     if (this.form.invalid) {
@@ -531,7 +416,7 @@ export class CheckoutComponent implements OnInit {
     this.placing.set(true);
     
     setTimeout(() => {
-      this.completeOrder('Cash on Delivery');
+      this.completeOrder(this.paymentMethod() === 'mock' ? 'Test Payment' : 'Cash on Delivery');
     }, 900);
   }
 
@@ -556,14 +441,13 @@ export class CheckoutComponent implements OnInit {
         isDefault: false,
       },
       paymentSummary,
-      paymentMethod: paymentSummary.includes('PayPal') ? 'CreditCard' : 'CashOnDelivery',
+      paymentMethod: paymentSummary === 'Test Payment' ? 'Mock' : 'CashOnDelivery',
       promoCode: this.cart.promo()?.code
     }).subscribe({
       next: (orderId) => {
         this.cart.clear();
         this.placing.set(false);
-        // Navigate using the first 8 characters of orderId as order number
-        this.router.navigate(['/checkout/success', orderId.substring(0, 8).toUpperCase()]);
+        this.router.navigate(['/checkout/success', this.orders.formatOrderNumber(orderId)]);
       },
       error: () => {
         this.placing.set(false);

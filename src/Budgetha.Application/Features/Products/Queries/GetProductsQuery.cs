@@ -5,18 +5,20 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Budgetha.Application.Features.Products.Queries;
 
-public record GetProductsQuery(
-    string? Search,
-    List<string>? Categories,
-    List<string>? Brands,
-    decimal MinPrice,
-    decimal MaxPrice,
-    decimal MinRating,
-    string? Sort,
-    int Page,
-    int PageSize,
-    string? SellerId = null,
-    bool IncludeUnapproved = false) : IRequest<CatalogResultDto>;
+public class GetProductsQuery : IRequest<CatalogResultDto>
+{
+    public string? Search { get; set; }
+    public List<string>? Categories { get; set; }
+    public List<string>? Brands { get; set; }
+    public decimal MinPrice { get; set; } = 0;
+    public decimal MaxPrice { get; set; } = decimal.MaxValue;
+    public decimal MinRating { get; set; } = 0;
+    public string? Sort { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public string? SellerId { get; set; }
+    public bool IncludeUnapproved { get; set; } = false;
+}
 
 public class CatalogResultDto
 {
@@ -41,10 +43,11 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
             .Include(p => p.Seller)
             .Include(p => p.Images)
             .Include(p => p.Variants)
+            .Include(p => p.Reviews)
             .AsNoTracking();
 
-        // All active products are shown, regardless of ApprovalStatus.
-        query = query.Where(p => p.IsActive);
+        query = query.Where(p => p.IsActive &&
+            (request.IncludeUnapproved || p.ApprovalStatus == ApprovalStatus.Approved));
 
         if (!string.IsNullOrEmpty(request.SellerId))
         {
@@ -113,8 +116,12 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
             IsNew = (DateTime.UtcNow - p.Created).TotalDays <= 30,
             IsFeatured = p.IsFeatured,
             ApprovalStatus = p.ApprovalStatus.ToString(),
-            SellerName = p.Seller != null ? p.Seller.FirstName + " " + p.Seller.LastName : "",
-            SellerEmail = p.Seller != null ? p.Seller.Email ?? "" : "",
+            SellerId = p.SellerId,
+            SellerName = p.Seller != null
+                ? (!string.IsNullOrWhiteSpace(p.Seller.FirstName) || !string.IsNullOrWhiteSpace(p.Seller.LastName)
+                    ? $"{p.Seller.FirstName} {p.Seller.LastName}".Trim()
+                    : p.Seller.UserName ?? "")
+                : "",
             Variants = p.Variants.Where(v => v.IsActive).Select(v => new ProductVariantDto
             {
                 Id = v.Id,

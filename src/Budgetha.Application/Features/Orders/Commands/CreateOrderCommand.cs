@@ -5,6 +5,7 @@ using Budgetha.Domain.Entities;
 using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace Budgetha.Application.Features.Orders.Commands;
 
@@ -22,19 +23,22 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
     private readonly IOrderCommunicationService _communications;
     private readonly IInventoryLockService _inventoryLockService;
     private readonly ICheckoutPricingService _pricingService;
+    private readonly IConfiguration _configuration;
 
     public CreateOrderCommandHandler(
         IApplicationDbContext context, 
         ICurrentUserService currentUserService,
         IOrderCommunicationService communications,
         IInventoryLockService inventoryLockService,
-        ICheckoutPricingService pricingService)
+        ICheckoutPricingService pricingService,
+        IConfiguration configuration)
     {
         _context = context;
         _currentUserService = currentUserService;
         _communications = communications;
         _inventoryLockService = inventoryLockService;
         _pricingService = pricingService;
+        _configuration = configuration;
     }
 
     public async Task<Guid> Handle(CreateOrderCommand request, CancellationToken cancellationToken)
@@ -51,8 +55,17 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         if (shippingAddress == null)
             throw new UnauthorizedAccessException("The shipping address does not belong to the current user.");
 
-        var isPayPal = request.PaymentMethod.Equals("CreditCard", StringComparison.OrdinalIgnoreCase) ||
-                       request.PaymentMethod.Equals("PayPal", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(request.PaymentMethod))
+            throw new ValidationException(new[] { "A payment method is required." });
+
+        var isPayPal = request.PaymentMethod.Equals("PayPal", StringComparison.OrdinalIgnoreCase);
+        var isMock = request.PaymentMethod.Equals("Mock", StringComparison.OrdinalIgnoreCase);
+        var isCashOnDelivery = request.PaymentMethod.Equals("CashOnDelivery", StringComparison.OrdinalIgnoreCase);
+        var mockEnabled = bool.TryParse(_configuration["Payments:Mock:Enabled"], out var enabled) && enabled;
+        if (isMock && !mockEnabled)
+            throw new ValidationException(new[] { "Mock payment is only available in the development environment." });
+        if (!isPayPal && !isMock && !isCashOnDelivery)
+            throw new ValidationException(new[] { "Payment method must be PayPal, Mock, or CashOnDelivery." });
 
         var cart = await _context.Carts
             .Include(c => c.Items)
@@ -135,6 +148,7 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
             orderItems.Add(new OrderItem
             {
                 ProductId = cartItem.ProductId,
+                SellerId = cartItem.Product.SellerId,
                 VariantId = variant?.Id,
                 Quantity = cartItem.Quantity,
                 UnitPrice = itemPrice,
@@ -153,7 +167,7 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         var order = new Order
         {
             UserId = userId,
-            Status = OrderStatus.Pending,
+            Status = isPayPal ? OrderStatus.Pending : OrderStatus.Processing,
             Subtotal = quote.Subtotal,
             DiscountAmount = quote.DiscountAmount,
             ShippingAmount = quote.ShippingAmount,
@@ -179,15 +193,32 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
             ReservationExpiresAt = isPayPal ? DateTimeOffset.UtcNow.AddMinutes(30) : null
         };
 
+        foreach (var sellerGroup in orderItems.GroupBy(item => item.SellerId))
+        {
+            var fulfillment = new OrderFulfillment
+            {
+                Order = order,
+                SellerId = sellerGroup.Key,
+                Amount = sellerGroup.Sum(item => item.UnitPrice * item.Quantity - item.DiscountAmount),
+                Status = FulfillmentStatus.Processing
+            };
+            foreach (var item in sellerGroup)
+            {
+                item.Fulfillment = fulfillment;
+                fulfillment.Items.Add(item);
+            }
+            order.Fulfillments.Add(fulfillment);
+        }
+
         // 4. Create Payment if not COD
-        if (isPayPal)
+        if (isPayPal || isMock)
         {
             order.Payment = new Payment
             {
                 Amount = quote.TotalAmount,
                 Currency = quote.Currency,
-                Status = PaymentStatus.Pending,
-                Provider = PaymentProvider.PayPal
+            Status = isMock ? PaymentStatus.Completed : PaymentStatus.Pending,
+                Provider = isMock ? PaymentProvider.Mock : PaymentProvider.PayPal
             };
         }
         else
@@ -217,7 +248,7 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
                 order,
                 user?.FirstName ?? string.Empty,
                 sellerIds,
-                "Cash on Delivery",
+                isMock ? "Mock Payment" : "Cash on Delivery",
                 cancellationToken);
         }
 

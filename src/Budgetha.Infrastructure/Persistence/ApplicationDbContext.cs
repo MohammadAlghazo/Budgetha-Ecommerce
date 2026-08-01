@@ -26,6 +26,8 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+    public DbSet<OrderFulfillment> OrderFulfillments => Set<OrderFulfillment>();
+    public DbSet<DeliveryReport> DeliveryReports => Set<DeliveryReport>();
     public DbSet<Cart> Carts => Set<Cart>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
     public DbSet<Review> Reviews => Set<Review>();
@@ -79,6 +81,12 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
         }
 
         foreach (var entry in ChangeTracker.Entries<Payment>()
+                     .Where(entry => entry.State is EntityState.Added or EntityState.Modified))
+        {
+            entry.Entity.RowVersion = Guid.NewGuid().ToByteArray();
+        }
+
+        foreach (var entry in ChangeTracker.Entries<OrderFulfillment>()
                      .Where(entry => entry.State is EntityState.Added or EntityState.Modified))
         {
             entry.Entity.RowVersion = Guid.NewGuid().ToByteArray();

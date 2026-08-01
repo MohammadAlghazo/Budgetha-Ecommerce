@@ -22,9 +22,10 @@ public class ProductsController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<CatalogResultDto>> GetProducts([FromQuery] GetProductsQuery query)
     {
-        
-        if (query.Page <= 0) query = query with { Page = 1 };
-        if (query.PageSize <= 0) query = query with { PageSize = 12 };
+        if (query.Page <= 0) query.Page = 1;
+        if (query.PageSize <= 0) query.PageSize = 12;
+        query.PageSize = Math.Min(query.PageSize, 100);
+        query.IncludeUnapproved = false;
 
         var result = await _mediator.Send(query);
         return Ok(result);
@@ -136,17 +137,6 @@ public class ProductsController : ControllerBase
         return NoContent();
     }
 
-    [HttpGet("debug-activate")]
-    public async Task<ActionResult> DebugActivateProducts([FromServices] Budgetha.Application.Common.Interfaces.IApplicationDbContext db)
-    {
-        var products = db.Products.ToList();
-        foreach (var p in products) { 
-            p.IsActive = true; 
-            p.ApprovalStatus = ApprovalStatus.Approved;
-        }
-        await db.SaveChangesAsync(default);
-        return Ok("Activated and approved all products");
-    }
 }
 
 public record CreateProductRequest(

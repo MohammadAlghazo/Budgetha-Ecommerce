@@ -1,7 +1,7 @@
 ﻿import { Component, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators, AbstractControl, ValidationErrors } from '@angular/forms';
-import { RouterLink, Router } from '@angular/router';
+import { ActivatedRoute, RouterLink, Router } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { ToastService } from '../../../core/services/toast.service';
 
@@ -143,7 +143,8 @@ export class ResetPasswordComponent {
     private fb: FormBuilder,
     private authService: AuthService,
     private toastService: ToastService,
-    private router: Router
+    private router: Router,
+    private route: ActivatedRoute
   ) {
     this.form = this.fb.group({
       email: ['', [Validators.required, Validators.email]],
@@ -151,6 +152,13 @@ export class ResetPasswordComponent {
       newPassword: ['', [Validators.required, Validators.minLength(8)]],
       confirmPassword: ['', [Validators.required]]
     }, { validators: this.passwordMatchValidator });
+
+    this.route.queryParamMap.subscribe(params => {
+      this.form.patchValue({
+        email: params.get('email') ?? '',
+        token: params.get('token') ?? ''
+      });
+    });
   }
 
   private passwordMatchValidator(control: AbstractControl): ValidationErrors | null {
@@ -158,8 +166,13 @@ export class ResetPasswordComponent {
     const confirmPassword = control.get('confirmPassword');
 
     if (password && confirmPassword && password.value !== confirmPassword.value) {
-      confirmPassword.setErrors({ passwordMismatch: true });
+      confirmPassword.setErrors({ ...confirmPassword.errors, passwordMismatch: true });
       return { passwordMismatch: true };
+    }
+    if (confirmPassword?.hasError('passwordMismatch')) {
+      const errors = { ...confirmPassword.errors };
+      delete errors['passwordMismatch'];
+      confirmPassword.setErrors(Object.keys(errors).length ? errors : null);
     }
     return null;
   }

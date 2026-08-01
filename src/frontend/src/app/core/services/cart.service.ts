@@ -91,13 +91,15 @@ export class CartService {
             productId: i.productId,
             variantId: i.variantId,
             name: i.productName,
-            slug: '', // missing in backend dto, can add if needed
-            brand: '',
+            slug: i.productSlug,
+            brand: i.brand || 'Generic',
             image: i.productImage || '',
             price: i.price,
             quantity: i.quantity,
             stock: i.stock,
-            type: i.type === 0 ? 'Purchase' : 'Rental',
+            type: typeof i.type === 'string'
+              ? (i.type.toLowerCase() === 'rental' ? 'Rental' : 'Purchase')
+              : (i.type === 1 ? 'Rental' : 'Purchase'),
             rentalStartDate: i.rentalStartDate,
             rentalEndDate: i.rentalEndDate,
             color: i.color,
@@ -177,7 +179,7 @@ export class CartService {
           this.fetchFromBackend();
           this.toast.success(`${product.name} added to cart`);
         },
-        error: () => this.toast.error('Failed to add to cart')
+        error: () => undefined
       });
     } else {
       // Local logic
@@ -228,7 +230,7 @@ export class CartService {
         quantity: quantity
       }).subscribe({
         next: () => this.fetchFromBackend(),
-        error: () => this.toast.error('Failed to update quantity')
+        error: () => undefined
       });
     } else {
       this._items.update(items =>
@@ -249,7 +251,7 @@ export class CartService {
           this.fetchFromBackend();
           this.toast.success('Item removed');
         },
-        error: () => this.toast.error('Failed to remove item')
+        error: () => undefined
       });
     } else {
       this._items.update(items =>
@@ -332,4 +334,5 @@ export class CartService {
       return null;
     }
   }
+
 }
