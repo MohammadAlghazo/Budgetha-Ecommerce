@@ -135,6 +135,15 @@ public class ProductsController : ControllerBase
         if (!result) return NotFound();
         return NoContent();
     }
+
+    [HttpGet("debug-activate")]
+    public async Task<ActionResult> DebugActivateProducts([FromServices] Budgetha.Application.Common.Interfaces.IApplicationDbContext db)
+    {
+        var products = db.Products.ToList();
+        foreach (var p in products) { p.IsActive = true; }
+        await db.SaveChangesAsync(default);
+        return Ok("Activated all products");
+    }
 }
 
 public record CreateProductRequest(

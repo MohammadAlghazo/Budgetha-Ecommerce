@@ -1,5 +1,6 @@
-﻿import { Component, signal } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { DomSanitizer } from '@angular/platform-browser';
 
 @Component({
   selector: 'app-auth-slider',
@@ -20,7 +21,7 @@ import { CommonModule } from '@angular/common';
             <div class="flex gap-4 items-start mb-2">
               <div class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border"
                    [ngClass]="card.iconBgClass">
-                <i class="w-6 h-6 flex items-center justify-center" [ngClass]="card.iconColorClass" [innerHTML]="card.icon"></i>
+                <i class="w-6 h-6 flex items-center justify-center" [ngClass]="card.iconColorClass" [innerHTML]="sanitizer.bypassSecurityTrustHtml(card.icon)"></i>
               </div>
               <div>
                 <div class="text-white font-bold text-lg leading-tight">{{ card.title }}</div>
@@ -61,6 +62,7 @@ import { CommonModule } from '@angular/common';
   `
 })
 export class AuthSliderComponent {
+  sanitizer = inject(DomSanitizer);
   currentCardIndex = signal(0);
 
   cards = [

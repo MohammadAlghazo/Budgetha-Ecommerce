@@ -1,12 +1,11 @@
-﻿import { Component, inject, computed, signal, effect, OnDestroy } from '@angular/core';
+import { Component, inject, computed, signal, effect, OnDestroy } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { NgTemplateOutlet } from '@angular/common';
 import { AuthService } from '../../core/services/auth.service';
-import { ThemeToggleComponent } from '../../shared/components/theme-toggle/theme-toggle.component';
 
 @Component({
   selector: 'app-admin-layout',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, NgTemplateOutlet, ThemeToggleComponent],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, NgTemplateOutlet],
   template: `
     <div class="h-screen bg-slate-50 flex overflow-hidden">
       <!-- Sidebar -->
@@ -173,7 +172,6 @@ import { ThemeToggleComponent } from '../../shared/components/theme-toggle/theme
             <h1 class="text-lg font-bold text-slate-800">{{ authService.user()?.roles?.includes('Seller') && !authService.user()?.roles?.includes('Admin') && !authService.user()?.roles?.includes('SuperAdmin') ? 'Seller Dashboard' : 'Budgetha Admin' }}</h1>
           </div>
           <div class="flex items-center gap-3">
-            <app-theme-toggle />
             <span class="text-sm font-medium text-slate-600 hidden sm:block">
               {{ authService.user()?.firstName }} {{ authService.user()?.lastName }}
             </span>

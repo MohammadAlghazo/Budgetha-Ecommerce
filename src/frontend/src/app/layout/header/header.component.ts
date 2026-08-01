@@ -1,4 +1,4 @@
-﻿import { Component, HostListener, computed, inject, signal, OnInit } from '@angular/core';
+import { Component, HostListener, computed, inject, signal, OnInit } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
@@ -12,11 +12,10 @@ import { NotificationService } from '../../core/services/notification.service';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { DatePipe } from '@angular/common';
-import { ThemeToggleComponent } from '../../shared/components/theme-toggle/theme-toggle.component';
 
 @Component({
   selector: 'app-header',
-  imports: [RouterLink, RouterLinkActive, FormsModule, InstallButtonComponent, DatePipe, ThemeToggleComponent],
+  imports: [RouterLink, RouterLinkActive, FormsModule, InstallButtonComponent, DatePipe],
   template: `
     <!-- Announcement bar -->
     @if (announcement()) {
@@ -52,7 +51,7 @@ import { ThemeToggleComponent } from '../../shared/components/theme-toggle/theme
             </button>
 
             <a routerLink="/" class="flex items-center gap-2 group -ms-3">
-              <img src="/images/logo.png" alt="Budgetha" class="h-16 w-auto object-contain" />
+              <img src="/images/logo.png" alt="Budgetha" class="h-16 w-auto object-contain dark:bg-white/90 dark:rounded-xl dark:p-1 dark:shadow-sm" />
               <span class="text-3xl font-black text-slate-900 tracking-tighter hidden sm:block" style="font-family: 'Outfit', sans-serif; padding-top: 4px;">Budgetha</span>
             </a>
           </div>
@@ -73,8 +72,6 @@ import { ThemeToggleComponent } from '../../shared/components/theme-toggle/theme
 
           <!-- Right: search + actions -->
           <div class="flex items-center gap-1 sm:gap-2">
-            <app-theme-toggle />
-
             <!-- Install as app (hidden once installed or dismissed) -->
             <app-install-button variant="header" />
 
