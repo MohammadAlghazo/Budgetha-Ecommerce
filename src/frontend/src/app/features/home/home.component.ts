@@ -1,12 +1,14 @@
-﻿import { Component, inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../core/services/product.service';
 import { ProductCardComponent } from '../../shared/components/product-card/product-card.component';
 
+import { SkeletonCardComponent } from '../../shared/components/skeleton-card/skeleton-card.component';
+
 @Component({
   selector: 'app-home',
-  imports: [RouterLink, ProductCardComponent],
+  imports: [RouterLink, ProductCardComponent, SkeletonCardComponent],
   template: `
     <!-- ══ Hero ══ -->
     <section class="relative overflow-hidden bg-gradient-to-br from-teal-950 via-teal-900 to-teal-800">
@@ -131,7 +133,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
 
       <div class="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-4 sm:gap-6">
-        @for (category of categories(); track category.id) {
+        @for (category of categories() || []; track category.id) {
           <a
             [routerLink]="['/shop']"
             [queryParams]="{ category: category.slug }"
@@ -171,8 +173,15 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 sm:gap-6">
-        @for (product of featured(); track product.id) {
-          <app-product-card [product]="product" layout="grid" />
+        @if (featured() === undefined) {
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+        } @else {
+          @for (product of featured()!.slice(0, 4); track product.id) {
+            <app-product-card [product]="product" layout="grid" />
+          }
         }
       </div>
     </section>
@@ -212,8 +221,15 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6">
-        @for (product of newArrivals(); track product.id) {
-          <app-product-card [product]="product" layout="grid" />
+        @if (newArrivals() === undefined) {
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+        } @else {
+          @for (product of newArrivals()!.slice(0, 4); track product.id) {
+            <app-product-card [product]="product" layout="grid" />
+          }
         }
       </div>
     </section>
@@ -222,9 +238,9 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
 export class HomeComponent {
   private readonly productService = inject(ProductService);
 
-  readonly categories = toSignal(this.productService.getCategories(), { initialValue: [] });
-  readonly featured = toSignal(this.productService.getFeatured(), { initialValue: [] });
-  readonly newArrivals = toSignal(this.productService.getNewArrivals(), { initialValue: [] });
+  readonly categories = toSignal(this.productService.getCategories());
+  readonly featured = toSignal(this.productService.getFeatured());
+  readonly newArrivals = toSignal(this.productService.getNewArrivals());
 
   readonly valueProps = [
     {

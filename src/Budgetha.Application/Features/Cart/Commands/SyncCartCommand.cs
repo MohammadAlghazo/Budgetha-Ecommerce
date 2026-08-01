@@ -72,7 +72,7 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
                 .Include(p => p.Variants)
                 .SingleOrDefaultAsync(p => p.Id == itemDto.ProductId, cancellationToken);
             if (product == null || !product.IsActive || product.ApprovalStatus != ApprovalStatus.Approved)
-                throw new InvalidOperationException($"Product {itemDto.ProductId} is not available.");
+                continue;
 
             var variant = InventoryRules.ValidateVariant(product, itemDto.VariantId, itemDto.Color, itemDto.Size);
 

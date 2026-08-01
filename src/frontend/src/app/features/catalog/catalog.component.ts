@@ -1,4 +1,4 @@
-﻿import { Component, computed, inject, signal, effect } from '@angular/core';
+import { Component, computed, inject, signal, effect } from '@angular/core';
 import { CurrencyPipe, NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
@@ -6,6 +6,7 @@ import { ProductService } from '../../core/services/product.service';
 import { WishlistService } from '../../core/services/wishlist.service';
 import { CatalogResult, Product, SortOption } from '../../core/models/shop.models';
 import { ProductCardComponent } from '../../shared/components/product-card/product-card.component';
+import { SkeletonCardComponent } from '../../shared/components/skeleton-card/skeleton-card.component';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
 import { StarRatingComponent } from '../../shared/components/star-rating/star-rating.component';
 
@@ -13,7 +14,7 @@ const PAGE_SIZE = 9;
 
 @Component({
   selector: 'app-catalog',
-  imports: [CurrencyPipe, NgTemplateOutlet, RouterLink, ProductCardComponent, EmptyStateComponent, StarRatingComponent],
+  imports: [CurrencyPipe, NgTemplateOutlet, RouterLink, ProductCardComponent, EmptyStateComponent, StarRatingComponent, SkeletonCardComponent],
   template: `
     <div class="max-w-7xl mx-auto px-4 sm:px-6 py-8 lg:py-10">
       <!-- Breadcrumb + heading -->
@@ -227,7 +228,23 @@ const PAGE_SIZE = 9;
         <!-- ══ Results ══ -->
         <div class="flex-1 min-w-0">
           @if (isLoading()) {
-            <div class="card p-12 text-center text-slate-500">Loading products...</div>
+            @if (view() === 'grid') {
+              <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+                <app-skeleton-card layout="grid" />
+                <app-skeleton-card layout="grid" />
+                <app-skeleton-card layout="grid" />
+                <app-skeleton-card layout="grid" />
+                <app-skeleton-card layout="grid" />
+                <app-skeleton-card layout="grid" />
+              </div>
+            } @else {
+              <div class="space-y-5">
+                <app-skeleton-card layout="list" />
+                <app-skeleton-card layout="list" />
+                <app-skeleton-card layout="list" />
+                <app-skeleton-card layout="list" />
+              </div>
+            }
           } @else if (loadError()) {
             <div class="card p-12 text-center">
               <p class="text-sm text-rose-600">Products could not be loaded.</p>

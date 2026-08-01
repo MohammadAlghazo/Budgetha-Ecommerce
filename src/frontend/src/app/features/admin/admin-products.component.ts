@@ -1,15 +1,17 @@
-﻿import { Component, OnInit, inject, signal, computed } from '@angular/core';
+import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { FormsModule } from '@angular/forms';
 import { AdminService, AdminProductResult } from '../../core/services/admin.service';
 import { AuthService } from '../../core/services/auth.service';
+import { ProductService } from '../../core/services/product.service';
 
 @Component({
   selector: 'app-admin-products',
-  imports: [CurrencyPipe, RouterLink],
+  imports: [CurrencyPipe, RouterLink, FormsModule],
   template: `
     <div class="max-w-7xl mx-auto space-y-6">
-      <div class="flex items-center justify-between">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Products Management</h2>
           <p class="mt-1 text-sm text-slate-500">
@@ -17,7 +19,22 @@ import { AuthService } from '../../core/services/auth.service';
           </p>
         </div>
 
-        <div class="flex items-center gap-4">
+        <div class="flex flex-wrap items-center gap-3">
+          <!-- Filters -->
+          <select [(ngModel)]="selectedCategory" (change)="applyFilters()" class="bg-white border border-slate-200 text-slate-700 text-sm rounded-xl px-3 py-2 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+            <option value="">All Categories</option>
+            @for (cat of categories(); track cat.id) {
+              <option [value]="cat.slug">{{ cat.name }}</option>
+            }
+          </select>
+
+          <select [(ngModel)]="selectedSort" (change)="applyFilters()" class="bg-white border border-slate-200 text-slate-700 text-sm rounded-xl px-3 py-2 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+            <option value="newest">Newest to Oldest</option>
+            <option value="price-asc">Price: Low to High</option>
+            <option value="price-desc">Price: High to Low</option>
+            <option value="rating">Highest Rated</option>
+          </select>
+
           <a routerLink="/admin/add-product" class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-colors">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
             Add New Product
@@ -61,7 +78,7 @@ import { AuthService } from '../../core/services/auth.service';
                       </div>
                       <div>
                         <p class="font-semibold text-slate-900 max-w-[200px] truncate" [title]="product.name">{{ product.name }}</p>
-                        <p class="text-xs text-slate-400">{{ product.category }}</p>
+                        <p class="text-xs text-slate-400 mt-0.5">{{ product.category }}</p>
                       </div>
                     </div>
                   </td>
@@ -78,6 +95,13 @@ import { AuthService } from '../../core/services/auth.service';
                   </td>
                   <td class="px-6 py-4 text-end">
                     <div class="flex items-center justify-end gap-2">
+                      <!-- View Details -->
+                      <button (click)="viewDetails(product)"
+                              class="inline-flex items-center gap-1 text-xs font-semibold text-sky-600 border border-sky-200 hover:bg-sky-50 px-3 py-1.5 rounded-lg transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                        View Details
+                      </button>
+
                       <!-- Edit -->
                       @if (canManageProducts()) {
                         <a [routerLink]="['/admin/edit-product', product.slug]"
@@ -135,7 +159,7 @@ import { AuthService } from '../../core/services/auth.service';
                 </div>
                 <div>
                   <p class="font-semibold text-slate-900 truncate" [title]="product.name">{{ product.name }}</p>
-                  <p class="text-xs text-slate-400">{{ product.category }}</p>
+                  <p class="text-xs text-slate-400 mt-0.5">{{ product.category }}</p>
                 </div>
               </div>
               <div class="flex justify-between items-center text-sm mb-4">
@@ -144,7 +168,12 @@ import { AuthService } from '../../core/services/auth.service';
                   Stock: {{ product.stock }}
                 </span>
               </div>
-              <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <div class="flex flex-wrap items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button (click)="viewDetails(product)"
+                        class="inline-flex items-center gap-1 text-xs font-semibold text-sky-600 border border-sky-200 hover:bg-sky-50 px-3 py-1.5 rounded-lg transition-colors">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                  Details
+                </button>
                 @if (canManageProducts()) {
                   <a [routerLink]="['/admin/edit-product', product.slug]" class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors">
                     Edit
@@ -189,6 +218,96 @@ import { AuthService } from '../../core/services/auth.service';
       }
     </div>
 
+    <!-- Product Details Modal -->
+    @if (selectedProductDetails()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" (click)="selectedProductDetails.set(null)"></div>
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div class="p-6">
+            <div class="flex items-center justify-between mb-6">
+              <h3 class="text-xl font-bold text-slate-900">Product Details</h3>
+              <button (click)="selectedProductDetails.set(null)" class="text-slate-400 hover:text-slate-600 transition-colors">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+            
+            <div class="space-y-6">
+              <div class="flex gap-4 items-start">
+                <div class="w-24 h-24 bg-slate-100 rounded-xl overflow-hidden flex-shrink-0">
+                  @if (selectedProductDetails()?.images && selectedProductDetails()?.images?.length > 0) {
+                    <img [src]="selectedProductDetails()?.images[0]" [alt]="selectedProductDetails()?.name" class="w-full h-full object-cover">
+                  } @else {
+                    <div class="w-full h-full flex items-center justify-center text-slate-300">
+                      <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    </div>
+                  }
+                </div>
+                <div>
+                  <h4 class="text-lg font-bold text-slate-900">{{ selectedProductDetails()?.name }}</h4>
+                  <p class="text-sm text-slate-500 mt-1 line-clamp-2">{{ selectedProductDetails()?.description }}</p>
+                  <div class="flex gap-2 mt-2">
+                    <span class="inline-flex px-2 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-md">
+                      {{ selectedProductDetails()?.category }}
+                    </span>
+                    <span class="inline-flex px-2 py-1 bg-slate-100 text-slate-700 text-xs font-semibold rounded-md">
+                      {{ selectedProductDetails()?.brand || 'No Brand' }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-xl">
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Price</p>
+                  <p class="text-lg font-bold text-slate-900">{{ selectedProductDetails()?.price | currency }}</p>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Stock</p>
+                  <p class="text-lg font-bold" [class.text-rose-600]="selectedProductDetails()?.stock < 10" [class.text-slate-900]="selectedProductDetails()?.stock >= 10">
+                    {{ selectedProductDetails()?.stock }}
+                  </p>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Rating</p>
+                  <p class="text-lg font-bold text-slate-900 flex items-center gap-1">
+                    {{ selectedProductDetails()?.rating }}
+                    <svg class="w-4 h-4 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                  </p>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Reviews</p>
+                  <p class="text-lg font-bold text-slate-900">{{ selectedProductDetails()?.reviewCount }}</p>
+                </div>
+              </div>
+
+              <!-- Seller Info Section -->
+              <div class="border-t border-slate-100 pt-4">
+                <h5 class="text-sm font-bold text-slate-900 mb-3">Seller Information</h5>
+                <div class="bg-indigo-50/50 rounded-xl p-4 border border-indigo-100/50">
+                  <div class="flex items-center gap-4">
+                    <div class="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold text-lg">
+                      {{ selectedProductDetails()?.sellerName?.charAt(0) || '?' }}
+                    </div>
+                    <div>
+                      <p class="font-semibold text-slate-900">{{ selectedProductDetails()?.sellerName || 'Unknown Seller' }}</p>
+                      <p class="text-sm text-slate-500">{{ selectedProductDetails()?.sellerEmail || 'No email provided' }}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="mt-8 flex justify-end">
+              <button (click)="selectedProductDetails.set(null)"
+                      class="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-colors text-sm">
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    }
+
     <!-- Delete Confirmation Modal -->
     @if (productToDelete()) {
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -222,13 +341,20 @@ import { AuthService } from '../../core/services/auth.service';
 })
 export class AdminProductsComponent implements OnInit {
   private readonly adminService = inject(AdminService);
+  private readonly productService = inject(ProductService);
   readonly authService = inject(AuthService);
 
   readonly productsResult = signal<AdminProductResult | null>(null);
   readonly processingId = signal<string | null>(null);
   readonly productToDelete = signal<any>(null);
+  readonly selectedProductDetails = signal<any>(null);
   readonly isLoading = signal(true);
   readonly currentPage = signal(1);
+  readonly categories = signal<any[]>([]);
+
+  // Filter state
+  selectedCategory = '';
+  selectedSort = 'newest';
 
   readonly isSuperAdmin = computed(() =>
     this.authService.user()?.roles?.includes('SuperAdmin') ?? false
@@ -244,12 +370,19 @@ export class AdminProductsComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.loadCategories();
     this.loadProducts(this.currentPage());
+  }
+
+  loadCategories(): void {
+    this.productService.getCategories().subscribe(cats => {
+      this.categories.set(cats);
+    });
   }
 
   loadProducts(page: number = 1): void {
     this.isLoading.set(true);
-    this.adminService.getAllProducts(page).subscribe({
+    this.adminService.getAllProducts(page, 50, this.selectedSort, this.selectedCategory).subscribe({
       next: (result) => {
         this.productsResult.set(result);
         this.currentPage.set(page);
@@ -262,10 +395,19 @@ export class AdminProductsComponent implements OnInit {
     });
   }
 
+  applyFilters(): void {
+    this.currentPage.set(1);
+    this.loadProducts(1);
+  }
+
   changePage(page: number): void {
     if (page > 0 && page <= (this.productsResult()?.totalPages || 1)) {
       this.loadProducts(page);
     }
+  }
+
+  viewDetails(product: any): void {
+    this.selectedProductDetails.set(product);
   }
 
   confirmDelete(product: any): void {

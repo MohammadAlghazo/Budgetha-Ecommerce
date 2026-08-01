@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, map, catchError, of } from 'rxjs';
+import { Observable, map, catchError, of, shareReplay } from 'rxjs';
 import { BRANDS } from '../mocks/mock-products';
 import {
   CatalogQuery,
@@ -12,20 +12,26 @@ import {
 } from '../models/shop.models';
 import { environment } from '../../../environments/environment';
 
-
-
 @Injectable({ providedIn: 'root' })
 export class ProductService {
   private http = inject(HttpClient);
   private apiUrl = environment.apiUrl;
 
+  private categoriesCache$?: Observable<Category[]>;
+  private brandsCache$?: Observable<string[]>;
+  private allProductsCache$?: Observable<Product[]>;
+
   getCategories(): Observable<Category[]> {
-    return this.http.get<Category[]>(`${this.apiUrl}/categories`).pipe(
-      catchError(err => {
-        console.error('Failed to fetch categories', err);
-        return of([]);
-      })
-    );
+    if (!this.categoriesCache$) {
+      this.categoriesCache$ = this.http.get<Category[]>(`${this.apiUrl}/categories`).pipe(
+        catchError(err => {
+          console.error('Failed to fetch categories', err);
+          return of([]);
+        }),
+        shareReplay(1)
+      );
+    }
+    return this.categoriesCache$;
   }
 
   createCategory(category: { name: string, slug: string, description?: string, imageUrl?: string }): Observable<string> {
@@ -37,20 +43,32 @@ export class ProductService {
   }
 
   getBrands(): Observable<string[]> {
-    return this.http.get<string[]>(`${this.apiUrl}/products/brands`).pipe(
-      catchError(err => {
-        console.error('Failed to fetch brands', err);
-        return of([]);
-      })
-    );
+    if (!this.brandsCache$) {
+      this.brandsCache$ = this.http.get<string[]>(`${this.apiUrl}/products/brands`).pipe(
+        catchError(err => {
+          console.error('Failed to fetch brands', err);
+          return of([]);
+        }),
+        shareReplay(1)
+      );
+    }
+    return this.brandsCache$;
   }
 
   getAll(): Observable<Product[]> {
-    return this.query({ page: 1, pageSize: 100, minPrice: 0, maxPrice: 1000000, minRating: 0 } as CatalogQuery).pipe(map(res => res?.items || []));
+    if (!this.allProductsCache$) {
+      this.allProductsCache$ = this.query({ page: 1, pageSize: 100, minPrice: 0, maxPrice: 1000000, minRating: 0 } as CatalogQuery).pipe(
+        map(res => res?.items || []),
+        shareReplay(1)
+      );
+    }
+    return this.allProductsCache$;
   }
 
   getFeatured(): Observable<Product[]> {
-    return this.getAll().pipe(map(items => items.filter(p => p.isFeatured)));
+    return this.getAll().pipe(
+      map(items => items.filter(p => p.isFeatured || (p.originalPrice && p.originalPrice > p.price) || p.rating >= 4))
+    );
   }
 
   getNewArrivals(): Observable<Product[]> {
@@ -65,6 +83,7 @@ export class ProductService {
       })
     );
   }
+
 
   getRelated(product: Product, count = 4): Observable<Product[]> {
     return this.getAll().pipe(

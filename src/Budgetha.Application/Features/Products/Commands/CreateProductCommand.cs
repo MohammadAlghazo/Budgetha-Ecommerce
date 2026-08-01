@@ -94,7 +94,7 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             SellerId = request.SellerId,
             Slug = slug,
             IsActive = true,
-            ApprovalStatus = isAdmin ? ApprovalStatus.Approved : ApprovalStatus.Pending
+            ApprovalStatus = ApprovalStatus.Approved
         };
 
         foreach (var variant in request.Variants ?? [])

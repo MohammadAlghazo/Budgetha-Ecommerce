@@ -126,14 +126,13 @@ public class AdminService : IAdminService
     {
         var totalUsers = await _userManager.Users.CountAsync();
         var totalProducts = await _context.Products.CountAsync();
-        var pendingProducts = await _context.Products.CountAsync(p => p.ApprovalStatus == Budgetha.Domain.Enums.ApprovalStatus.Pending);
         var totalOrders = await _context.Orders.CountAsync();
 
         return new AdminStatsDto
         {
             TotalUsers = totalUsers,
             TotalProducts = totalProducts,
-            PendingProducts = pendingProducts,
+            PendingProducts = 0, // Feature removed
             TotalOrders = totalOrders
         };
     }

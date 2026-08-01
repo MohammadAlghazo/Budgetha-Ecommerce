@@ -24,7 +24,7 @@ public class GetCategoriesQueryHandler : IRequestHandler<GetCategoriesQuery, Lis
                 Name = c.Name,
                 Slug = c.Slug,
                 Image = c.ImageUrl ?? "",
-                ProductCount = c.Products.Count(p => p.IsActive && p.ApprovalStatus == Budgetha.Domain.Enums.ApprovalStatus.Approved)
+                ProductCount = c.Products.Count(p => p.IsActive)
             })
             .AsNoTracking()
             .ToListAsync(cancellationToken);

@@ -71,8 +71,11 @@ export class AdminService {
     return this.http.get<PagedUserResult>(`${this.apiUrl}/users?page=${page}&pageSize=${pageSize}`);
   }
 
-  getAllProducts(page: number = 1, pageSize: number = 50): Observable<AdminProductResult> {
-    return this.http.get<AdminProductResult>(`${this.apiUrl}/products?page=${page}&pageSize=${pageSize}`);
+  getAllProducts(page: number = 1, pageSize: number = 50, sort?: string, category?: string): Observable<AdminProductResult> {
+    let url = `${this.apiUrl}/products?page=${page}&pageSize=${pageSize}`;
+    if (sort) url += `&sort=${sort}`;
+    if (category) url += `&category=${category}`;
+    return this.http.get<AdminProductResult>(url);
   }
 
   
@@ -86,7 +89,8 @@ export class AdminService {
 
   
   approveProduct(productId: string, status: 'Approved' | 'Rejected'): Observable<any> {
-    return this.http.patch(`${this.productsUrl}/${productId}/approve`, status, {
+    const statusValue = status === 'Approved' ? 1 : 2;
+    return this.http.patch(`${this.productsUrl}/${productId}/approve`, statusValue, {
       headers: { 'Content-Type': 'application/json' }
     });
   }

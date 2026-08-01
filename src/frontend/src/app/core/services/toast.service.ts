@@ -47,10 +47,10 @@ export class ToastService {
     this.toasts.update(current => {
       
       const deduped = current.filter(t => !(t.message === message && t.type === type));
-      const next = [...deduped, { id, message, type, action: opts.action }];
-      const overflow = next.slice(0, Math.max(0, next.length - MAX_VISIBLE));
+      const next = [{ id, message, type, action: opts.action }, ...deduped];
+      const overflow = next.slice(MAX_VISIBLE);
       overflow.forEach(t => this.clearTimer(t.id));
-      return next.slice(-MAX_VISIBLE);
+      return next.slice(0, MAX_VISIBLE);
     });
 
     if (duration > 0) {

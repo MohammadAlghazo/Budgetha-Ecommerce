@@ -56,22 +56,23 @@ public class AdminController : ControllerBase
     }
 
     [HttpGet("products")]
-    public async Task<IActionResult> GetAllProducts([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
+    public async Task<IActionResult> GetAllProducts([FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] string? sort = "newest", [FromQuery] string? category = null)
     {
         var isSuperAdminOrAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         
         var query = new GetProductsQuery(
             Search: null,
-            Categories: null,
+            Categories: string.IsNullOrEmpty(category) ? null : new List<string> { category },
             Brands: null,
             MinPrice: 0,
             MaxPrice: int.MaxValue,
             MinRating: 0,
-            Sort: "newest",
+            Sort: sort,
             Page: page,
             PageSize: pageSize,
-            SellerId: isSuperAdminOrAdmin ? null : userId
+            SellerId: isSuperAdminOrAdmin ? null : userId,
+            IncludeUnapproved: true
         );
 
         var result = await _mediator.Send(query);

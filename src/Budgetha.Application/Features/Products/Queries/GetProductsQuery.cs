@@ -15,7 +15,8 @@ public record GetProductsQuery(
     string? Sort,
     int Page,
     int PageSize,
-    string? SellerId = null) : IRequest<CatalogResultDto>;
+    string? SellerId = null,
+    bool IncludeUnapproved = false) : IRequest<CatalogResultDto>;
 
 public class CatalogResultDto
 {
@@ -37,10 +38,13 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
     {
         var query = _context.Products
             .Include(p => p.Category)
+            .Include(p => p.Seller)
             .Include(p => p.Images)
             .Include(p => p.Variants)
-            .Where(p => p.IsActive && p.ApprovalStatus == ApprovalStatus.Approved)
             .AsNoTracking();
+
+        // All active products are shown, regardless of ApprovalStatus.
+        query = query.Where(p => p.IsActive);
 
         if (!string.IsNullOrEmpty(request.SellerId))
         {
@@ -109,6 +113,8 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
             IsNew = (DateTime.UtcNow - p.Created).TotalDays <= 30,
             IsFeatured = p.IsFeatured,
             ApprovalStatus = p.ApprovalStatus.ToString(),
+            SellerName = p.Seller != null ? p.Seller.FirstName + " " + p.Seller.LastName : "",
+            SellerEmail = p.Seller != null ? p.Seller.Email ?? "" : "",
             Variants = p.Variants.Where(v => v.IsActive).Select(v => new ProductVariantDto
             {
                 Id = v.Id,
