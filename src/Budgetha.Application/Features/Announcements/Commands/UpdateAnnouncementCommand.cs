@@ -7,10 +7,14 @@ namespace Budgetha.Application.Features.Announcements.Commands;
 
 public record UpdateAnnouncementCommand(
     Guid Id,
-    string Message, 
-    string? LinkUrl, 
-    bool IsActive, 
-    DateTime? StartDate, 
+    string Message,
+    string? Subtitle,
+    string? BadgeText,
+    string? PromoCode,
+    int? DiscountPercent,
+    string? LinkUrl,
+    bool IsActive,
+    DateTime? StartDate,
     DateTime? EndDate) : IRequest<Unit>;
 
 public class UpdateAnnouncementCommandHandler : IRequestHandler<UpdateAnnouncementCommand, Unit>
@@ -32,6 +36,10 @@ public class UpdateAnnouncementCommandHandler : IRequestHandler<UpdateAnnounceme
         }
 
         announcement.Message = request.Message;
+        announcement.Subtitle = request.Subtitle;
+        announcement.BadgeText = request.BadgeText;
+        announcement.PromoCode = request.PromoCode;
+        announcement.DiscountPercent = request.DiscountPercent;
         announcement.LinkUrl = request.LinkUrl;
         announcement.IsActive = request.IsActive;
         announcement.StartDate = request.StartDate;

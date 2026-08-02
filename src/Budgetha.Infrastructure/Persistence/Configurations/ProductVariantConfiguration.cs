@@ -13,7 +13,7 @@ public class ProductVariantConfiguration : IEntityTypeConfiguration<ProductVaria
         builder.Property(v => v.Size).HasMaxLength(100);
         builder.Property(v => v.Price).HasPrecision(18, 2);
         builder.Property(v => v.RentalPricePerDay).HasPrecision(18, 2);
-        builder.Property(v => v.RowVersion).IsConcurrencyToken();
+        builder.Property(v => v.RowVersion).IsConcurrencyToken().ValueGeneratedNever();
 
         builder.HasIndex(v => v.SKU).IsUnique();
         builder.HasIndex(v => new { v.ProductId, v.Color, v.Size })

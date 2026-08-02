@@ -6,6 +6,10 @@ import { environment } from '../../../environments/environment';
 export interface Announcement {
   id: string;
   message: string;
+  subtitle?: string;
+  badgeText?: string;
+  promoCode?: string;
+  discountPercent?: number;
   linkUrl?: string;
   isActive: boolean;
   startDate?: string;
@@ -15,6 +19,10 @@ export interface Announcement {
 
 export interface CreateAnnouncementDto {
   message: string;
+  subtitle?: string;
+  badgeText?: string;
+  promoCode?: string;
+  discountPercent?: number;
   linkUrl?: string;
   isActive: boolean;
   startDate?: string;

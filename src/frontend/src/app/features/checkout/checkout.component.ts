@@ -1,7 +1,7 @@
-import { Component, DestroyRef, OnInit, effect, inject, signal } from '@angular/core';
-import { CurrencyPipe } from '@angular/common';
+import { Component, DestroyRef, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { CurrencyPipe, LowerCasePipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormBuilder, FormsModule, ReactiveFormsModule, Validators, AbstractControl, ValidationErrors } from '@angular/forms';
 import { CartService } from '../../core/services/cart.service';
 import { CheckoutQuote, OrderService } from '../../core/services/order.service';
 import { AccountService } from '../../core/services/account.service';
@@ -11,12 +11,26 @@ import { Address } from '../../core/models/shop.models';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
 import { debounceTime, Observable, switchMap } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { COUNTRIES, CountryData } from '../../core/data/countries.data';
 
 type PaymentMethod = 'mock' | 'cod';
 
+function phoneValidator(getDialCode: () => CountryData | undefined) {
+  return (control: AbstractControl): ValidationErrors | null => {
+    const value = (control.value || '').replace(/\D/g, '');
+    const country = getDialCode();
+    if (!value) return { required: true };
+    const lengths = Array.isArray(country?.phoneLength) ? country.phoneLength : [country?.phoneLength ?? 7];
+    if (!lengths.includes(value.length)) {
+      return { phoneLength: { expected: lengths, actual: value.length } };
+    }
+    return null;
+  };
+}
+
 @Component({
   selector: 'app-checkout',
-  imports: [CurrencyPipe, RouterLink, ReactiveFormsModule, EmptyStateComponent],
+  imports: [CurrencyPipe, LowerCasePipe, RouterLink, ReactiveFormsModule, FormsModule, EmptyStateComponent],
   template: `
     @if (cart.items().length === 0) {
       <div class="max-w-2xl mx-auto px-4 py-16">
@@ -64,19 +78,71 @@ type PaymentMethod = 'mock' | 'cod';
               </h2>
               <div class="mt-5 grid sm:grid-cols-2 gap-4">
                 <div>
-                  <label for="email" class="block text-sm font-medium text-slate-700 mb-1.5">Email address</label>
+                  <label for="email" class="block text-sm font-medium text-slate-700 mb-1.5">
+                    Email address <span class="text-red-500">*</span>
+                  </label>
                   <input id="email" type="email" formControlName="email" autocomplete="email" placeholder="you@example.com"
                          class="input-field" [class.input-error]="invalid('email')" />
                   @if (invalid('email')) {
                     <p class="mt-1.5 text-xs text-red-500">A valid email is required for your receipt.</p>
                   }
                 </div>
+
+                <!-- Phone with dial code -->
                 <div>
-                  <label for="phone" class="block text-sm font-medium text-slate-700 mb-1.5">Phone number</label>
-                  <input id="phone" type="tel" formControlName="phone" autocomplete="tel" placeholder="+1 (555) 000-0000"
-                         class="input-field" [class.input-error]="invalid('phone')" />
+                  <label class="block text-sm font-medium text-slate-700 mb-1.5">
+                    Phone number <span class="text-red-500">*</span>
+                  </label>
+                  <div class="flex" [class.ring-2]="invalid('phone')" [class.ring-red-400]="invalid('phone')" [class.rounded-xl]="invalid('phone')">
+                    <!-- Dial code selector -->
+                    <button type="button" (click)="dialDropdownOpen.set(!dialDropdownOpen())"
+                            class="relative flex items-center gap-1.5 px-3 py-2.5 bg-slate-50 border border-slate-200 border-r-0 rounded-l-xl text-sm font-medium text-slate-700 hover:bg-slate-100 transition-colors shrink-0 min-w-[90px]">
+                      <span class="text-lg leading-none">{{ selectedCountryData()?.flag }}</span>
+                      <span class="text-xs text-slate-500">{{ selectedCountryData()?.dialCode }}</span>
+                      <svg class="w-3 h-3 text-slate-400 ml-auto" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                      </svg>
+                    </button>
+                    <input id="phone" type="tel" formControlName="phone" autocomplete="tel"
+                           [placeholder]="phonePlaceholder()"
+                           class="input-field rounded-l-none border-l-0 flex-1 min-w-0"
+                           [class.border-red-400]="invalid('phone')"
+                           [class.focus:ring-red-400]="invalid('phone')" />
+                  </div>
+
+                  <!-- Dial code dropdown -->
+                  @if (dialDropdownOpen()) {
+                    <div class="relative z-50">
+                      <div class="absolute top-1 left-0 w-72 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden">
+                        <div class="p-2 border-b border-slate-100">
+                          <input type="text" [value]="dialSearch" (input)="dialSearch = $any($event.target).value"
+                                 placeholder="Search country..." class="input-field py-2 text-sm" />
+                        </div>
+                        <div class="max-h-56 overflow-y-auto">
+                          @for (country of filteredDialCountries(); track country.code) {
+                            <button type="button" (click)="selectDialCountry(country)"
+                                    class="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-violet-50 text-sm transition-colors"
+                                    [class.bg-violet-50]="selectedDialCountry() === country.code">
+                              <span class="text-lg">{{ country.flag }}</span>
+                              <span class="flex-1 text-start text-slate-800">{{ country.name }}</span>
+                              <span class="text-slate-400 text-xs">{{ country.dialCode }}</span>
+                            </button>
+                          }
+                        </div>
+                      </div>
+                    </div>
+                  }
+
                   @if (invalid('phone')) {
-                    <p class="mt-1.5 text-xs text-red-500">Phone number is required for delivery updates.</p>
+                    <p class="mt-1.5 text-xs text-red-500">
+                      @if (form.get('phone')?.errors?.['required']) {
+                        Phone number is required.
+                      } @else if (form.get('phone')?.errors?.['phoneLength']) {
+                        Phone must be {{ expectedPhoneLength() }} digits for {{ selectedCountryData()?.name }}.
+                      }
+                    </p>
+                  } @else {
+                    <p class="mt-1.5 text-xs text-slate-400">Enter {{ expectedPhoneLength() }} digits without the country code</p>
                   }
                 </div>
               </div>
@@ -95,7 +161,7 @@ type PaymentMethod = 'mock' | 'cod';
                       <button type="button" (click)="useAddress(address)"
                               class="rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all duration-300"
                               [class]="selectedAddressId() === address.id ? 'border-violet-500 bg-violet-50 text-violet-700' : 'border-slate-200 text-slate-600 hover:border-violet-300 hover:text-violet-700'">
-                        Use “{{ address.label }}”
+                        Use "{{ address.label }}"
                       </button>
                     }
                   </div>
@@ -109,7 +175,9 @@ type PaymentMethod = 'mock' | 'cod';
 
               <div class="mt-5 grid sm:grid-cols-2 gap-4">
                 <div class="sm:col-span-2">
-                  <label for="fullName" class="block text-sm font-medium text-slate-700 mb-1.5">Full name</label>
+                  <label for="fullName" class="block text-sm font-medium text-slate-700 mb-1.5">
+                    Full name <span class="text-red-500">*</span>
+                  </label>
                   <input id="fullName" type="text" formControlName="fullName" autocomplete="name" placeholder="Jane Doe"
                          class="input-field" [class.input-error]="invalid('fullName')" />
                   @if (invalid('fullName')) {
@@ -117,7 +185,9 @@ type PaymentMethod = 'mock' | 'cod';
                   }
                 </div>
                 <div class="sm:col-span-2">
-                  <label for="line1" class="block text-sm font-medium text-slate-700 mb-1.5">Street address</label>
+                  <label for="line1" class="block text-sm font-medium text-slate-700 mb-1.5">
+                    Street address <span class="text-red-500">*</span>
+                  </label>
                   <input id="line1" type="text" formControlName="line1" autocomplete="address-line1" placeholder="123 Main Street"
                          class="input-field" [class.input-error]="invalid('line1')" />
                   @if (invalid('line1')) {
@@ -128,44 +198,75 @@ type PaymentMethod = 'mock' | 'cod';
                   <label for="line2" class="block text-sm font-medium text-slate-700 mb-1.5">Apartment, suite, etc. <span class="text-slate-400 font-normal">(optional)</span></label>
                   <input id="line2" type="text" formControlName="line2" autocomplete="address-line2" placeholder="Apt 4B" class="input-field" />
                 </div>
+
+                <!-- Country selector -->
+                <div class="sm:col-span-2">
+                  <label for="country" class="block text-sm font-medium text-slate-700 mb-1.5">
+                    Country <span class="text-red-500">*</span>
+                  </label>
+                  <div class="relative">
+                    <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-lg pointer-events-none">{{ selectedAddressCountry()?.flag }}</span>
+                    <select id="country" formControlName="country" autocomplete="country-name"
+                            class="input-field pl-10 appearance-none"
+                            [class.input-error]="invalid('country')">
+                      <option value="" disabled>Select a country</option>
+                      @for (c of countries; track c.code) {
+                        <option [value]="c.name">{{ c.flag }} {{ c.name }}</option>
+                      }
+                    </select>
+                    <svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                    </svg>
+                  </div>
+                </div>
+
                 <div>
-                  <label for="city" class="block text-sm font-medium text-slate-700 mb-1.5">City</label>
+                  <label for="city" class="block text-sm font-medium text-slate-700 mb-1.5">
+                    City <span class="text-red-500">*</span>
+                  </label>
                   <input id="city" type="text" formControlName="city" autocomplete="address-level2" placeholder="Springfield"
                          class="input-field" [class.input-error]="invalid('city')" />
                   @if (invalid('city')) {
                     <p class="mt-1.5 text-xs text-red-500">City is required.</p>
                   }
                 </div>
-                <div class="grid grid-cols-2 gap-4">
-                  <div>
-                    <label for="state" class="block text-sm font-medium text-slate-700 mb-1.5">State</label>
-                    <input id="state" type="text" formControlName="state" autocomplete="address-level1" placeholder="IL"
+
+                <!-- State: dropdown if country has states, text input otherwise -->
+                <div>
+                  <label for="state" class="block text-sm font-medium text-slate-700 mb-1.5">
+                    {{ stateLabel() }} <span class="text-red-500">*</span>
+                  </label>
+                  @if (availableStates().length) {
+                    <div class="relative">
+                      <select id="state" formControlName="state" autocomplete="address-level1"
+                              class="input-field appearance-none" [class.input-error]="invalid('state')">
+                        <option value="" disabled>Select {{ stateLabel() | lowercase }}</option>
+                        @for (s of availableStates(); track s) {
+                          <option [value]="s">{{ s }}</option>
+                        }
+                      </select>
+                      <svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                      </svg>
+                    </div>
+                  } @else {
+                    <input id="state" type="text" formControlName="state" autocomplete="address-level1" [placeholder]="stateLabel()"
                            class="input-field" [class.input-error]="invalid('state')" />
-                    @if (invalid('state')) {
-                      <p class="mt-1.5 text-xs text-red-500">Required.</p>
-                    }
-                  </div>
-                  <div>
-                    <label for="zip" class="block text-sm font-medium text-slate-700 mb-1.5">ZIP code</label>
-                    <input id="zip" type="text" formControlName="zip" autocomplete="postal-code" placeholder="62704"
-                           class="input-field" [class.input-error]="invalid('zip')" />
-                    @if (invalid('zip')) {
-                      <p class="mt-1.5 text-xs text-red-500">Valid ZIP required.</p>
-                    }
-                  </div>
+                  }
+                  @if (invalid('state')) {
+                    <p class="mt-1.5 text-xs text-red-500">{{ stateLabel() }} is required.</p>
+                  }
                 </div>
+
                 <div class="sm:col-span-2">
-                  <label for="country" class="block text-sm font-medium text-slate-700 mb-1.5">Country</label>
-                  <select id="country" formControlName="country" autocomplete="country-name" class="input-field">
-                    <option>United States</option>
-                    <option>Canada</option>
-                    <option>United Kingdom</option>
-                    <option>Germany</option>
-                    <option>Australia</option>
-                    <option>United Arab Emirates</option>
-                    <option>Saudi Arabia</option>
-                    <option>Jordan</option>
-                  </select>
+                  <label for="zip" class="block text-sm font-medium text-slate-700 mb-1.5">
+                    ZIP / Postal code <span class="text-red-500">*</span>
+                  </label>
+                  <input id="zip" type="text" formControlName="zip" autocomplete="postal-code" placeholder="62704"
+                         class="input-field" [class.input-error]="invalid('zip')" />
+                  @if (invalid('zip')) {
+                    <p class="mt-1.5 text-xs text-red-500">Valid ZIP / postal code is required.</p>
+                  }
                 </div>
               </div>
             </section>
@@ -178,7 +279,6 @@ type PaymentMethod = 'mock' | 'cod';
               </h2>
 
               <div class="mt-5 grid sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Payment method">
-                <!-- Test payment option -->
                 <button type="button" role="radio" [attr.aria-checked]="paymentMethod() === 'mock'" (click)="paymentMethod.set('mock')"
                          class="rounded-2xl border-2 p-4 text-start transition-all duration-300"
                          [class]="paymentMethod() === 'mock' ? 'border-violet-600 bg-violet-50/60 shadow-md shadow-violet-100' : 'border-slate-200 hover:border-slate-300'">
@@ -189,7 +289,6 @@ type PaymentMethod = 'mock' | 'cod';
                   <p class="text-xs text-slate-400 mt-0.5">Development only, no real charge</p>
                 </button>
 
-                <!-- COD option -->
                 <button type="button" role="radio" [attr.aria-checked]="paymentMethod() === 'cod'" (click)="paymentMethod.set('cod')"
                         class="rounded-2xl border-2 p-4 text-start transition-all duration-300"
                         [class]="paymentMethod() === 'cod' ? 'border-violet-600 bg-violet-50/60 shadow-md shadow-violet-100' : 'border-slate-200 hover:border-slate-300'">
@@ -216,7 +315,7 @@ type PaymentMethod = 'mock' | 'cod';
                     Please have the exact amount ready for the courier.
                   </p>
                 </div>
-                
+
                 @if (form.invalid) {
                   <div class="mt-4 rounded-xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-sm text-amber-700">
                     Please fill in your Contact Information and Delivery Address above to place your order.
@@ -283,7 +382,7 @@ type PaymentMethod = 'mock' | 'cod';
 
             @if (submitted() && form.invalid) {
               <div class="mt-5 rounded-xl bg-red-50 ring-1 ring-red-100 px-4 py-3 flex items-start gap-2.5">
-                <svg class="w-4.5 h-4.5 w-[18px] h-[18px] text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <svg class="w-[18px] h-[18px] text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                 </svg>
                 <p class="text-xs text-red-600 leading-relaxed">Please fix the highlighted fields above.</p>
@@ -313,6 +412,11 @@ type PaymentMethod = 'mock' | 'cod';
           </aside>
         </form>
       </div>
+
+      <!-- Backdrop to close dial dropdown -->
+      @if (dialDropdownOpen()) {
+        <div class="fixed inset-0 z-40" (click)="dialDropdownOpen.set(false)"></div>
+      }
     }
   `,
 })
@@ -326,24 +430,68 @@ export class CheckoutComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
 
+  readonly countries = COUNTRIES;
   readonly paymentMethod = signal<PaymentMethod>('mock');
   readonly placing = signal(false);
   readonly submitted = signal(false);
   readonly selectedAddressId = signal<number | string | null>(null);
   readonly quote = signal<CheckoutQuote | null>(null);
 
+  readonly dialDropdownOpen = signal(false);
+  readonly selectedDialCountry = signal('JO');
+  dialSearch = '';
+
   readonly savedAddresses = this.account.addresses;
+
+  readonly selectedCountryData = computed(() =>
+    COUNTRIES.find(c => c.code === this.selectedDialCountry())
+  );
+
+  readonly selectedAddressCountry = computed(() =>
+    COUNTRIES.find(c => c.name === this.form?.controls?.country?.value)
+  );
+
+  readonly availableStates = computed(() => {
+    const country = this.selectedAddressCountry();
+    return country?.states ?? [];
+  });
+
+  readonly stateLabel = computed(() => {
+    const name = this.form?.controls?.country?.value ?? '';
+    if (['United States', 'Australia', 'India', 'Brazil'].includes(name)) return 'State';
+    if (['Canada'].includes(name)) return 'Province';
+    if (['United Kingdom'].includes(name)) return 'Region';
+    return 'State / Province';
+  });
+
+  readonly phonePlaceholder = computed(() => {
+    const len = this.selectedCountryData()?.phoneLength;
+    const n = Array.isArray(len) ? len[0] : (len ?? 9);
+    return '0'.repeat(n);
+  });
+
+  readonly expectedPhoneLength = computed(() => {
+    const len = this.selectedCountryData()?.phoneLength;
+    if (Array.isArray(len)) return len.join(' or ');
+    return String(len ?? 9);
+  });
+
+  readonly filteredDialCountries = computed(() => {
+    const q = this.dialSearch.toLowerCase();
+    if (!q) return COUNTRIES;
+    return COUNTRIES.filter(c => c.name.toLowerCase().includes(q) || c.dialCode.includes(q));
+  });
 
   readonly form = this.fb.group({
     email: [this.auth.user()?.email ?? '', [Validators.required, Validators.email]],
-    phone: ['', Validators.required],
+    phone: ['', [phoneValidator(() => this.selectedCountryData())]],
     fullName: [this.defaultName(), Validators.required],
     line1: ['', Validators.required],
     line2: [''],
     city: ['', Validators.required],
     state: ['', Validators.required],
     zip: ['', [Validators.required, Validators.pattern(/^[0-9A-Za-z\- ]{3,10}$/)]],
-    country: ['United States', Validators.required],
+    country: ['Jordan', Validators.required],
   });
 
   constructor() {
@@ -364,6 +512,17 @@ export class CheckoutComponent implements OnInit {
       this.cart.promo();
       this.refreshQuote();
     });
+
+    this.form.controls.country.valueChanges.pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(countryName => {
+      this.form.controls.state.setValue('');
+      const match = COUNTRIES.find(c => c.name === countryName);
+      if (match) {
+        this.selectedDialCountry.set(match.code);
+        this.form.controls.phone.updateValueAndValidity();
+      }
+    });
   }
 
   ngOnInit(): void {
@@ -377,11 +536,17 @@ export class CheckoutComponent implements OnInit {
       this.quote.set(null);
       return;
     }
-
     this.orders.getQuote(country, state, this.cart.promo()?.code).subscribe({
       next: quote => this.quote.set(quote),
       error: () => this.quote.set(null)
     });
+  }
+
+  selectDialCountry(country: CountryData): void {
+    this.selectedDialCountry.set(country.code);
+    this.dialDropdownOpen.set(false);
+    this.dialSearch = '';
+    this.form.controls.phone.updateValueAndValidity();
   }
 
   invalid(control: string): boolean {
@@ -401,20 +566,19 @@ export class CheckoutComponent implements OnInit {
       phone: address.phone || this.form.controls.phone.value || '',
     });
     this.selectedAddressId.set(address.id);
-    if (notify) this.toast.info(`Address “${address.label}” selected`);
+    const match = COUNTRIES.find(c => c.name === address.country);
+    if (match) this.selectedDialCountry.set(match.code);
+    if (notify) this.toast.info(`Address "${address.label}" selected`);
   }
 
   placeOrder(): void {
     this.submitted.set(true);
-
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       this.toast.error('Please complete the highlighted fields.');
       return;
     }
-
     this.placing.set(true);
-    
     setTimeout(() => {
       this.completeOrder(this.paymentMethod() === 'mock' ? 'Test Payment' : 'Cash on Delivery');
     }, 900);
@@ -422,6 +586,7 @@ export class CheckoutComponent implements OnInit {
 
   private completeOrder(paymentSummary: string): void {
     const v = this.form.getRawValue();
+    const fullPhone = `${this.selectedCountryData()?.dialCode ?? ''}${v.phone}`;
     this.placeOrderRequest({
       items: this.cart.items(),
       subtotal: this.cart.subtotal(),
@@ -437,7 +602,7 @@ export class CheckoutComponent implements OnInit {
         state: v.state!,
         zip: v.zip!,
         country: v.country!,
-        phone: v.phone!,
+        phone: fullPhone,
         isDefault: false,
       },
       paymentSummary,
@@ -463,7 +628,6 @@ export class CheckoutComponent implements OnInit {
     if (selected && typeof selected.id === 'string') {
       return this.orders.placeOrder({ ...input, shippingAddressId: selected.id });
     }
-
     const v = this.form.getRawValue();
     return this.account.createCheckoutAddress({
       fullName: v.fullName!,

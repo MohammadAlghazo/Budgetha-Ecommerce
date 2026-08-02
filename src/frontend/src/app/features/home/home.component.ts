@@ -1,7 +1,8 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../core/services/product.service';
+import { AnnouncementService, Announcement } from '../../core/services/announcement.service';
 import { ProductCardComponent } from '../../shared/components/product-card/product-card.component';
 
 import { SkeletonCardComponent } from '../../shared/components/skeleton-card/skeleton-card.component';
@@ -187,23 +188,30 @@ import { SkeletonCardComponent } from '../../shared/components/skeleton-card/ske
     </section>
 
     <!-- ══ Promo banner ══ -->
-    <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20">
-      <div class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-teal-700 to-teal-800 px-8 py-12 sm:px-14 sm:py-16">
-        <div class="absolute -top-16 -end-16 w-64 h-64 bg-white/10 rounded-full blur-2xl"></div>
-        <div class="absolute -bottom-20 start-1/4 w-72 h-72 bg-teal-400/20 rounded-full blur-3xl"></div>
-        <div class="relative max-w-xl">
-          <span class="badge bg-white/15 text-white ring-1 ring-white/25 px-3 py-1">Limited time</span>
-          <h2 class="mt-4 text-3xl sm:text-4xl font-extrabold text-white tracking-tight">Get 20% off your next order</h2>
-          <p class="mt-3 text-teal-50/90 leading-relaxed">
-            Apply code <span class="font-bold bg-white/15 rounded-md px-2 py-0.5 tracking-wider">SAVE20</span> at checkout on any order. New arrivals included.
-          </p>
-          <a routerLink="/shop" class="mt-7 inline-flex items-center justify-center rounded-xl bg-white px-7 py-3.5 text-sm font-bold text-teal-700
-                                       hover:bg-teal-50 shadow-lg shadow-teal-950/30 transition-all duration-300">
-            Claim the Deal
-          </a>
+    @if (activeAnnouncement()) {
+      <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20">
+        <div class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-teal-700 to-teal-800 px-8 py-12 sm:px-14 sm:py-16">
+          <div class="absolute -top-16 -end-16 w-64 h-64 bg-white/10 rounded-full blur-2xl"></div>
+          <div class="absolute -bottom-20 start-1/4 w-72 h-72 bg-teal-400/20 rounded-full blur-3xl"></div>
+          <div class="relative max-w-xl">
+            @if (activeAnnouncement()?.badgeText) {
+              <span class="badge bg-white/15 text-white ring-1 ring-white/25 px-3 py-1">{{ activeAnnouncement()?.badgeText }}</span>
+            }
+            <h2 class="mt-4 text-3xl sm:text-4xl font-extrabold text-white tracking-tight">{{ activeAnnouncement()?.message }}</h2>
+            @if (activeAnnouncement()?.subtitle) {
+              <p class="mt-3 text-teal-50/90 leading-relaxed">
+                {{ activeAnnouncement()?.subtitle }}
+              </p>
+            }
+            @if (activeAnnouncement()?.linkUrl) {
+              <a [routerLink]="activeAnnouncement()?.linkUrl" class="mt-7 inline-flex items-center justify-center rounded-xl bg-white px-7 py-3.5 text-sm font-bold text-teal-700 hover:bg-teal-50 shadow-lg shadow-teal-950/30 transition-all duration-300">
+                Claim the Deal
+              </a>
+            }
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    }
 
     <!-- ══ New arrivals ══ -->
     <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20 mb-4">
@@ -235,8 +243,11 @@ import { SkeletonCardComponent } from '../../shared/components/skeleton-card/ske
     </section>
   `,
 })
-export class HomeComponent {
+export class HomeComponent implements OnInit {
   private readonly productService = inject(ProductService);
+  private readonly announcementService = inject(AnnouncementService);
+  
+  readonly activeAnnouncement = signal<Announcement | null>(null);
 
   readonly categories = toSignal(this.productService.getCategories());
   readonly featured = toSignal(this.productService.getFeatured());
@@ -259,4 +270,10 @@ export class HomeComponent {
       icon: 'M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z',
     },
   ];
+
+  ngOnInit() {
+    this.announcementService.getActive().subscribe(data => {
+      this.activeAnnouncement.set(data);
+    });
+  }
 }

@@ -22,6 +22,10 @@ public class GetAllAnnouncementsQueryHandler : IRequestHandler<GetAllAnnouncemen
             .Select(a => new AnnouncementDto(
                 a.Id,
                 a.Message,
+                a.Subtitle,
+                a.BadgeText,
+                a.PromoCode,
+                a.DiscountPercent,
                 a.LinkUrl,
                 a.IsActive,
                 a.StartDate,

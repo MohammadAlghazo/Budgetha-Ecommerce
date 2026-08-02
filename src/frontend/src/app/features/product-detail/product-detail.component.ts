@@ -180,11 +180,24 @@ type Tab = 'description' | 'specs' | 'reviews';
                 </button>
               </div>
 
-               <button type="button" (click)="addToCart()" [disabled]="selectedStock() === 0" class="btn-primary flex-1 py-3.5 text-base gap-2">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-                </svg>
-                 {{ selectedStock() === 0 ? 'Out of stock' : 'Add to Cart — ' + (selectedPrice() * quantity() | currency) }}
+               <button type="button" (click)="addToCart()" [disabled]="selectedStock() === 0 || isAddingToCart()" class="btn-primary flex-1 py-3.5 text-base gap-2 relative overflow-hidden transition-all duration-300" [class.opacity-70]="isAddingToCart()" [class.scale-95]="isAddingToCart()">
+                @if (isAddingToCart()) {
+                  <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Adding...
+                } @else if (addedSuccess()) {
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                  Added!
+                } @else {
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+                  </svg>
+                  {{ selectedStock() === 0 ? 'Out of stock' : 'Add to Cart — ' + (selectedPrice() * quantity() | currency) }}
+                }
               </button>
 
               <button
@@ -482,6 +495,8 @@ export class ProductDetailComponent implements OnDestroy {
   readonly rentalStartDate = signal('');
   readonly rentalEndDate = signal('');
   readonly activeTab = signal<Tab>('description');
+  readonly isAddingToCart = signal(false);
+  readonly addedSuccess = signal(false);
   readonly categories = toSignal(this.productService.getCategories(), { initialValue: [] });
   readonly relatedProducts = signal<Product[]>([]);
 
@@ -655,7 +670,7 @@ export class ProductDetailComponent implements OnDestroy {
 
   addToCart(): void {
     const p = this.product();
-    if (!p || this.selectedStock() === 0) return;
+    if (!p || this.selectedStock() === 0 || this.isAddingToCart()) return;
     if (this.purchaseType() === 'Rental' && (!this.rentalStartDate() || !this.rentalEndDate())) {
       this.toastService.error('Select rental start and end dates first.');
       return;
@@ -664,9 +679,16 @@ export class ProductDetailComponent implements OnDestroy {
       this.toastService.error('Rental end date must be after the start date.');
       return;
     }
+    this.isAddingToCart.set(true);
+    this.addedSuccess.set(false);
     this.cart.add(p, this.quantity(), this.selectedColor() || undefined, this.selectedSize() || undefined,
       this.purchaseType(), this.rentalStartDate() || undefined, this.rentalEndDate() || undefined,
       this.selectedVariantId());
+    setTimeout(() => {
+      this.isAddingToCart.set(false);
+      this.addedSuccess.set(true);
+      setTimeout(() => this.addedSuccess.set(false), 2000);
+    }, 600);
   }
 
   selectColor(color: string): void {

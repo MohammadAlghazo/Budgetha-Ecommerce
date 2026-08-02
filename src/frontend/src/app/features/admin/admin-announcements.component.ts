@@ -1,4 +1,4 @@
-﻿import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AnnouncementService, Announcement } from '../../core/services/announcement.service';
 import { DatePipe } from '@angular/common';
@@ -21,7 +21,27 @@ import { ToastService } from '../../core/services/toast.service';
           <form [formGroup]="form" (ngSubmit)="onSubmit()" class="space-y-4">
             <div>
               <label class="block text-sm font-medium text-slate-700 mb-1">Message *</label>
-              <textarea formControlName="message" rows="2" class="input-field" placeholder="E.g. Free shipping on orders over $75..."></textarea>
+              <textarea formControlName="message" rows="2" class="input-field" placeholder="E.g. Get 20% off your next order"></textarea>
+            </div>
+            
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">Subtitle (Optional)</label>
+              <textarea formControlName="subtitle" rows="2" class="input-field" placeholder="E.g. Apply code SAVE20 at checkout on any order."></textarea>
+            </div>
+
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Badge Text</label>
+                <input type="text" formControlName="badgeText" class="input-field" placeholder="Limited time" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Promo Code</label>
+                <input type="text" formControlName="promoCode" class="input-field" placeholder="SAVE20" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Discount %</label>
+                <input type="number" formControlName="discountPercent" class="input-field" placeholder="20" />
+              </div>
             </div>
 
             <div>
@@ -157,6 +177,10 @@ export class AdminAnnouncementsComponent implements OnInit {
 
   form = this.fb.group({
     message: ['', Validators.required],
+    subtitle: [''],
+    badgeText: [''],
+    promoCode: [''],
+    discountPercent: [null as number | null],
     linkUrl: [''],
     isActive: [true],
     startDate: [''],
@@ -197,6 +221,10 @@ export class AdminAnnouncementsComponent implements OnInit {
     this.editingId.set(item.id);
     this.form.patchValue({
       message: item.message,
+      subtitle: item.subtitle,
+      badgeText: item.badgeText,
+      promoCode: item.promoCode,
+      discountPercent: item.discountPercent,
       linkUrl: item.linkUrl,
       isActive: item.isActive,
       startDate: item.startDate ? item.startDate.substring(0, 16) : '', 
@@ -234,6 +262,10 @@ export class AdminAnnouncementsComponent implements OnInit {
     const val = this.form.value;
     const dto = {
       message: val.message!,
+      subtitle: val.subtitle || undefined,
+      badgeText: val.badgeText || undefined,
+      promoCode: val.promoCode || undefined,
+      discountPercent: val.discountPercent || undefined,
       linkUrl: val.linkUrl || undefined,
       isActive: val.isActive!,
       startDate: val.startDate ? new Date(val.startDate).toISOString() : undefined,

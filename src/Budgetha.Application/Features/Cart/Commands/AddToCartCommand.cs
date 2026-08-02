@@ -60,6 +60,7 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
 
         var product = await _context.Products
             .Include(p => p.Variants)
+            .AsNoTracking()
             .SingleOrDefaultAsync(p => p.Id == request.ProductId, cancellationToken);
         if (product == null || !product.IsActive || product.ApprovalStatus != ApprovalStatus.Approved)
             throw new NotFoundException(nameof(Product), request.ProductId);
@@ -95,12 +96,17 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
                     throw new InvalidOperationException("Not enough rental stock available.");
             }
 
-            existingItem.Quantity = mergedQuantity;
+            await _context.CartItems
+                .Where(ci => ci.Id == existingItem.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(ci => ci.Quantity, mergedQuantity), cancellationToken);
+            await cartTransaction.CommitAsync(cancellationToken);
+            return;
         }
         else
         {
             var newItem = new CartItem
             {
+                CartId = cart.Id,
                 ProductId = request.ProductId,
                 VariantId = variant?.Id,
                 Quantity = request.Quantity,
@@ -110,7 +116,7 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
                 Color = variant?.Color ?? request.Color,
                 Size = variant?.Size ?? request.Size
             };
-            cart.Items.Add(newItem);
+            _context.CartItems.Add(newItem);
         }
 
         var quantity = existingItem?.Quantity ?? request.Quantity;
@@ -138,7 +144,15 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
             throw new InvalidOperationException("Invalid cart item type.");
         }
 
-        await _context.SaveChangesAsync(cancellationToken);
-        await cartTransaction.CommitAsync(cancellationToken);
+        try
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+            await cartTransaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex)
+        {
+            var entityTypes = string.Join(", ", ex.Entries.Select(e => e.Entity.GetType().Name));
+            throw new InvalidOperationException($"DB Error ({entityTypes}): {ex.InnerException?.Message ?? ex.Message}");
+        }
     }
 }

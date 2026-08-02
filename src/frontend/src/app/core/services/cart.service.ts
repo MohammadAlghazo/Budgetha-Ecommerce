@@ -165,6 +165,33 @@ export class CartService {
       ? (variant?.rentalPricePerDay ?? product.rentalPricePerDay ?? variant?.price ?? product.price) * days
       : variant?.price ?? product.price;
     if (this.auth.isAuthenticated()) {
+      const optimisticItem: CartItem = {
+        id: `optimistic-${Date.now()}`,
+        productId: product.id,
+        variantId: variant?.id,
+        name: product.name,
+        slug: product.slug,
+        brand: product.brand || 'Generic',
+        image: product.images?.[0] || '',
+        price,
+        quantity,
+        stock,
+        color: variant?.color ?? color,
+        size: variant?.size ?? size,
+        type,
+        rentalStartDate,
+        rentalEndDate,
+      };
+      this._items.update(items => {
+        const existing = items.find(
+          i => i.productId === product.id && i.variantId === variant?.id &&
+            i.type === type && i.rentalStartDate === rentalStartDate && i.rentalEndDate === rentalEndDate
+        );
+        if (existing) {
+          return items.map(i => i === existing ? { ...i, quantity: Math.min(i.quantity + quantity, i.stock) } : i);
+        }
+        return [...items, optimisticItem];
+      });
       this.http.post(`${this.apiUrl}/items`, {
         productId: product.id,
         variantId: variant?.id ?? null,
@@ -179,7 +206,10 @@ export class CartService {
           this.fetchFromBackend();
           this.toast.success(`${product.name} added to cart`);
         },
-        error: () => undefined
+        error: () => {
+          this._items.update(items => items.filter(i => i.id !== optimisticItem.id));
+          this.toast.error('Failed to add item to cart');
+        }
       });
     } else {
       // Local logic
