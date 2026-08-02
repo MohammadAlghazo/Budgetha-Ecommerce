@@ -28,10 +28,9 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
             t.HasCheckConstraint("CK_Products_Slug_NotEmpty", "length(trim(\"Slug\")) > 0");
         });
 
-        builder.HasOne(p => p.Category)
+        builder.HasMany(p => p.Categories)
             .WithMany(c => c.Products)
-            .HasForeignKey(p => p.CategoryId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .UsingEntity(j => j.ToTable("ProductCategories"));
 
         builder.HasOne(p => p.Seller)
             .WithMany(u => u.Products)

@@ -22,8 +22,7 @@ public class Product : BaseAuditableEntity
     public bool IsFeatured { get; set; }
     public ApprovalStatus ApprovalStatus { get; set; } = ApprovalStatus.Approved;
 
-    public Guid CategoryId { get; set; }
-    public Category Category { get; set; } = null!;
+    public ICollection<Category> Categories { get; set; } = new List<Category>();
 
     public string SellerId { get; set; } = string.Empty;
     public ApplicationUser Seller { get; set; } = null!;

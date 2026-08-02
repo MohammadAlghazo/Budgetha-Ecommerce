@@ -1,4 +1,4 @@
-﻿import { Component, inject, signal, OnDestroy, OnInit } from '@angular/core';
+import { Component, inject, signal, OnDestroy, OnInit } from '@angular/core';
 import { FormBuilder, Validators, ReactiveFormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
@@ -40,14 +40,14 @@ interface ProductImageState {
               </div>
 
               <div class="space-y-2">
-                <label for="categoryId" class="block text-sm font-semibold text-slate-700">Category <span class="text-rose-500">*</span></label>
-                <select id="categoryId" formControlName="categoryId"
-                        class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
-                  <option value="" disabled selected>Select a category</option>
+                <label for="categoryIds" class="block text-sm font-semibold text-slate-700">Categories <span class="text-rose-500">*</span></label>
+                <select id="categoryIds" formControlName="categoryIds" multiple
+                        class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all h-32">
                   @for (cat of categories(); track cat.id) {
                     <option [value]="cat.id">{{ cat.name }}</option>
                   }
                 </select>
+                <p class="text-xs text-slate-500 mt-1">Hold Ctrl (or Cmd) to select multiple categories.</p>
               </div>
 
               <div class="space-y-2 md:col-span-2">
@@ -253,7 +253,7 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
     price: [null as number | null, [Validators.required, Validators.min(0.01)]],
     originalPrice: [null as number | null, [Validators.min(0.01)]],
     stockQuantity: [null as number | null, [Validators.required, Validators.min(0)]],
-    categoryId: ['', [Validators.required]],
+    categoryIds: [[] as string[], [Validators.required]],
     isAvailableForRent: [false],
     rentalPricePerDay: [null as number | null]
   });
@@ -283,7 +283,7 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
           price: product.price,
           originalPrice: product.originalPrice,
           stockQuantity: product.stock,
-          categoryId: product.categoryId,
+          categoryIds: product.categories?.map(c => c.id) || [],
           isAvailableForRent: product.isAvailableForRent,
           rentalPricePerDay: product.rentalPricePerDay
         });
@@ -469,8 +469,6 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
     this.isSubmitting = true;
     const val = this.form.value;
 
-    const categoryId = val.categoryId || '00000000-0000-0000-0000-000000000001';
-
     const payload = {
       name: val.name,
       brand: val.brand,
@@ -478,7 +476,7 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
       price: val.price,
       originalPrice: val.originalPrice,
       stockQuantity: val.stockQuantity,
-      categoryId: categoryId,
+      categoryIds: val.categoryIds && val.categoryIds.length > 0 ? val.categoryIds : ['00000000-0000-0000-0000-000000000001'],
       images: this.uploadedImages(),
       isAvailableForRent: val.isAvailableForRent,
       rentalPricePerDay: val.rentalPricePerDay,

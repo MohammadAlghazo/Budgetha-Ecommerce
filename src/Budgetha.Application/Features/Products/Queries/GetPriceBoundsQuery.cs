@@ -24,7 +24,7 @@ public class GetPriceBoundsQueryHandler : IRequestHandler<GetPriceBoundsQuery, P
 
         if (request.CategoryId.HasValue)
         {
-            query = query.Where(p => p.CategoryId == request.CategoryId.Value);
+            query = query.Where(p => p.Categories.Any(c => c.Id == request.CategoryId.Value));
         }
 
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))

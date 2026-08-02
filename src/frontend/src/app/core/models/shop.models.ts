@@ -32,8 +32,7 @@ export interface Product {
   name: string;
   slug: string;
   brand: string;
-  categoryId: string;
-  category: string;
+  categories: { id: string; name: string; slug: string }[];
   price: number;
   originalPrice?: number;
   rating: number;

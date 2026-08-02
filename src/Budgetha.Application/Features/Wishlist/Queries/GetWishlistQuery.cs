@@ -31,7 +31,7 @@ public class GetWishlistQueryHandler : IRequestHandler<GetWishlistQuery, List<Wi
                 w.ProductId,
                 w.Product.Name,
                 w.Product.Images.FirstOrDefault() != null ? w.Product.Images.FirstOrDefault()!.Url : null,
-                w.Product.Category != null ? w.Product.Category.Name : string.Empty,
+                w.Product.Categories.FirstOrDefault() != null ? w.Product.Categories.FirstOrDefault()!.Name : string.Empty,
                 w.Product.Price,
                 w.Product.StockQuantity,
                 w.Product.StockQuantity > 0

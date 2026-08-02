@@ -13,7 +13,7 @@ public record CreateProductCommand(
     string Description,
     decimal Price,
     int StockQuantity,
-    Guid CategoryId,
+    List<Guid> CategoryIds,
     List<ProductImageInput> Images,
     bool IsAvailableForRent,
     decimal? RentalPricePerDay,
@@ -57,10 +57,10 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
                 .AnyAsync(variant => requestedSkus.Contains(variant.SKU), cancellationToken))
             throw new InvalidOperationException("A variant SKU is already in use.");
 
-        var categoryExists = await _context.Categories.AnyAsync(c => c.Id == request.CategoryId, cancellationToken);
-        if (!categoryExists)
+        var categories = await _context.Categories.Where(c => request.CategoryIds.Contains(c.Id)).ToListAsync(cancellationToken);
+        if (categories.Count != request.CategoryIds.Count)
         {
-            throw new Exception($"Category with ID {request.CategoryId} not found.");
+            throw new Exception("One or more categories not found.");
         }
 
         
@@ -84,7 +84,7 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             Description = request.Description,
             Price = request.Price,
             StockQuantity = request.StockQuantity,
-            CategoryId = request.CategoryId,
+            Categories = categories,
             ThumbnailUrl = images.FirstOrDefault()?.Url,
             ThumbnailPublicId = images.FirstOrDefault()?.PublicId,
             IsAvailableForRent = request.IsAvailableForRent,

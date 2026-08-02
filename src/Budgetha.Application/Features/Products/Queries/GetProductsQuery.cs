@@ -39,7 +39,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
     public async Task<CatalogResultDto> Handle(GetProductsQuery request, CancellationToken cancellationToken)
     {
         var query = _context.Products
-            .Include(p => p.Category)
+            .Include(p => p.Categories)
             .Include(p => p.Seller)
             .Include(p => p.Images)
             .Include(p => p.Variants)
@@ -62,7 +62,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
 
         if (request.Categories?.Any() == true)
         {
-            query = query.Where(p => request.Categories.Contains(p.Category.Slug));
+            query = query.Where(p => p.Categories.Any(c => request.Categories.Contains(c.Slug)));
         }
 
         if (request.Brands?.Any() == true)
@@ -100,8 +100,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
             Name = p.Name,
             Slug = p.Slug,
             Brand = string.IsNullOrWhiteSpace(p.Brand) ? "Generic" : p.Brand,
-            Category = p.Category?.Slug ?? "",
-            CategoryId = p.CategoryId,
+            Categories = p.Categories.Select(c => new CategorySummaryDto { Id = c.Id, Name = c.Name, Slug = c.Slug }).ToList(),
             Price = p.Price,
             OriginalPrice = p.OriginalPrice, 
             IsAvailableForRent = p.IsAvailableForRent,

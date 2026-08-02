@@ -182,7 +182,7 @@ public class AdminService : IAdminService
                 Price = p.Price,
                 OriginalPrice = p.Price,
                 Stock = p.StockQuantity,
-                Category = p.Category != null ? p.Category.Name : "Uncategorized",
+                Categories = p.Categories.Select(c => new CategorySummaryDto { Id = c.Id, Name = c.Name, Slug = c.Slug }).ToList(),
                 Images = p.ThumbnailUrl != null ? new List<string> { p.ThumbnailUrl } : new List<string>(),
                 Rating = p.Reviews.Any() ? (decimal)p.Reviews.Average(r => r.Rating) : 0m,
                 ReviewCount = p.Reviews.Count(),

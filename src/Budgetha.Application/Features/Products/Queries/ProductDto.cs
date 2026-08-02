@@ -6,8 +6,7 @@ public class ProductDto
     public string Name { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
     public string Brand { get; set; } = string.Empty; 
-    public string Category { get; set; } = string.Empty;
-    public Guid CategoryId { get; set; }
+    public List<CategorySummaryDto> Categories { get; set; } = new();
     public decimal Price { get; set; }
     public decimal? OriginalPrice { get; set; }
     public decimal Rating { get; set; }
@@ -59,4 +58,11 @@ public class ProductColorDto
 {
     public string Name { get; set; } = string.Empty;
     public string Hex { get; set; } = string.Empty;
+}
+
+public class CategorySummaryDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
 }

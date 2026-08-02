@@ -12,6 +12,8 @@ import { NotificationService } from '../../core/services/notification.service';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { DatePipe } from '@angular/common';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ProductService } from '../../core/services/product.service';
 
 @Component({
   selector: 'app-header',
@@ -58,16 +60,46 @@ import { DatePipe } from '@angular/common';
 
           <!-- Center: desktop nav -->
           <nav class="hidden lg:flex items-center gap-1" aria-label="Primary">
-            @for (link of navLinks; track link.path) {
-              <a
-                [routerLink]="link.path"
-                [queryParams]="link.query"
-                routerLinkActive="text-teal-700 bg-teal-50"
-                [routerLinkActiveOptions]="{ exact: link.exact }"
-                class="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 transition-all duration-300">
-                {{ link.label }}
-              </a>
-            }
+            <a routerLink="/" routerLinkActive="text-teal-700 bg-teal-50" [routerLinkActiveOptions]="{ exact: true }" class="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 transition-all duration-300">Home</a>
+            <a routerLink="/shop" routerLinkActive="text-teal-700 bg-teal-50" [routerLinkActiveOptions]="{ exact: true }" class="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 transition-all duration-300">Shop</a>
+            
+            <!-- Categories Dropdown -->
+            <div class="relative group" (mouseenter)="categoriesMenuOpen.set(true)" (mouseleave)="categoriesMenuOpen.set(false)">
+              <button type="button" class="flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium text-slate-600 group-hover:text-teal-700 group-hover:bg-teal-50 transition-all duration-300">
+                Categories
+                <svg class="w-4 h-4 transition-transform duration-300 group-hover:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+              </button>
+              
+              @if (categoriesMenuOpen()) {
+                <div class="absolute top-full start-1/2 -translate-x-1/2 pt-2 w-[36rem] z-50 animate-[menuIn_0.15s_ease-out]">
+                  <div class="bg-white rounded-2xl shadow-xl shadow-teal-900/10 border border-slate-100 p-6 overflow-hidden relative">
+                    <div class="absolute top-0 end-0 w-64 h-64 bg-gradient-to-br from-teal-50 to-emerald-50 rounded-full blur-3xl -z-10 opacity-70"></div>
+                    <div class="grid grid-cols-2 gap-4">
+                      @for (category of categories()?.slice(0, 8); track category.id) {
+                        <a [routerLink]="['/shop']" [queryParams]="{ category: category.slug }" (click)="categoriesMenuOpen.set(false)" class="flex items-center gap-4 group/item p-2 rounded-xl hover:bg-white hover:shadow-md hover:shadow-teal-100/40 border border-transparent hover:border-slate-100 transition-all duration-300">
+                          <div class="w-12 h-12 rounded-xl bg-slate-50 overflow-hidden shrink-0 ring-1 ring-slate-100 group-hover/item:ring-teal-200 transition-colors">
+                            @if (category.image) {
+                              <img [src]="category.image" [alt]="category.name" class="w-full h-full object-cover group-hover/item:scale-110 transition-transform duration-500" />
+                            } @else {
+                              <div class="w-full h-full flex items-center justify-center bg-teal-50 text-teal-600 font-bold">{{ category.name[0] }}</div>
+                            }
+                          </div>
+                          <div>
+                            <p class="text-sm font-bold text-slate-800 group-hover/item:text-teal-700 transition-colors">{{ category.name }}</p>
+                            <p class="text-xs text-slate-500">{{ category.productCount }} items</p>
+                          </div>
+                        </a>
+                      }
+                    </div>
+                    <div class="mt-6 pt-4 border-t border-slate-100 text-center">
+                      <a routerLink="/shop" (click)="categoriesMenuOpen.set(false)" class="text-sm font-bold text-teal-600 hover:text-teal-700 hover:underline">Explore all categories &rarr;</a>
+                    </div>
+                  </div>
+                </div>
+              }
+            </div>
+
+            <a routerLink="/shop" [queryParams]="{ deals: 1 }" routerLinkActive="text-teal-700 bg-teal-50" [routerLinkActiveOptions]="{ exact: false }" class="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 transition-all duration-300">Deals</a>
           </nav>
 
           <!-- Right: search + actions -->
@@ -269,6 +301,26 @@ import { DatePipe } from '@angular/common';
             </a>
           }
 
+          <!-- Mobile Categories -->
+          <div class="px-4 py-3">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Categories</p>
+            <div class="grid grid-cols-2 gap-2">
+              @for (category of categories()?.slice(0, 8); track category.id) {
+                <a [routerLink]="['/shop']" [queryParams]="{ category: category.slug }" (click)="mobileMenuOpen.set(false)" class="flex items-center gap-2 p-2 rounded-lg text-sm text-slate-600 hover:bg-teal-50 hover:text-teal-700 transition-colors">
+                  <div class="w-6 h-6 rounded-md bg-slate-100 overflow-hidden shrink-0 flex items-center justify-center text-xs font-bold text-teal-600">
+                    @if (category.image) {
+                      <img [src]="category.image" alt="" class="w-full h-full object-cover" />
+                    } @else {
+                      {{ category.name[0] }}
+                    }
+                  </div>
+                  <span class="truncate">{{ category.name }}</span>
+                </a>
+              }
+            </div>
+            <a routerLink="/shop" (click)="mobileMenuOpen.set(false)" class="block text-center mt-3 text-xs font-medium text-teal-600 hover:underline">View all categories</a>
+          </div>
+
           @if (!auth.isAuthenticated()) {
             <div class="pt-2 mt-2 border-t border-slate-100 grid grid-cols-2 gap-3">
               <a routerLink="/auth/login" (click)="mobileMenuOpen.set(false)" class="btn-secondary py-3">Sign in</a>
@@ -303,11 +355,13 @@ export class HeaderComponent implements OnInit {
   private readonly toast = inject(ToastService);
   private readonly wishlist = inject(WishlistService);
   private readonly router = inject(Router);
+  private readonly productService = inject(ProductService);
 
   readonly announcement = signal<Announcement | null>(null);
   readonly mobileMenuOpen = signal(false);
   readonly userMenuOpen = signal(false);
   readonly notificationMenuOpen = signal(false);
+  readonly categoriesMenuOpen = signal(false);
   searchTerm = '';
   private searchSubject = new Subject<string>();
 
@@ -319,11 +373,11 @@ export class HeaderComponent implements OnInit {
   notifications = signal<any[]>([]);
   notificationCount = signal<number>(0);
 
+  readonly categories = toSignal(this.productService.getCategories());
+
   readonly navLinks = [
     { label: 'Home', path: '/', query: {}, exact: true },
     { label: 'Shop', path: '/shop', query: {}, exact: true },
-    { label: 'Electronics', path: '/shop', query: { category: 'electronics' }, exact: false },
-    { label: 'Fashion', path: '/shop', query: { category: 'fashion' }, exact: false },
     { label: 'Deals', path: '/shop', query: { deals: 1 }, exact: false },
   ];
 

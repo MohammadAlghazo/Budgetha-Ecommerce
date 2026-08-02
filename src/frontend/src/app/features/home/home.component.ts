@@ -1,4 +1,4 @@
-import { Component, inject, OnInit } from '@angular/core';
+import { Component, computed, inject, signal, OnInit, OnDestroy } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../core/services/product.service';
@@ -241,6 +241,35 @@ import { SkeletonCardComponent } from '../../shared/components/skeleton-card/ske
         }
       </div>
     </section>
+
+    <!-- ══ Top rated ══ -->
+    <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20 mb-4">
+      <div class="flex items-end justify-between mb-8">
+        <div>
+          <h2 class="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Top Rated Products</h2>
+          <p class="mt-1.5 text-sm text-slate-500">Highest rated by our customers</p>
+        </div>
+        <a routerLink="/shop" [queryParams]="{ sort: 'rating' }" class="hidden sm:inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors duration-300">
+          View all
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+          </svg>
+        </a>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6">
+        @if (topRated() === undefined) {
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+        } @else {
+          @for (product of topRated()!.slice(0, 4); track product.id) {
+            <app-product-card [product]="product" layout="grid" />
+          }
+        }
+      </div>
+    </section>
   `,
 })
 export class HomeComponent implements OnInit {
@@ -252,6 +281,7 @@ export class HomeComponent implements OnInit {
   readonly categories = toSignal(this.productService.getCategories());
   readonly featured = toSignal(this.productService.getFeatured());
   readonly newArrivals = toSignal(this.productService.getNewArrivals());
+  readonly topRated = toSignal(this.productService.getTopRated());
 
   readonly valueProps = [
     {

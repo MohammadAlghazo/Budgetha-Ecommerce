@@ -19,7 +19,7 @@ public class GetProductBySlugQueryHandler : IRequestHandler<GetProductBySlugQuer
     public async Task<ProductDto?> Handle(GetProductBySlugQuery request, CancellationToken cancellationToken)
     {
         var p = await _context.Products
-            .Include(x => x.Category)
+            .Include(x => x.Categories)
             .Include(x => x.Images)
             .Include(x => x.Reviews)
             .Include(x => x.Variants)
@@ -52,8 +52,7 @@ public class GetProductBySlugQueryHandler : IRequestHandler<GetProductBySlugQuer
             Name = p.Name,
             Slug = p.Slug,
             Brand = p.Brand,
-            Category = p.Category?.Slug ?? "",
-            CategoryId = p.CategoryId,
+            Categories = p.Categories.Select(c => new CategorySummaryDto { Id = c.Id, Name = c.Name, Slug = c.Slug }).ToList(),
             Price = p.Price,
             OriginalPrice = p.OriginalPrice,
             IsAvailableForRent = p.IsAvailableForRent,

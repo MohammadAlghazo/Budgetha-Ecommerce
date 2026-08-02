@@ -954,9 +954,6 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<Guid>("CategoryId")
-                        .HasColumnType("uuid");
-
                     b.Property<DateTimeOffset>("Created")
                         .HasColumnType("timestamp with time zone");
 
@@ -1029,8 +1026,6 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ApprovalStatus");
-
-                    b.HasIndex("CategoryId");
 
                     b.HasIndex("IsActive");
 
@@ -1514,6 +1509,21 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.ToTable("Wishlists");
                 });
 
+            modelBuilder.Entity("CategoryProduct", b =>
+                {
+                    b.Property<Guid>("CategoriesId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductsId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("CategoriesId", "ProductsId");
+
+                    b.HasIndex("ProductsId");
+
+                    b.ToTable("ProductCategories", (string)null);
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
                 {
                     b.Property<string>("Id")
@@ -1842,19 +1852,11 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
                 {
-                    b.HasOne("Budgetha.Domain.Entities.Category", "Category")
-                        .WithMany("Products")
-                        .HasForeignKey("CategoryId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
                         .WithMany("Products")
                         .HasForeignKey("SellerId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.Navigation("Category");
 
                     b.Navigation("Seller");
                 });
@@ -1996,6 +1998,21 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("CategoryProduct", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Category", null)
+                        .WithMany()
+                        .HasForeignKey("CategoriesId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductsId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
                 {
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
@@ -2078,8 +2095,6 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
                 {
                     b.Navigation("Children");
-
-                    b.Navigation("Products");
                 });
 
             modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>

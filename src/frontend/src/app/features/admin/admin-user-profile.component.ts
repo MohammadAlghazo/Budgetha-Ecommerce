@@ -1,4 +1,4 @@
-﻿import { Component, OnInit, inject, signal, computed } from '@angular/core';
+import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule, DatePipe, CurrencyPipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AdminService, AdminUserProfile } from '../../core/services/admin.service';
@@ -110,7 +110,16 @@ import { ToastService } from '../../core/services/toast.service';
                       </div>
                       <div class="flex-1 min-w-0">
                         <h4 class="text-sm font-bold text-slate-900 truncate">{{ product.name }}</h4>
-                        <p class="text-xs text-slate-500 mt-0.5 truncate">{{ product.category }}</p>
+                        <p class="text-xs text-slate-500 mt-0.5 truncate">
+                          @if (product.categories?.length) {
+                            {{ product.categories[0].name }}
+                            @if (product.categories.length > 1) {
+                              <span class="opacity-75"> +{{ product.categories.length - 1 }}</span>
+                            }
+                          } @else {
+                            Uncategorized
+                          }
+                        </p>
                         <div class="flex items-center gap-3 mt-2">
                           <span class="text-sm font-bold text-teal-600">{{ product.price | currency }}</span>
                           <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"

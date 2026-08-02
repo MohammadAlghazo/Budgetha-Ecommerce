@@ -29,7 +29,7 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, CartDto>
             .ThenInclude(p => p.Images)
             .Include(c => c.Items)
             .ThenInclude(i => i.Product)
-            .ThenInclude(p => p.Category)
+            .ThenInclude(p => p.Categories)
             .Include(c => c.Items)
             .ThenInclude(i => i.Variant)
             .FirstOrDefaultAsync(c => c.UserId == userId, cancellationToken);
@@ -45,7 +45,7 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, CartDto>
             i.Product.Slug,
             i.Product.Brand,
             i.Product.ThumbnailUrl ?? i.Product.Images.OrderBy(image => image.DisplayOrder).Select(image => image.Url).FirstOrDefault(),
-            i.Product.Category != null ? i.Product.Category.Name : string.Empty,
+            i.Product.Categories.FirstOrDefault()?.Name ?? string.Empty,
             GetItemPrice(i),
             i.Quantity,
             i.Variant?.StockQuantity ?? i.Product.StockQuantity,

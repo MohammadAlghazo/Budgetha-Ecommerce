@@ -16,7 +16,7 @@ public record UpdateProductCommand(
     string Description,
     decimal Price,
     int StockQuantity,
-    Guid CategoryId,
+    List<Guid> CategoryIds,
     List<ProductImageInput> Images,
     bool IsAvailableForRent,
     decimal? RentalPricePerDay,
@@ -57,6 +57,7 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
             throw new InvalidOperationException("A variant SKU is already in use.");
 
         var product = await _context.Products
+            .Include(p => p.Categories)
             .Include(p => p.Images)
             .Include(p => p.Colors)
             .Include(p => p.Sizes)
@@ -118,12 +119,18 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
             .Select(publicId => publicId!)
             .ToHashSet();
 
+        var categories = await _context.Categories.Where(c => request.CategoryIds.Contains(c.Id)).ToListAsync(cancellationToken);
+        if (categories.Count != request.CategoryIds.Count)
+        {
+            throw new Exception("One or more categories not found.");
+        }
+
         product.Name = request.Name;
         product.Slug = slug;
         product.Description = request.Description;
         product.Price = request.Price;
         product.StockQuantity = request.StockQuantity;
-        product.CategoryId = request.CategoryId;
+        product.Categories = categories;
         product.ThumbnailUrl = images.FirstOrDefault()?.Url;
         product.ThumbnailPublicId = images.FirstOrDefault()?.PublicId;
         

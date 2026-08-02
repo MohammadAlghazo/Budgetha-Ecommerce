@@ -78,7 +78,16 @@ import { ProductService } from '../../core/services/product.service';
                       </div>
                       <div>
                         <p class="font-semibold text-slate-900 max-w-[200px] truncate" [title]="product.name">{{ product.name }}</p>
-                        <p class="text-xs text-slate-400 mt-0.5">{{ product.category }}</p>
+                        <p class="text-xs text-slate-400 mt-0.5">
+                          @if (product.categories?.length) {
+                            {{ product.categories[0].name }}
+                            @if (product.categories.length > 1) {
+                              <span class="opacity-75"> +{{ product.categories.length - 1 }}</span>
+                            }
+                          } @else {
+                            Uncategorized
+                          }
+                        </p>
                       </div>
                     </div>
                   </td>
@@ -165,7 +174,16 @@ import { ProductService } from '../../core/services/product.service';
                 </div>
                 <div>
                   <p class="font-semibold text-slate-900 truncate" [title]="product.name">{{ product.name }}</p>
-                  <p class="text-xs text-slate-400 mt-0.5">{{ product.category }}</p>
+                  <p class="text-xs text-slate-400 mt-0.5">
+                    @if (product.categories?.length) {
+                      {{ product.categories[0].name }}
+                      @if (product.categories.length > 1) {
+                        <span class="opacity-75"> +{{ product.categories.length - 1 }}</span>
+                      }
+                    } @else {
+                      Uncategorized
+                    }
+                  </p>
                 </div>
               </div>
               <div class="flex justify-between items-center text-sm mb-4">
@@ -252,9 +270,11 @@ import { ProductService } from '../../core/services/product.service';
                   <h4 class="text-lg font-bold text-slate-900">{{ selectedProductDetails()?.name }}</h4>
                   <p class="text-sm text-slate-500 mt-1 line-clamp-2">{{ selectedProductDetails()?.description }}</p>
                   <div class="flex gap-2 mt-2">
-                    <span class="inline-flex px-2 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-md">
-                      {{ selectedProductDetails()?.category }}
-                    </span>
+                    @for (cat of selectedProductDetails()?.categories; track cat.id) {
+                      <span class="inline-flex px-2 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-md">
+                        {{ cat.name }}
+                      </span>
+                    }
                     <span class="inline-flex px-2 py-1 bg-slate-100 text-slate-700 text-xs font-semibold rounded-md">
                       {{ selectedProductDetails()?.brand || 'No Brand' }}
                     </span>

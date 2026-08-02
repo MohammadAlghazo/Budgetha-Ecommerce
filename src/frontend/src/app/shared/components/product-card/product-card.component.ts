@@ -210,11 +210,9 @@ export class ProductCardComponent {
     const variant = activeVariants[0];
     this.isAdding.set(true);
     this.cart.add(p, 1, variant?.color, variant?.size, 'Purchase', undefined, undefined, variant?.id);
-    setTimeout(() => {
-      this.isAdding.set(false);
-      this.cardAddedSuccess.set(true);
-      setTimeout(() => this.cardAddedSuccess.set(false), 1500);
-    }, 600);
+    this.isAdding.set(false);
+    this.cardAddedSuccess.set(true);
+    setTimeout(() => this.cardAddedSuccess.set(false), 1500);
   }
 
   toggleWishlist(): void {

@@ -31,7 +31,7 @@ type Tab = 'description' | 'specs' | 'reviews';
           <span>/</span>
           <a routerLink="/shop" class="hover:text-violet-600 transition-colors duration-300">Shop</a>
           <span>/</span>
-          <a routerLink="/shop" [queryParams]="{ category: p.category }" class="hover:text-violet-600 transition-colors duration-300 capitalize">{{ categoryName() }}</a>
+          <a routerLink="/shop" [queryParams]="{ category: p.categories[0]?.slug }" class="hover:text-violet-600 transition-colors duration-300 capitalize">{{ categoryName() }}</a>
           <span>/</span>
           <span class="text-slate-600 font-medium truncate max-w-[16rem]">{{ p.name }}</span>
         </nav>
@@ -530,10 +530,7 @@ export class ProductDetailComponent implements OnDestroy {
 
   readonly categoryName = computed(() => {
     const p = this.product();
-    const cats = this.categories();
-    return p
-      ? cats.find(c => c.slug === p.category)?.name ?? p.category
-      : '';
+    return p?.categories?.length ? p.categories[0].name : 'Uncategorized';
   });
 
   private readonly reviewService = inject(ReviewService);
@@ -684,11 +681,9 @@ export class ProductDetailComponent implements OnDestroy {
     this.cart.add(p, this.quantity(), this.selectedColor() || undefined, this.selectedSize() || undefined,
       this.purchaseType(), this.rentalStartDate() || undefined, this.rentalEndDate() || undefined,
       this.selectedVariantId());
-    setTimeout(() => {
-      this.isAddingToCart.set(false);
-      this.addedSuccess.set(true);
-      setTimeout(() => this.addedSuccess.set(false), 2000);
-    }, 600);
+    this.isAddingToCart.set(false);
+    this.addedSuccess.set(true);
+    setTimeout(() => this.addedSuccess.set(false), 2000);
   }
 
   selectColor(color: string): void {

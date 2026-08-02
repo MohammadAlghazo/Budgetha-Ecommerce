@@ -79,6 +79,12 @@ export class ProductService {
     return this.getAll().pipe(map(items => items.filter(p => p.isNew)));
   }
 
+  getTopRated(): Observable<Product[]> {
+    return this.getAll().pipe(
+      map(items => items.filter(p => p.rating >= 4.5).sort((a, b) => b.rating - a.rating))
+    );
+  }
+
   getBySlug(slug: string): Observable<Product> {
     const key = slug.trim().toLowerCase();
     const existing = this.productRequests.get(key);
@@ -107,8 +113,8 @@ export class ProductService {
   getRelated(product: Product, count = 4): Observable<Product[]> {
     return this.getAll().pipe(
       map(items => {
-        const sameCategory = items.filter(p => p.id !== product.id && p.category === product.category);
-        const others = items.filter(p => p.id !== product.id && p.category !== product.category);
+        const sameCategory = items.filter(p => p.id !== product.id && p.categories?.some(c => product.categories?.some(pc => pc.id === c.id)));
+        const others = items.filter(p => p.id !== product.id && !p.categories?.some(c => product.categories?.some(pc => pc.id === c.id)));
         return [...sameCategory, ...others].slice(0, count);
       })
     );

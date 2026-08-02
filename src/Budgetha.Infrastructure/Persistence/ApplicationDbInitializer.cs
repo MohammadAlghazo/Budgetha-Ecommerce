@@ -87,9 +87,9 @@ public static class ApplicationDbInitializer
 
         var products = new List<Product>
         {
-            new Product { Name = "Wireless Noise-Cancelling Headphones", Slug = "wireless-headphones", Description = "Premium over-ear headphones.", Price = 299.99m, StockQuantity = 50, CategoryId = electronics.Id, SellerId = sellerId, ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved },
-            new Product { Name = "Minimalist Mechanical Keyboard", Slug = "mechanical-keyboard", Description = "Sleek keyboard.", Price = 149.99m, StockQuantity = 20, CategoryId = electronics.Id, SellerId = sellerId, ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved },
-            new Product { Name = "Cotton Blend T-Shirt", Slug = "cotton-tshirt", Description = "Comfortable everyday tee.", Price = 24.99m, StockQuantity = 100, CategoryId = clothing.Id, SellerId = sellerId, ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved }
+            new Product { Name = "Wireless Noise-Cancelling Headphones", Slug = "wireless-headphones", Description = "Premium over-ear headphones.", Price = 299.99m, StockQuantity = 50, Categories = new List<Category> { electronics }, SellerId = sellerId, ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved },
+            new Product { Name = "Minimalist Mechanical Keyboard", Slug = "mechanical-keyboard", Description = "Sleek keyboard.", Price = 149.99m, StockQuantity = 20, Categories = new List<Category> { electronics }, SellerId = sellerId, ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved },
+            new Product { Name = "Cotton Blend T-Shirt", Slug = "cotton-tshirt", Description = "Comfortable everyday tee.", Price = 24.99m, StockQuantity = 100, Categories = new List<Category> { clothing }, SellerId = sellerId, ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved }
         };
 
         context.Products.AddRange(products);
