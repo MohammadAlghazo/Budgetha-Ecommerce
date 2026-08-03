@@ -104,8 +104,7 @@ import { ProductService } from '../../core/services/product.service';
 
           <!-- Right: search + actions -->
           <div class="flex items-center gap-1 sm:gap-2">
-            <!-- Install as app (hidden once installed or dismissed) -->
-            <app-install-button variant="header" />
+            <!-- Install as app (removed) -->
 
             <!-- Desktop search -->
             <form (submit)="$event.preventDefault()" class="hidden md:block relative">
@@ -257,13 +256,13 @@ import { ProductService } from '../../core/services/product.service';
                   </div>
                 }
               </div>
-            } @else {
+            @else {
               <a
                 routerLink="/auth/login"
-                class="hidden sm:inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 transition-all duration-300">
+                class="hidden sm:inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 transition-all duration-300 whitespace-nowrap">
                 Sign in
               </a>
-              <a routerLink="/auth/register" class="btn-primary px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm ms-1">Sign up</a>
+              <a routerLink="/auth/register" class="btn-primary px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm ms-1 whitespace-nowrap flex items-center justify-center">Sign up</a>
             }
           </div>
         </div>
