@@ -256,7 +256,7 @@ import { ProductService } from '../../core/services/product.service';
                   </div>
                 }
               </div>
-            @else {
+            } @else {
               <a
                 routerLink="/auth/login"
                 class="hidden sm:inline-flex items-center px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 transition-all duration-300 whitespace-nowrap">
