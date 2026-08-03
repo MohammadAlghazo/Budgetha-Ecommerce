@@ -100,7 +100,7 @@ import { ToastService } from '../../core/services/toast.service';
                   @for (product of profile()!.products; track product.id) {
                     <div class="flex items-center gap-4 p-4 rounded-2xl border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all">
                       <div class="w-16 h-16 rounded-xl bg-slate-100 overflow-hidden flex-shrink-0">
-                        @if (product.images?.length > 0) {
+                        @if (product.images && product.images.length > 0) {
                           <img [src]="product.images[0]" [alt]="product.name" class="w-full h-full object-cover">
                         } @else {
                           <div class="w-full h-full flex items-center justify-center text-slate-400">
@@ -111,7 +111,7 @@ import { ToastService } from '../../core/services/toast.service';
                       <div class="flex-1 min-w-0">
                         <h4 class="text-sm font-bold text-slate-900 truncate">{{ product.name }}</h4>
                         <p class="text-xs text-slate-500 mt-0.5 truncate">
-                          @if (product.categories?.length) {
+                          @if (product.categories && product.categories.length > 0) {
                             {{ product.categories[0].name }}
                             @if (product.categories.length > 1) {
                               <span class="opacity-75"> +{{ product.categories.length - 1 }}</span>
@@ -149,10 +149,10 @@ import { ToastService } from '../../core/services/toast.service';
           <div class="lg:col-span-3 space-y-6 mt-6">
             <div class="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
               <div class="flex items-center justify-between mb-6">
-                <h3 class="text-lg font-bold text-slate-900">Order History ({{ profile()!.orders?.length || 0 }})</h3>
+                <h3 class="text-lg font-bold text-slate-900">Order History ({{ profile()!.orders ? profile()!.orders.length : 0 }})</h3>
               </div>
 
-              @if (profile()!.orders?.length) {
+              @if (profile()!.orders && profile()!.orders.length > 0) {
                 <div class="overflow-x-auto">
                   <table class="w-full text-sm text-start">
                     <thead>

@@ -6,7 +6,6 @@ import { CartService } from '../../core/services/cart.service';
 import { WishlistService } from '../../core/services/wishlist.service';
 import { PwaService } from '../../core/services/pwa.service';
 import { ToastService } from '../../core/services/toast.service';
-import { InstallButtonComponent } from '../../shared/components/install-button/install-button.component';
 import { AnnouncementService, Announcement } from '../../core/services/announcement.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { Subject } from 'rxjs';
@@ -17,7 +16,7 @@ import { ProductService } from '../../core/services/product.service';
 
 @Component({
   selector: 'app-header',
-  imports: [RouterLink, RouterLinkActive, FormsModule, InstallButtonComponent, DatePipe],
+  imports: [RouterLink, RouterLinkActive, FormsModule, DatePipe],
   template: `
     <!-- Announcement bar -->
     @if (announcement()) {
