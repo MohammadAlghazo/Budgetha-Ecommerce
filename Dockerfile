@@ -1,5 +1,5 @@
-# Use the official .NET 8 SDK as a build environment
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+# Use the official .NET 9 SDK as a build environment
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /app
 
 # Copy the solution file and project files first (for caching restore)
@@ -19,8 +19,8 @@ COPY src/ ./src/
 WORKDIR /app/src/Budgetha.API
 RUN dotnet publish -c Release -o /out
 
-# Use the official .NET 8 ASP.NET Core runtime as the final image
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+# Use the official .NET 9 ASP.NET Core runtime as the final image
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 COPY --from=build /out .
 
