@@ -117,6 +117,12 @@ Thumbs.db
           },
           "configurations": {
             "production": {
+              "fileReplacements": [
+                {
+                  "replace": "src/environments/environment.ts",
+                  "with": "src/environments/environment.prod.ts"
+                }
+              ],
               "budgets": [
                 {
                   "type": "initial",
@@ -252,11 +258,9 @@ Thumbs.db
         "/api/products/**",
         "/api/categories/**",
         "/api/brands/**",
-        "/api/reviews/**",
         "http://localhost:5272/api/products/**",
         "http://localhost:5272/api/categories/**",
-        "http://localhost:5272/api/brands/**",
-        "http://localhost:5272/api/reviews/**"
+        "http://localhost:5272/api/brands/**"
       ],
       "cacheConfig": {
         "strategy": "performance",
@@ -11347,6 +11351,7 @@ For more information on using the Angular CLI, including detailed command refere
 ``javascript
 
 module.exports = {
+  darkMode: 'class',
   content: ["./src/**/*.{html,ts}"],
   theme: {
     extend: {
@@ -11480,7 +11485,7 @@ module.exports = {
   "scope": "/",
   "start_url": "/?source=pwa",
   "theme_color": "#0f766e",
-  "background_color": "#ffffff",
+  "background_color": "#0f172a",
   "categories": ["shopping", "lifestyle"],
   "prefer_related_applications": false,
   "icons": [
@@ -11671,7 +11676,7 @@ declare namespace google {
 
 ``html
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light" data-theme-mode="system">
 <head>
   <meta charset="utf-8">
   <title>Budgetha â€” Shop smarter, spend wiser</title>
@@ -11682,7 +11687,7 @@ declare namespace google {
   <!-- PWA -->
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#0f766e">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="light dark">
   <meta name="application-name" content="Budgetha">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -11695,6 +11700,24 @@ declare namespace google {
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
   <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-96x96.png">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
+
+  <script>
+    (function () {
+      var key = 'budgetha-theme';
+      var stored;
+      try { stored = localStorage.getItem(key); } catch (_) { stored = null; }
+      var mode = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
+      var dark = mode === 'dark' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      var resolved = dark ? 'dark' : 'light';
+      var root = document.documentElement;
+      root.classList.toggle('dark', dark);
+      root.dataset.theme = resolved;
+      root.dataset.themeMode = mode;
+      root.style.colorScheme = resolved;
+      document.querySelector('meta[name="color-scheme"]').setAttribute('content', resolved);
+      document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#0f172a' : '#0f766e');
+    })();
+  </script>
 
   <!-- Social preview -->
   <meta property="og:type" content="website">
@@ -11914,6 +11937,196 @@ body {
   transform: scale(1.15);
 }
 
+/* â”€â”€ Theme compatibility â”€â”€
+   Existing screens use Tailwind's light palette extensively. These semantic
+   overrides keep those screens readable in dark mode without changing layout
+   or the intentionally dark brand panels. */
+
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
+
+html.dark :where(.bg-slate-50, .bg-slate-50\/50, .bg-slate-50\/60, .bg-slate-50\/70, .bg-slate-50\/80):not(.theme-preserve-light) {
+  background-color: #111c2f;
+}
+
+html.dark :where(.bg-slate-100, .bg-slate-100\/50, .bg-slate-100\/60):not(.theme-preserve-light) {
+  background-color: #1e293b;
+}
+
+html.dark :where(.bg-white, .bg-white\/80, .bg-white\/90, .bg-white\/95):not(.theme-preserve-light) {
+  background-color: #172235;
+}
+
+html.dark :where(.border-slate-50, .border-slate-100, .border-slate-200, .border-slate-200\/80, .border-slate-300):not(.theme-preserve-light) {
+  border-color: #334155;
+}
+
+html.dark :where(.ring-slate-100, .ring-slate-200, .ring-offset-2) {
+  --tw-ring-color: #475569;
+  --tw-ring-offset-color: #0f172a;
+}
+
+html.dark :where(.text-slate-900, .text-slate-800, .text-slate-700):not(.theme-preserve-light) {
+  color: #f1f5f9;
+}
+
+html.dark :where(.text-slate-600, .text-slate-500):not(.theme-preserve-light) {
+  color: #cbd5e1;
+}
+
+html.dark :where(.text-slate-400):not(.theme-preserve-light) {
+  color: #94a3b8;
+}
+
+html.dark :where(.text-gray-700):not(.theme-preserve-light) {
+  color: #e2e8f0;
+}
+
+html.dark :where(.border-gray-300, .ring-gray-300):not(.theme-preserve-light) {
+  border-color: #475569;
+  --tw-ring-color: #475569;
+}
+
+html.dark :where(.hover\:bg-slate-50:hover, .hover\:bg-gray-50:hover):not(.theme-preserve-light) {
+  background-color: #1e293b;
+}
+
+html.dark :where(.hover\:bg-slate-100:hover):not(.theme-preserve-light) {
+  background-color: #273449;
+}
+
+html.dark :where(.focus\:bg-white:focus):not(.theme-preserve-light) {
+  background-color: #172235;
+}
+
+html.dark :where(.hover\:text-slate-800:hover, .hover\:text-slate-700:hover):not(.theme-preserve-light) {
+  color: #f8fafc;
+}
+
+html.dark :where(.shadow-slate-100, .shadow-slate-200\/50, .shadow-slate-200\/80) {
+  --tw-shadow-color: rgb(0 0 0 / 0.35);
+}
+
+html.dark :where(.card) {
+  background-color: #172235;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+html.dark :where(.input-field) {
+  background-color: #111c2f;
+  border-color: #475569;
+  color: #f8fafc;
+}
+
+html.dark :where(.input-field:hover) {
+  border-color: #64748b;
+}
+
+html.dark :where(.input-field:focus) {
+  background-color: #172235;
+  border-color: #2dd4bf;
+}
+
+html.dark :where(input, textarea, select) {
+  color-scheme: dark;
+}
+
+html.dark :where(input::placeholder, textarea::placeholder) {
+  color: #64748b;
+}
+
+html.dark :where(input:-webkit-autofill, textarea:-webkit-autofill, select:-webkit-autofill) {
+  -webkit-text-fill-color: #f8fafc;
+  -webkit-box-shadow: 0 0 0 1000px #111c2f inset;
+  transition: background-color 9999s ease-out 0s;
+}
+
+html.dark :where(.bg-emerald-50, .bg-emerald-100) {
+  background-color: rgb(6 78 59 / 0.45);
+}
+
+html.dark :where(.bg-amber-50, .bg-amber-100, .bg-yellow-50, .bg-yellow-100) {
+  background-color: rgb(120 53 15 / 0.45);
+}
+
+html.dark :where(.bg-rose-50, .bg-rose-100, .bg-red-50, .bg-red-100) {
+  background-color: rgb(127 29 29 / 0.42);
+}
+
+html.dark :where(.bg-blue-50, .bg-blue-100, .bg-indigo-50, .bg-indigo-100, .bg-violet-50, .bg-violet-100, .bg-purple-50, .bg-purple-100) {
+  background-color: rgb(49 46 129 / 0.38);
+}
+
+html.dark :where(.bg-teal-50, .bg-teal-100) {
+  background-color: rgb(19 78 74 / 0.5);
+}
+
+html.dark :where(.text-emerald-700, .text-emerald-600) { color: #6ee7b7; }
+html.dark :where(.text-amber-700, .text-amber-600) { color: #fcd34d; }
+html.dark :where(.text-rose-700, .text-rose-600, .text-red-500) { color: #fda4af; }
+html.dark :where(.text-blue-700, .text-blue-600, .text-indigo-700, .text-indigo-600, .text-violet-700, .text-violet-600, .text-purple-700, .text-purple-600) { color: #c4b5fd; }
+html.dark :where(.text-teal-800, .text-teal-700, .text-teal-600) { color: #5eead4; }
+
+html.dark :where(.border-emerald-100, .border-emerald-200, .border-amber-100, .border-amber-200, .border-rose-100, .border-rose-200, .border-indigo-100, .border-indigo-200, .border-violet-100, .border-violet-200) {
+  border-color: #475569;
+}
+
+html.dark :where(.hover\:bg-emerald-50:hover, .hover\:bg-emerald-100:hover, .hover\:bg-amber-50:hover, .hover\:bg-amber-100:hover, .hover\:bg-rose-50:hover, .hover\:bg-rose-100:hover, .hover\:bg-indigo-50:hover, .hover\:bg-indigo-100:hover, .hover\:bg-violet-50:hover, .hover\:bg-violet-100:hover) {
+  background-color: #334155;
+}
+
+html.dark :where(.hover\:bg-teal-50:hover, .hover\:bg-teal-100:hover) {
+  background-color: rgb(19 78 74 / 0.7);
+}
+
+html.dark :where(.disabled\:hover\:bg-slate-200:hover:disabled, .disabled\:hover\:bg-slate-50:hover:disabled) {
+  background-color: #1e293b;
+}
+
+html.dark :where(.mix-blend-multiply) {
+  mix-blend-mode: normal;
+}
+
+html.dark .range-slider::-webkit-slider-thumb {
+  background: #1e293b;
+  border-color: #a78bfa;
+  box-shadow: 0 1px 5px rgb(0 0 0 / 0.45);
+}
+
+html.dark .range-slider::-moz-range-thumb {
+  background: #1e293b;
+  border-color: #a78bfa;
+  box-shadow: 0 1px 5px rgb(0 0 0 / 0.45);
+}
+
+html.dark ::selection {
+  background-color: #5b21b6;
+  color: #f5f3ff;
+}
+
+html.dark * {
+  scrollbar-color: #475569 #0f172a;
+}
+
+html.dark ::-webkit-scrollbar-track { background: #0f172a; }
+html.dark ::-webkit-scrollbar-thumb { background: #475569; border-radius: 999px; }
+html.dark ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+html.dark :where(.theme-toggle) {
+  color: #cbd5e1;
+}
+
 ``
 
 ## src\app\app.config.ts
@@ -11967,7 +12180,7 @@ import { Routes, Router } from '@angular/router';
 import { inject } from '@angular/core';
 import { authGuard } from './core/guards/auth.guard';
 import { adminGuard } from './core/guards/admin.guard';
-import { sellerGuard } from './core/guards/seller.guard';
+import { platformAdminGuard } from './core/guards/platform-admin.guard';
 
 export const routes: Routes = [
   
@@ -11978,14 +12191,14 @@ export const routes: Routes = [
     children: [
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
       { path: 'dashboard', loadComponent: () => import('./features/admin/admin-dashboard.component').then(m => m.AdminDashboardComponent) },
-      { path: 'users', loadComponent: () => import('./features/admin/admin-users.component').then(m => m.AdminUsersComponent) },
-      { path: 'users/:id', loadComponent: () => import('./features/admin/admin-user-profile.component').then(m => m.AdminUserProfileComponent) },
+      { path: 'users', canActivate: [platformAdminGuard], loadComponent: () => import('./features/admin/admin-users.component').then(m => m.AdminUsersComponent) },
+      { path: 'users/:id', canActivate: [platformAdminGuard], loadComponent: () => import('./features/admin/admin-user-profile.component').then(m => m.AdminUserProfileComponent) },
       { path: 'products', loadComponent: () => import('./features/admin/admin-products.component').then(m => m.AdminProductsComponent) },
       { path: 'add-product', loadComponent: () => import('./features/admin/admin-add-product.component').then(m => m.AdminAddProductComponent) },
       { path: 'edit-product/:id', loadComponent: () => import('./features/admin/admin-add-product.component').then(m => m.AdminAddProductComponent) },
-      { path: 'categories', loadComponent: () => import('./features/admin/admin-categories.component').then(m => m.AdminCategoriesComponent) },
-      { path: 'seller-requests', loadComponent: () => import('./features/admin/admin-seller-requests.component').then(m => m.AdminSellerRequestsComponent) },
-      { path: 'announcements', loadComponent: () => import('./features/admin/admin-announcements.component').then(m => m.AdminAnnouncementsComponent) },
+      { path: 'categories', canActivate: [platformAdminGuard], loadComponent: () => import('./features/admin/admin-categories.component').then(m => m.AdminCategoriesComponent) },
+      { path: 'seller-requests', canActivate: [platformAdminGuard], loadComponent: () => import('./features/admin/admin-seller-requests.component').then(m => m.AdminSellerRequestsComponent) },
+      { path: 'announcements', canActivate: [platformAdminGuard], loadComponent: () => import('./features/admin/admin-announcements.component').then(m => m.AdminAnnouncementsComponent) },
       { path: 'orders', loadComponent: () => import('./features/admin/admin-orders.component').then(m => m.AdminOrdersComponent) },
       { path: 'logs', loadComponent: () => import('./features/admin/admin-logs.component').then(m => m.AdminLogsComponent) }
     ]
@@ -12052,6 +12265,11 @@ export const routes: Routes = [
       {
         path: 'products/:slug',
         loadComponent: () => import('./features/product-detail/product-detail.component').then(m => m.ProductDetailComponent),
+      },
+      {
+        path: 'sellers/:id',
+        title: 'Seller profile Â· Budgetha',
+        loadComponent: () => import('./features/seller-profile/seller-profile.component').then(m => m.SellerProfileComponent),
       },
       {
         path: 'cart',
@@ -12212,6 +12430,8 @@ import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { ToastComponent } from './shared/components/toast/toast.component';
 import { PwaService } from './core/services/pwa.service';
+import { ThemeService } from './core/services/theme.service';
+import { NotificationService } from './core/services/notification.service';
 
 @Component({
   selector: 'app-root',
@@ -12220,11 +12440,46 @@ import { PwaService } from './core/services/pwa.service';
   styleUrl: './app.scss'
 })
 export class App {
-  
-  
-  
   private readonly pwa = inject(PwaService);
+  private readonly theme = inject(ThemeService);
+  private readonly notifications = inject(NotificationService);
 }
+
+``
+
+## src\app\core\data\countries.data.ts
+
+``typescript
+export interface CountryData {
+  name: string;
+  code: string;
+  dialCode: string;
+  flag: string;
+  phoneLength: number | number[];
+  states?: string[];
+}
+
+export const COUNTRIES: CountryData[] = [
+  { name: 'Jordan', code: 'JO', dialCode: '+962', flag: 'ðŸ‡¯ðŸ‡´', phoneLength: 9, states: ['Amman', 'Zarqa', 'Irbid', 'Aqaba', 'Karak', 'Madaba', 'Jerash', 'Ajloun', 'Mafraq', 'Tafila', 'Ma\'an', 'Balqa'] },
+  { name: 'Saudi Arabia', code: 'SA', dialCode: '+966', flag: 'ðŸ‡¸ðŸ‡¦', phoneLength: 9, states: ['Riyadh', 'Mecca', 'Medina', 'Eastern Province', 'Asir', 'Tabuk', 'Qassim', 'Ha\'il', 'Jizan', 'Najran', 'Al Bahah', 'Northern Borders', 'Al Jawf'] },
+  { name: 'United Arab Emirates', code: 'AE', dialCode: '+971', flag: 'ðŸ‡¦ðŸ‡ª', phoneLength: 9, states: ['Abu Dhabi', 'Dubai', 'Sharjah', 'Ajman', 'Umm Al Quwain', 'Ras Al Khaimah', 'Fujairah'] },
+  { name: 'Kuwait', code: 'KW', dialCode: '+965', flag: 'ðŸ‡°ðŸ‡¼', phoneLength: 8, states: ['Al Asimah', 'Hawalli', 'Farwaniyah', 'Ahmadi', 'Jahra', 'Mubarak Al-Kabeer'] },
+  { name: 'Bahrain', code: 'BH', dialCode: '+973', flag: 'ðŸ‡§ðŸ‡­', phoneLength: 8, states: ['Capital', 'Muharraq', 'Northern', 'Southern'] },
+  { name: 'Qatar', code: 'QA', dialCode: '+974', flag: 'ðŸ‡¶ðŸ‡¦', phoneLength: 8, states: ['Doha', 'Al Rayyan', 'Al Wakrah', 'Al Khor', 'Al Shamal', 'Al Daayen', 'Al Sheehaniya', 'Umm Salal'] },
+  { name: 'Oman', code: 'OM', dialCode: '+968', flag: 'ðŸ‡´ðŸ‡²', phoneLength: 8, states: ['Muscat', 'Dhofar', 'Musandam', 'Al Buraymi', 'Ad Dakhiliyah', 'Al Batinah North', 'Al Batinah South', 'Ash Sharqiyah North', 'Ash Sharqiyah South', 'Al Dhahirah', 'Al Wusta'] },
+  { name: 'Egypt', code: 'EG', dialCode: '+20', flag: 'ðŸ‡ªðŸ‡¬', phoneLength: 10, states: ['Cairo', 'Alexandria', 'Giza', 'Qalyubia', 'Port Said', 'Suez', 'Luxor', 'Aswan', 'Asyut', 'Sohag', 'Qena', 'Red Sea', 'Beheira', 'Fayoum', 'Gharbia', 'Ismailia', 'Menofia', 'Minya', 'Dakahlia', 'Damietta', 'Sharqia', 'Kafr el-Sheikh', 'Matruh', 'New Valley', 'North Sinai', 'South Sinai'] },
+  { name: 'Lebanon', code: 'LB', dialCode: '+961', flag: 'ðŸ‡±ðŸ‡§', phoneLength: 7, states: ['Beirut', 'Mount Lebanon', 'North Lebanon', 'South Lebanon', 'Bekaa', 'Nabatiyeh', 'Akkar', 'Baalbek-Hermel'] },
+  { name: 'Iraq', code: 'IQ', dialCode: '+964', flag: 'ðŸ‡®ðŸ‡¶', phoneLength: 10, states: ['Baghdad', 'Basra', 'Nineveh', 'Erbil', 'Sulaymaniyah', 'Kirkuk', 'Najaf', 'Karbala', 'Wasit', 'Babylon', 'Diyala', 'Anbar', 'Saladin', 'Dohuk', 'Muthanna', 'Dhi Qar', 'Maysan', 'Qadisiyyah'] },
+  { name: 'United States', code: 'US', dialCode: '+1', flag: 'ðŸ‡ºðŸ‡¸', phoneLength: 10, states: ['Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut', 'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan', 'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire', 'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio', 'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota', 'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia', 'Wisconsin', 'Wyoming'] },
+  { name: 'United Kingdom', code: 'GB', dialCode: '+44', flag: 'ðŸ‡¬ðŸ‡§', phoneLength: 10, states: ['England', 'Scotland', 'Wales', 'Northern Ireland'] },
+  { name: 'Canada', code: 'CA', dialCode: '+1', flag: 'ðŸ‡¨ðŸ‡¦', phoneLength: 10, states: ['Alberta', 'British Columbia', 'Manitoba', 'New Brunswick', 'Newfoundland and Labrador', 'Northwest Territories', 'Nova Scotia', 'Nunavut', 'Ontario', 'Prince Edward Island', 'Quebec', 'Saskatchewan', 'Yukon'] },
+  { name: 'Germany', code: 'DE', dialCode: '+49', flag: 'ðŸ‡©ðŸ‡ª', phoneLength: [10, 11], states: ['Baden-WÃ¼rttemberg', 'Bavaria', 'Berlin', 'Brandenburg', 'Bremen', 'Hamburg', 'Hesse', 'Lower Saxony', 'Mecklenburg-Vorpommern', 'North Rhine-Westphalia', 'Rhineland-Palatinate', 'Saarland', 'Saxony', 'Saxony-Anhalt', 'Schleswig-Holstein', 'Thuringia'] },
+  { name: 'France', code: 'FR', dialCode: '+33', flag: 'ðŸ‡«ðŸ‡·', phoneLength: 9, states: ['ÃŽle-de-France', 'Auvergne-RhÃ´ne-Alpes', 'Nouvelle-Aquitaine', 'Occitanie', 'Hauts-de-France', 'Grand Est', 'Normandy', 'Pays de la Loire', 'Bretagne', 'Bourgogne-Franche-ComtÃ©', 'Centre-Val de Loire', 'Provence-Alpes-CÃ´te d\'Azur', 'Corsica'] },
+  { name: 'Australia', code: 'AU', dialCode: '+61', flag: 'ðŸ‡¦ðŸ‡º', phoneLength: 9, states: ['New South Wales', 'Victoria', 'Queensland', 'Western Australia', 'South Australia', 'Tasmania', 'Australian Capital Territory', 'Northern Territory'] },
+  { name: 'Turkey', code: 'TR', dialCode: '+90', flag: 'ðŸ‡¹ðŸ‡·', phoneLength: 10, states: ['Istanbul', 'Ankara', 'Izmir', 'Bursa', 'Antalya', 'Adana', 'Konya', 'Gaziantep', 'Mersin', 'Kayseri'] },
+  { name: 'Pakistan', code: 'PK', dialCode: '+92', flag: 'ðŸ‡µðŸ‡°', phoneLength: 10, states: ['Punjab', 'Sindh', 'Khyber Pakhtunkhwa', 'Balochistan', 'Islamabad', 'Gilgit-Baltistan', 'Azad Kashmir'] },
+  { name: 'India', code: 'IN', dialCode: '+91', flag: 'ðŸ‡®ðŸ‡³', phoneLength: 10, states: ['Andhra Pradesh', 'Delhi', 'Gujarat', 'Karnataka', 'Kerala', 'Maharashtra', 'Rajasthan', 'Tamil Nadu', 'Telangana', 'Uttar Pradesh', 'West Bengal'] },
+];
 
 ``
 
@@ -12355,6 +12610,28 @@ function explain(url: string): string {
   }
   return 'Please sign in to continue.';
 }
+
+``
+
+## src\app\core\guards\platform-admin.guard.ts
+
+``typescript
+import { inject } from '@angular/core';
+import { Router, type CanActivateFn } from '@angular/router';
+import { AuthService } from '../services/auth.service';
+import { ToastService } from '../services/toast.service';
+
+export const platformAdminGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  const toast = inject(ToastService);
+  const roles = auth.user()?.roles ?? [];
+
+  if (roles.includes('Admin') || roles.includes('SuperAdmin')) return true;
+
+  toast.error('Administrator privileges are required.');
+  return router.parseUrl('/admin/dashboard');
+};
 
 ``
 
@@ -12893,8 +13170,7 @@ export interface Product {
   name: string;
   slug: string;
   brand: string;
-  categoryId: string;
-  category: string;
+  categories: { id: string; name: string; slug: string }[];
   price: number;
   originalPrice?: number;
   rating: number;
@@ -12914,6 +13190,8 @@ export interface Product {
   isAvailableForRent?: boolean;
   rentalPricePerDay?: number;
   variants: ProductVariant[];
+  sellerId?: string;
+  sellerName?: string;
 }
 
 export interface ProductImage {
@@ -12993,7 +13271,30 @@ export interface PaymentCard {
   isDefault: boolean;
 }
 
-export type OrderStatus = 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled' | 'Refunded' | 'Failed';
+export type OrderStatus = 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled' | 'Refunded' | 'Failed' | 'PartiallyFulfilled';
+
+export interface OrderFulfillment {
+  id: string;
+  sellerId: string;
+  sellerName: string;
+  amount: number;
+  status: 'Processing' | 'Shipped' | 'Delivered' | 'Rejected';
+  carrier?: string;
+  trackingNumber?: string;
+  shippedAt?: string;
+  deliveredAt?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+}
+
+export interface DeliveryReport {
+  id: string;
+  fulfillmentId?: string;
+  status: 'Open' | 'Resolved' | 'Dismissed';
+  reason?: string;
+  createdAt: string;
+  adminNote?: string;
+}
 
 export interface OrderItem {
   productId: string;
@@ -13007,6 +13308,8 @@ export interface OrderItem {
   type?: 'Purchase' | 'Rental';
   rentalStartDate?: string;
   rentalEndDate?: string;
+  fulfillmentId?: string;
+  sellerName?: string;
 }
 
 export interface Order {
@@ -13022,6 +13325,12 @@ export interface Order {
   total: number;
   shippingAddress: string;
   paymentSummary: string;
+  paymentStatus?: string;
+  currency?: string;
+  canConfirmReceipt?: boolean;
+  canReportNotReceived?: boolean;
+  fulfillments?: OrderFulfillment[];
+  deliveryReports?: DeliveryReport[];
 }
 
 export type SortOption = 'featured' | 'newest' | 'price-asc' | 'price-desc' | 'rating';
@@ -13036,12 +13345,25 @@ export interface CatalogQuery {
   sort: SortOption;
   page: number;
   pageSize: number;
+  sellerId?: string;
 }
 
 export interface CatalogResult {
   items: Product[];
   total: number;
   totalPages: number;
+}
+
+export interface SellerProfile {
+  id: string;
+  displayName: string;
+  avatarUrl?: string;
+  businessName?: string;
+  businessDescription?: string;
+  memberSince: string;
+  activeProductCount: number;
+  reviewCount: number;
+  averageRating: number;
 }
 
 ``
@@ -13338,8 +13660,11 @@ export class AdminService {
     return this.http.get<PagedUserResult>(`${this.apiUrl}/users?page=${page}&pageSize=${pageSize}`);
   }
 
-  getAllProducts(page: number = 1, pageSize: number = 50): Observable<AdminProductResult> {
-    return this.http.get<AdminProductResult>(`${this.apiUrl}/products?page=${page}&pageSize=${pageSize}`);
+  getAllProducts(page: number = 1, pageSize: number = 50, sort?: string, category?: string): Observable<AdminProductResult> {
+    let url = `${this.apiUrl}/products?page=${page}&pageSize=${pageSize}`;
+    if (sort) url += `&sort=${sort}`;
+    if (category) url += `&category=${category}`;
+    return this.http.get<AdminProductResult>(url);
   }
 
   
@@ -13353,14 +13678,15 @@ export class AdminService {
 
   
   approveProduct(productId: string, status: 'Approved' | 'Rejected'): Observable<any> {
-    return this.http.patch(`${this.productsUrl}/${productId}/approve`, status, {
+    const statusValue = status === 'Approved' ? 1 : 2;
+    return this.http.patch(`${this.productsUrl}/${productId}/approve`, statusValue, {
       headers: { 'Content-Type': 'application/json' }
     });
   }
 
   
   deleteProduct(productId: string): Observable<any> {
-    return this.http.delete(`${this.apiUrl}/products/${productId}`);
+    return this.http.delete(`${this.productsUrl}/${productId}`);
   }
 
   
@@ -13406,6 +13732,10 @@ import { environment } from '../../../environments/environment';
 export interface Announcement {
   id: string;
   message: string;
+  subtitle?: string;
+  badgeText?: string;
+  promoCode?: string;
+  discountPercent?: number;
   linkUrl?: string;
   isActive: boolean;
   startDate?: string;
@@ -13415,6 +13745,10 @@ export interface Announcement {
 
 export interface CreateAnnouncementDto {
   message: string;
+  subtitle?: string;
+  badgeText?: string;
+  promoCode?: string;
+  discountPercent?: number;
   linkUrl?: string;
   isActive: boolean;
   startDate?: string;
@@ -13694,13 +14028,15 @@ export class CartService {
             productId: i.productId,
             variantId: i.variantId,
             name: i.productName,
-            slug: '', // missing in backend dto, can add if needed
-            brand: '',
+            slug: i.productSlug,
+            brand: i.brand || 'Generic',
             image: i.productImage || '',
             price: i.price,
             quantity: i.quantity,
             stock: i.stock,
-            type: i.type === 0 ? 'Purchase' : 'Rental',
+            type: typeof i.type === 'string'
+              ? (i.type.toLowerCase() === 'rental' ? 'Rental' : 'Purchase')
+              : (i.type === 1 ? 'Rental' : 'Purchase'),
             rentalStartDate: i.rentalStartDate,
             rentalEndDate: i.rentalEndDate,
             color: i.color,
@@ -13766,6 +14102,33 @@ export class CartService {
       ? (variant?.rentalPricePerDay ?? product.rentalPricePerDay ?? variant?.price ?? product.price) * days
       : variant?.price ?? product.price;
     if (this.auth.isAuthenticated()) {
+      const optimisticItem: CartItem = {
+        id: `optimistic-${Date.now()}`,
+        productId: product.id,
+        variantId: variant?.id,
+        name: product.name,
+        slug: product.slug,
+        brand: product.brand || 'Generic',
+        image: product.images?.[0] || '',
+        price,
+        quantity,
+        stock,
+        color: variant?.color ?? color,
+        size: variant?.size ?? size,
+        type,
+        rentalStartDate,
+        rentalEndDate,
+      };
+      this._items.update(items => {
+        const existing = items.find(
+          i => i.productId === product.id && i.variantId === variant?.id &&
+            i.type === type && i.rentalStartDate === rentalStartDate && i.rentalEndDate === rentalEndDate
+        );
+        if (existing) {
+          return items.map(i => i === existing ? { ...i, quantity: Math.min(i.quantity + quantity, i.stock) } : i);
+        }
+        return [...items, optimisticItem];
+      });
       this.http.post(`${this.apiUrl}/items`, {
         productId: product.id,
         variantId: variant?.id ?? null,
@@ -13780,7 +14143,10 @@ export class CartService {
           this.fetchFromBackend();
           this.toast.success(`${product.name} added to cart`);
         },
-        error: () => this.toast.error('Failed to add to cart')
+        error: () => {
+          this._items.update(items => items.filter(i => i.id !== optimisticItem.id));
+          this.toast.error('Failed to add item to cart');
+        }
       });
     } else {
       // Local logic
@@ -13831,7 +14197,7 @@ export class CartService {
         quantity: quantity
       }).subscribe({
         next: () => this.fetchFromBackend(),
-        error: () => this.toast.error('Failed to update quantity')
+        error: () => undefined
       });
     } else {
       this._items.update(items =>
@@ -13852,7 +14218,7 @@ export class CartService {
           this.fetchFromBackend();
           this.toast.success('Item removed');
         },
-        error: () => this.toast.error('Failed to remove item')
+        error: () => undefined
       });
     } else {
       this._items.update(items =>
@@ -13935,6 +14301,7 @@ export class CartService {
       return null;
     }
   }
+
 }
 
 ``
@@ -13979,7 +14346,7 @@ export class CloudinaryService {
 ``typescript
 import { Injectable, effect } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { BehaviorSubject, Observable } from 'rxjs';
+import { BehaviorSubject, firstValueFrom, forkJoin, retry, timer } from 'rxjs';
 import * as signalR from '@microsoft/signalr';
 import { environment } from '../../../environments/environment';
 import { AuthService } from './auth.service';
@@ -13991,94 +14358,164 @@ export interface Notification {
   type: string;
   isRead: boolean;
   relatedEntityId?: string;
-  createdAt: Date;
+  createdAt: Date | string;
 }
+
+export type NotificationConnectionState = 'disconnected' | 'loading' | 'connecting' | 'connected' | 'reconnecting';
 
 @Injectable({
   providedIn: 'root'
 })
 export class NotificationService {
-  private hubConnection: signalR.HubConnection | undefined;
-  
-  private notificationsSubject = new BehaviorSubject<Notification[]>([]);
-  public notifications$ = this.notificationsSubject.asObservable();
-  
-  private unreadCountSubject = new BehaviorSubject<number>(0);
-  public unreadCount$ = this.unreadCountSubject.asObservable();
+  private hubConnection?: signalR.HubConnection;
+  private session = 0;
+
+  private readonly notificationsSubject = new BehaviorSubject<Notification[]>([]);
+  readonly notifications$ = this.notificationsSubject.asObservable();
+
+  private readonly unreadCountSubject = new BehaviorSubject<number>(0);
+  readonly unreadCount$ = this.unreadCountSubject.asObservable();
+
+  private readonly connectionStateSubject = new BehaviorSubject<NotificationConnectionState>('disconnected');
+  readonly connectionState$ = this.connectionStateSubject.asObservable();
+
+  private readonly errorSubject = new BehaviorSubject<string | null>(null);
+  readonly error$ = this.errorSubject.asObservable();
 
   private readonly apiUrl = `${environment.apiUrl}/notifications`;
 
   constructor(private http: HttpClient, private authService: AuthService) {
     effect(() => {
       const user = this.authService.user();
+      const session = ++this.session;
       if (user) {
-        this.loadInitialData();
-        this.startConnection();
+        void this.initialize(session);
       } else {
-        this.stopConnection();
+        void this.stopConnection();
         this.notificationsSubject.next([]);
         this.unreadCountSubject.next(0);
+        this.errorSubject.next(null);
       }
     });
   }
 
-  private loadInitialData() {
-    this.http.get<Notification[]>(`${this.apiUrl}?limit=20`).subscribe(notifications => {
-      this.notificationsSubject.next(notifications);
-    });
-
-    this.http.get<{ count: number }>(`${this.apiUrl}/unread-count`).subscribe(res => {
-      this.unreadCountSubject.next(res.count);
-    });
+  private async initialize(session: number): Promise<void> {
+    await this.stopConnection();
+    this.connectionStateSubject.next('loading');
+    await this.backfill(session);
+    if (session !== this.session || !this.authService.user()) return;
+    await this.startConnection(session);
   }
 
-  private startConnection() {
-    const token = this.authService.getToken();
-    if (!token) return;
+  private async backfill(session = this.session): Promise<void> {
+    try {
+      const result = await firstValueFrom(forkJoin({
+        notifications: this.http.get<Notification[]>(`${this.apiUrl}?limit=20`),
+        unread: this.http.get<{ count: number }>(`${this.apiUrl}/unread-count`)
+      }).pipe(retry({ count: 2, delay: (_, attempt) => timer(attempt * 500) })));
 
-    this.stopConnection();
-    this.hubConnection = new signalR.HubConnectionBuilder()
-      .withUrl(`${environment.hubUrl}/notifications`, {
-        accessTokenFactory: () => this.authService.getToken() ?? ''
-      })
-      .withAutomaticReconnect()
-      .build();
-
-    this.hubConnection
-      .start()
-      .then(() => console.log('Notification Hub Connection started'))
-      .catch(err => console.error('Error while starting connection: ' + err));
-
-    this.hubConnection.on('ReceiveNotification', (notification: Notification) => {
-      // Add new notification to the top of the list
-      const current = this.notificationsSubject.value;
-      this.notificationsSubject.next([notification, ...current]);
-      
-      // Increment unread count
-      this.unreadCountSubject.next(this.unreadCountSubject.value + 1);
-      
-      // You can also add Toastr or Snack-bar notification here
-    });
-  }
-
-  private stopConnection() {
-    if (this.hubConnection) {
-      this.hubConnection.stop();
-      this.hubConnection = undefined;
+      if (session !== this.session) return;
+      this.mergeNotifications(result.notifications);
+      const locallyUnread = this.notificationsSubject.value.filter(item => !item.isRead).length;
+      this.unreadCountSubject.next(Math.max(0, result.unread.count, locallyUnread));
+      this.errorSubject.next(null);
+    } catch {
+      if (session === this.session) {
+        this.errorSubject.next('Notifications could not be refreshed after 3 attempts.');
+      }
     }
   }
 
-  public markAsRead(id: string) {
-    return this.http.put(`${this.apiUrl}/${id}/read`, {}).subscribe(() => {
-      const current = this.notificationsSubject.value;
-      const updated = current.map(n => {
-        if (n.id === id && !n.isRead) {
-          n.isRead = true;
+  private async startConnection(session: number): Promise<void> {
+    const token = this.authService.getToken();
+    if (!token) {
+      this.connectionStateSubject.next('disconnected');
+      return;
+    }
+
+    const connection = new signalR.HubConnectionBuilder()
+      .withUrl(`${environment.hubUrl}/notifications`, {
+        accessTokenFactory: () => this.authService.getToken() ?? ''
+      })
+      .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
+      .build();
+    this.hubConnection = connection;
+
+    connection.on('ReceiveNotification', (notification: Notification) => {
+      const isNew = !this.notificationsSubject.value.some(item => item.id === notification.id);
+      this.mergeNotifications([notification]);
+      if (isNew && !notification.isRead) {
+        this.unreadCountSubject.next(this.unreadCountSubject.value + 1);
+      }
+    });
+    connection.onreconnecting(() => {
+      this.connectionStateSubject.next('reconnecting');
+      this.errorSubject.next('Notification connection interrupted; reconnecting.');
+    });
+    connection.onreconnected(() => {
+      this.connectionStateSubject.next('connected');
+      void this.backfill(session);
+    });
+    connection.onclose(() => {
+      if (session === this.session) {
+        this.connectionStateSubject.next('disconnected');
+        this.errorSubject.next('Live notifications are unavailable after 5 reconnect attempts.');
+      }
+    });
+
+    this.connectionStateSubject.next('connecting');
+    try {
+      await connection.start();
+      if (session !== this.session) {
+        await connection.stop();
+        return;
+      }
+      this.connectionStateSubject.next('connected');
+      this.errorSubject.next(null);
+      await this.backfill(session);
+    } catch {
+      this.connectionStateSubject.next('disconnected');
+      this.errorSubject.next('Live notifications could not connect. Refresh to retry.');
+    }
+  }
+
+  private mergeNotifications(incoming: Notification[]): void {
+    const byId = new Map(this.notificationsSubject.value.map(item => [item.id, item]));
+    for (const notification of incoming) {
+      byId.set(notification.id, { ...byId.get(notification.id), ...notification });
+    }
+
+    const merged = [...byId.values()]
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+      .slice(0, 100);
+    this.notificationsSubject.next(merged);
+  }
+
+  private async stopConnection(): Promise<void> {
+    const connection = this.hubConnection;
+    this.hubConnection = undefined;
+    this.connectionStateSubject.next('disconnected');
+    if (connection) await connection.stop();
+  }
+
+  markAsRead(id: string): void {
+    this.http.put(`${this.apiUrl}/${id}/read`, {}).pipe(
+      retry({ count: 2, delay: (_, attempt) => timer(attempt * 500) })
+    ).subscribe({
+      next: () => {
+        let changed = false;
+        const updated = this.notificationsSubject.value.map(notification => {
+          if (notification.id !== id || notification.isRead) return notification;
+          changed = true;
+          return { ...notification, isRead: true };
+        });
+        if (changed) {
+          this.notificationsSubject.next(updated);
           this.unreadCountSubject.next(Math.max(0, this.unreadCountSubject.value - 1));
         }
-        return n;
-      });
-      this.notificationsSubject.next(updated);
+        this.errorSubject.next(null);
+      },
+      error: () => this.errorSubject.next('Notification could not be marked as read after 3 attempts.')
     });
   }
 }
@@ -14141,10 +14578,16 @@ interface CustomerOrderResponse {
     rentalEndDate?: string;
     color?: string;
     size?: string;
+    fulfillmentId?: string;
+    sellerName?: string;
   }>;
   shippingAddress?: { fullName: string; phone: string; line1: string; line2?: string; city: string; state: string; postalCode: string; country: string };
   paymentProvider?: string;
   paymentStatus?: string;
+  canConfirmReceipt: boolean;
+  canReportNotReceived: boolean;
+  fulfillments: NonNullable<Order['fulfillments']>;
+  deliveryReports: NonNullable<Order['deliveryReports']>;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -14230,6 +14673,30 @@ export class OrderService {
     return this.http.post<void>(`${this.apiUrl}/${orderId}/cancel`, {});
   }
 
+  shipOrder(orderId: string, carrier?: string, trackingNumber?: string): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/${orderId}/ship`, { carrier: carrier || null, trackingNumber: trackingNumber || null });
+  }
+
+  rejectOrder(orderId: string, reason: string): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/${orderId}/reject`, { reason });
+  }
+
+  confirmReceived(orderId: string): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/${orderId}/confirm-received`, {}).pipe(tap(() => this.refresh().subscribe()));
+  }
+
+  reportNotReceived(orderId: string, reason: string): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/${orderId}/report-not-received`, { reason }).pipe(tap(() => this.refresh().subscribe()));
+  }
+
+  resolveDeliveryReport(reportId: string, dismiss: boolean, note: string): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/delivery-reports/${reportId}/resolve`, { dismiss, note });
+  }
+
+  formatOrderNumber(orderId: string, date = new Date()): string {
+    return `BGT-${date.getFullYear()}-${orderId.substring(0, 4).toUpperCase()}`;
+  }
+
   private toOrder(response: CustomerOrderResponse): Order {
     const address = response.shippingAddress;
     return {
@@ -14248,6 +14715,8 @@ export class OrderService {
         rentalEndDate: item.rentalEndDate,
         color: item.color,
         size: item.size,
+        fulfillmentId: item.fulfillmentId,
+        sellerName: item.sellerName,
       })),
       subtotal: response.subtotal,
       shipping: response.shippingAmount,
@@ -14256,6 +14725,12 @@ export class OrderService {
       total: response.totalAmount,
       shippingAddress: address ? [address.line1, address.line2, `${address.city}, ${address.state} ${address.postalCode}`, address.country].filter(Boolean).join(', ') : 'Not provided',
       paymentSummary: response.paymentProvider ?? 'Not provided',
+      paymentStatus: response.paymentStatus,
+      currency: response.currency,
+      canConfirmReceipt: response.canConfirmReceipt,
+      canReportNotReceived: response.canReportNotReceived,
+      fulfillments: response.fulfillments ?? [],
+      deliveryReports: response.deliveryReports ?? [],
     };
   }
 }
@@ -14267,8 +14742,7 @@ export class OrderService {
 ``typescript
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, map, catchError, of } from 'rxjs';
-import { BRANDS } from '../mocks/mock-products';
+import { Observable, map, catchError, of, shareReplay, finalize } from 'rxjs';
 import {
   CatalogQuery,
   CatalogResult,
@@ -14276,23 +14750,34 @@ import {
   Product,
   RatingBucket,
   Review,
+  SellerProfile,
 } from '../models/shop.models';
 import { environment } from '../../../environments/environment';
-
-
 
 @Injectable({ providedIn: 'root' })
 export class ProductService {
   private http = inject(HttpClient);
   private apiUrl = environment.apiUrl;
 
+  private categoriesCache$?: Observable<Category[]>;
+  private brandsCache$?: Observable<string[]>;
+  private allProductsCache$?: Observable<Product[]>;
+  private priceBoundsCache$?: Observable<{ min: number; max: number }>;
+  private readonly queryRequests = new Map<string, Observable<CatalogResult>>();
+  private readonly productRequests = new Map<string, Observable<Product>>();
+  private readonly cacheTtlMs = 5 * 60 * 1000;
+
   getCategories(): Observable<Category[]> {
-    return this.http.get<Category[]>(`${this.apiUrl}/categories`).pipe(
-      catchError(err => {
-        console.error('Failed to fetch categories', err);
-        return of([]);
-      })
-    );
+    if (!this.categoriesCache$) {
+      this.categoriesCache$ = this.http.get<Category[]>(`${this.apiUrl}/categories`).pipe(
+        catchError(err => {
+          console.error('Failed to fetch categories', err);
+          return of([]);
+        }),
+        shareReplay(1)
+      );
+    }
+    return this.categoriesCache$;
   }
 
   createCategory(category: { name: string, slug: string, description?: string, imageUrl?: string }): Observable<string> {
@@ -14304,40 +14789,74 @@ export class ProductService {
   }
 
   getBrands(): Observable<string[]> {
-    return this.http.get<string[]>(`${this.apiUrl}/products/brands`).pipe(
-      catchError(err => {
-        console.error('Failed to fetch brands', err);
-        return of([]);
-      })
-    );
+    if (!this.brandsCache$) {
+      this.brandsCache$ = this.http.get<string[]>(`${this.apiUrl}/products/brands`).pipe(
+        catchError(err => {
+          console.error('Failed to fetch brands', err);
+          return of([]);
+        }),
+        shareReplay(1)
+      );
+    }
+    return this.brandsCache$;
   }
 
   getAll(): Observable<Product[]> {
-    return this.query({ page: 1, pageSize: 100, minPrice: 0, maxPrice: 1000000, minRating: 0 } as CatalogQuery).pipe(map(res => res?.items || []));
+    if (!this.allProductsCache$) {
+      this.allProductsCache$ = this.query({ page: 1, pageSize: 100, minPrice: 0, maxPrice: 1000000, minRating: 0 } as CatalogQuery).pipe(
+        map(res => res?.items || []),
+        shareReplay(1)
+      );
+    }
+    return this.allProductsCache$;
   }
 
   getFeatured(): Observable<Product[]> {
-    return this.getAll().pipe(map(items => items.filter(p => p.isFeatured)));
+    return this.getAll().pipe(
+      map(items => items.filter(p => p.isFeatured || (p.originalPrice && p.originalPrice > p.price) || p.rating >= 4))
+    );
   }
 
   getNewArrivals(): Observable<Product[]> {
     return this.getAll().pipe(map(items => items.filter(p => p.isNew)));
   }
 
-  getBySlug(slug: string): Observable<Product> {
-    return this.http.get<Product>(`${this.apiUrl}/products/${slug}`).pipe(
-      catchError(err => {
-        console.error(`Failed to fetch product ${slug}`, err);
-        throw err; 
-      })
+  getTopRated(): Observable<Product[]> {
+    return this.getAll().pipe(
+      map(items => items.filter(p => p.rating >= 4.5).sort((a, b) => b.rating - a.rating))
     );
+  }
+
+  getBySlug(slug: string): Observable<Product> {
+    const key = slug.trim().toLowerCase();
+    const existing = this.productRequests.get(key);
+    if (existing) return existing;
+
+    const request$ = this.http.get<Product>(`${this.apiUrl}/products/${encodeURIComponent(slug)}`).pipe(
+      map(product => {
+        this.writeCache(`product:${key}`, product);
+        return product;
+      }),
+      shareReplay({ bufferSize: 1, refCount: false }),
+      finalize(() => this.productRequests.delete(key))
+    );
+    this.productRequests.set(key, request$);
+    return request$;
+  }
+
+  getCachedProduct(slug: string): Product | undefined {
+    return this.readCache<Product>(`product:${slug.trim().toLowerCase()}`) ?? undefined;
+  }
+
+  getSellerProfile(id: string): Observable<SellerProfile> {
+    return this.http.get<SellerProfile>(`${this.apiUrl}/sellers/${encodeURIComponent(id)}`);
   }
 
   getRelated(product: Product, count = 4): Observable<Product[]> {
     return this.getAll().pipe(
       map(items => {
-        const sameCategory = items.filter(p => p.id !== product.id && p.category === product.category);
-        const others = items.filter(p => p.id !== product.id && p.category !== product.category);
+        const sameCategory = items.filter(p => p.id !== product.id && p.categories?.some(c => product.categories?.some(pc => pc.id === c.id)));
+        const others = items.filter(p => p.id !== product.id && !p.categories?.some(c => product.categories?.some(pc => pc.id === c.id)));
         return [...sameCategory, ...others].slice(0, count);
       })
     );
@@ -14348,16 +14867,24 @@ export class ProductService {
     if (categoryId) qs.set('categoryId', categoryId);
     if (searchTerm) qs.set('searchTerm', searchTerm);
     
-    return this.http.get<{minPrice: number, maxPrice: number}>(`${this.apiUrl}/products/price-bounds?${qs.toString()}`).pipe(
+    const cacheKey = `price-bounds:${categoryId ?? ''}:${searchTerm ?? ''}`;
+    if (!categoryId && !searchTerm && this.priceBoundsCache$) return this.priceBoundsCache$;
+
+    const request$ = this.http.get<{minPrice: number, maxPrice: number}>(`${this.apiUrl}/products/price-bounds?${qs.toString()}`).pipe(
       map(res => ({ min: Math.floor(res.minPrice), max: Math.ceil(res.maxPrice) })),
       catchError(err => {
         console.error('Failed to fetch price bounds', err);
-        return of({ min: 0, max: 1000 });
+        return of({ min: 0, max: 10000 });
       })
     );
+    if (!categoryId && !searchTerm) this.priceBoundsCache$ = request$.pipe(shareReplay({ bufferSize: 1, refCount: false }));
+    return this.priceBoundsCache$ ?? request$;
   }
 
   query(q: CatalogQuery): Observable<CatalogResult> {
+    const cacheKey = this.queryCacheKey(q);
+    const existing = this.queryRequests.get(cacheKey);
+    if (existing) return existing;
     let params: any = {
       page: q.page,
       pageSize: q.pageSize
@@ -14367,6 +14894,7 @@ export class ProductService {
     if (q.maxPrice) params.maxPrice = q.maxPrice;
     if (q.minRating) params.minRating = q.minRating;
     if (q.sort) params.sort = q.sort;
+    if (q.sellerId) params.sellerId = q.sellerId;
 
     let qs = new URLSearchParams(params).toString();
     if (q.categories && q.categories.length) {
@@ -14376,12 +14904,60 @@ export class ProductService {
       q.brands.forEach(b => qs += `&brands=${encodeURIComponent(b)}`);
     }
 
-    return this.http.get<CatalogResult>(`${this.apiUrl}/products?${qs}`).pipe(
-      map(result => result ?? { items: [], total: 0, totalPages: 1 })
+    const request$ = this.http.get<CatalogResult>(`${this.apiUrl}/products?${qs}`).pipe(
+      map(result => result ?? { items: [], total: 0, totalPages: 1 }),
+      map(result => {
+        this.writeCache(`catalog:${cacheKey}`, result);
+        return result;
+      }),
+      shareReplay({ bufferSize: 1, refCount: false }),
+      finalize(() => this.queryRequests.delete(cacheKey))
     );
+    this.queryRequests.set(cacheKey, request$);
+    return request$;
   }
 
+  getCachedQuery(q: CatalogQuery): CatalogResult | undefined {
+    return this.readCache<CatalogResult>(`catalog:${this.queryCacheKey(q)}`) ?? undefined;
+  }
 
+  private queryCacheKey(q: CatalogQuery): string {
+    return JSON.stringify({
+      page: q.page,
+      pageSize: q.pageSize,
+      search: q.search ?? '',
+      categories: [...(q.categories ?? [])].sort(),
+      brands: [...(q.brands ?? [])].sort(),
+      minPrice: q.minPrice ?? 0,
+      maxPrice: q.maxPrice ?? 0,
+      minRating: q.minRating ?? 0,
+      sort: q.sort ?? '',
+      sellerId: q.sellerId ?? ''
+    });
+  }
+
+  private readCache<T>(key: string): T | null {
+    try {
+      const raw = localStorage.getItem(`budgetha:${key}`);
+      if (!raw) return null;
+      const entry = JSON.parse(raw) as { expiresAt: number; value: T };
+      if (!entry || entry.expiresAt <= Date.now()) {
+        localStorage.removeItem(`budgetha:${key}`);
+        return null;
+      }
+      return entry.value;
+    } catch {
+      return null;
+    }
+  }
+
+  private writeCache<T>(key: string, value: T): void {
+    try {
+      localStorage.setItem(`budgetha:${key}`, JSON.stringify({ expiresAt: Date.now() + this.cacheTtlMs, value }));
+    } catch {
+      // Storage can be unavailable or full; the in-memory request still succeeds.
+    }
+  }
 }
 
 ``
@@ -14616,6 +15192,10 @@ export class ReviewService {
     return this.http.get<Review[]>(`${this.apiUrl}/${productId}`);
   }
 
+  getEligibility(productId: string): Observable<{ canReview: boolean; hasReviewed: boolean }> {
+    return this.http.get<{ canReview: boolean; hasReviewed: boolean }>(`${this.apiUrl}/${productId}/eligibility`);
+  }
+
   addReview(dto: AddReviewDto): Observable<string> {
     return this.http.post<string>(this.apiUrl, dto);
   }
@@ -14626,6 +15206,125 @@ export class ReviewService {
 
   deleteReview(id: string): Observable<void> {
     return this.http.delete<void>(`${this.apiUrl}/${id}`);
+  }
+}
+
+``
+
+## src\app\core\services\theme.service.spec.ts
+
+``typescript
+import { TestBed } from '@angular/core/testing';
+import { THEME_STORAGE_KEY, ThemeService } from './theme.service';
+
+describe('ThemeService', () => {
+  let service: ThemeService;
+
+  beforeEach(() => {
+    localStorage.removeItem(THEME_STORAGE_KEY);
+    document.documentElement.classList.remove('dark');
+    TestBed.configureTestingModule({});
+    service = TestBed.inject(ThemeService);
+  });
+
+  afterEach(() => {
+    localStorage.removeItem(THEME_STORAGE_KEY);
+    document.documentElement.classList.remove('dark');
+    delete document.documentElement.dataset['theme'];
+    delete document.documentElement.dataset['themeMode'];
+  });
+
+  it('persists and applies an explicit dark theme', () => {
+    service.setMode('dark');
+
+    expect(service.mode()).toBe('dark');
+    expect(service.resolvedTheme()).toBe('dark');
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
+    expect(document.documentElement.classList.contains('dark')).toBeTrue();
+    expect(document.documentElement.dataset['theme']).toBe('dark');
+    expect(document.documentElement.dataset['themeMode']).toBe('dark');
+    expect(document.documentElement.style.colorScheme).toBe('dark');
+  });
+
+  it('cycles through light, dark, and system modes', () => {
+    service.setMode('light');
+    service.cycleMode();
+    expect(service.mode()).toBe('dark');
+
+    service.cycleMode();
+    expect(service.mode()).toBe('system');
+
+    service.cycleMode();
+    expect(service.mode()).toBe('light');
+  });
+});
+
+``
+
+## src\app\core\services\theme.service.ts
+
+``typescript
+import { DOCUMENT } from '@angular/common';
+import { Injectable, computed, inject, signal } from '@angular/core';
+
+export type ThemeMode = 'light' | 'dark' | 'system';
+export const THEME_STORAGE_KEY = 'budgetha_theme';
+
+@Injectable({ providedIn: 'root' })
+export class ThemeService {
+  private readonly document = inject(DOCUMENT);
+  private readonly mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  private readonly systemIsDark = signal(this.mediaQuery.matches);
+  readonly mode = signal<ThemeMode>(this.loadMode());
+  readonly resolvedTheme = computed<'light' | 'dark'>(() => {
+    const mode = this.mode();
+    return mode === 'system' ? (this.systemIsDark() ? 'dark' : 'light') : mode;
+  });
+
+  constructor() {
+    this.mediaQuery.addEventListener('change', event => {
+      this.systemIsDark.set(event.matches);
+      if (this.mode() === 'system') this.applyTheme('system', event.matches ? 'dark' : 'light');
+    });
+    this.applyTheme(this.mode(), this.resolvedTheme());
+  }
+
+  setMode(mode: ThemeMode): void {
+    this.mode.set(mode);
+    this.applyTheme(mode, this.resolvedTheme());
+  }
+
+  cycleMode(): void {
+    const next: Record<ThemeMode, ThemeMode> = { light: 'dark', dark: 'system', system: 'light' };
+    this.setMode(next[this.mode()]);
+  }
+
+  private loadMode(): ThemeMode {
+    try {
+      const value = localStorage.getItem(THEME_STORAGE_KEY);
+      return value === 'light' || value === 'dark' || value === 'system' ? value : 'light';
+    } catch {
+      return 'light';
+    }
+  }
+
+  private applyTheme(mode: ThemeMode, resolved: 'light' | 'dark'): void {
+    const root = this.document.documentElement;
+    root.classList.toggle('dark', resolved === 'dark');
+    root.dataset['theme'] = resolved;
+    root.dataset['themeMode'] = mode;
+    root.style.colorScheme = resolved;
+
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, mode);
+    } catch {
+      // The DOM theme still works when storage is unavailable.
+    }
+
+    this.document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')
+      .forEach(meta => meta.content = resolved === 'dark' ? '#020617' : '#0f766e');
+    this.document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]')
+      ?.setAttribute('content', 'light dark');
   }
 }
 
@@ -14683,10 +15382,10 @@ export class ToastService {
     this.toasts.update(current => {
       
       const deduped = current.filter(t => !(t.message === message && t.type === type));
-      const next = [...deduped, { id, message, type, action: opts.action }];
-      const overflow = next.slice(0, Math.max(0, next.length - MAX_VISIBLE));
+      const next = [{ id, message, type, action: opts.action }, ...deduped];
+      const overflow = next.slice(MAX_VISIBLE);
       overflow.forEach(t => this.clearTimer(t.id));
-      return next.slice(-MAX_VISIBLE);
+      return next.slice(0, MAX_VISIBLE);
     });
 
     if (duration > 0) {
@@ -15226,7 +15925,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                   <td class="px-6 py-4">
                     <span class="badge" [class]="statusClasses(order.status)">
                       <span class="h-1.5 w-1.5 rounded-full" [class]="dotClasses(order.status)"></span>
-                      {{ order.status }}
+                       {{ order.status }}
                     </span>
                   </td>
                   <td class="px-6 py-4 text-end">
@@ -15296,10 +15995,35 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                 <span class="text-sm font-bold text-slate-900">{{ item.price * item.quantity | currency }}</span>
               </div>
             }
-            <div class="pt-3 border-t border-slate-200 grid sm:grid-cols-2 gap-3 text-xs text-slate-500">
-              <p><span class="font-semibold text-slate-700">Ships to:</span> {{ order.shippingAddress }}</p>
-              <p><span class="font-semibold text-slate-700">Payment:</span> {{ order.paymentSummary }}</p>
-            </div>
+             <div class="pt-3 border-t border-slate-200 grid sm:grid-cols-2 gap-3 text-xs text-slate-500">
+               <p><span class="font-semibold text-slate-700">Ships to:</span> {{ order.shippingAddress }}</p>
+               <p><span class="font-semibold text-slate-700">Payment:</span> {{ order.paymentSummary }}</p>
+             </div>
+             @if (order.fulfillments?.length) {
+               <div class="pt-3 border-t border-slate-200 space-y-2">
+                 <p class="text-xs font-bold uppercase tracking-wide text-slate-400">Delivery tracking</p>
+                 @for (fulfillment of order.fulfillments; track fulfillment.id) {
+                   <div class="rounded-xl bg-white border border-slate-200 px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2">
+                     <span class="font-semibold text-slate-700">{{ fulfillment.sellerName }}</span>
+                     <span class="text-slate-500">{{ fulfillment.status }}{{ fulfillment.trackingNumber ? ' · ' + fulfillment.trackingNumber : '' }}</span>
+                     @if (fulfillment.rejectionReason) {
+                       <span class="basis-full text-rose-600">Reason: {{ fulfillment.rejectionReason }}</span>
+                     }
+                   </div>
+                 }
+               </div>
+             }
+             @if (order.canConfirmReceipt) {
+               <button type="button" class="btn-primary text-sm" (click)="confirmReceived(order.id)">I received my order</button>
+             }
+             @if (order.canReportNotReceived) {
+               <button type="button" class="text-sm font-semibold text-rose-600 hover:text-rose-500" (click)="reportNotReceived(order.id)">I did not receive it</button>
+             }
+             @for (report of order.deliveryReports ?? []; track report.id) {
+               @if (report.status === 'Open') {
+                 <p class="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">Your delivery report is being reviewed by Budgetha support.</p>
+               }
+             }
           </div>
         </ng-template>
       }
@@ -15320,6 +16044,17 @@ export class AccountOrdersComponent {
     this.expandedId.update(current => (current === id ? null : id));
   }
 
+  confirmReceived(orderId: string): void {
+    if (!confirm('Confirm that you received this order?')) return;
+    this.orderService.confirmReceived(orderId).subscribe();
+  }
+
+  reportNotReceived(orderId: string): void {
+    const reason = prompt('Please explain what went wrong with delivery:')?.trim();
+    if (!reason) return;
+    this.orderService.reportNotReceived(orderId, reason).subscribe();
+  }
+
   statusClasses(status: OrderStatus): string {
     switch (status) {
       case 'Delivered':
@@ -15336,6 +16071,10 @@ export class AccountOrdersComponent {
         return 'bg-violet-50 text-violet-700 ring-1 ring-violet-100';
       case 'Failed':
         return 'bg-rose-50 text-rose-600 ring-1 ring-rose-100';
+      case 'PartiallyFulfilled':
+        return 'bg-orange-50 text-orange-700 ring-1 ring-orange-100';
+      default:
+        return 'bg-slate-100 text-slate-600 ring-1 ring-slate-200';
     }
   }
 
@@ -15355,6 +16094,10 @@ export class AccountOrdersComponent {
         return 'bg-violet-500';
       case 'Failed':
         return 'bg-rose-500';
+      case 'PartiallyFulfilled':
+        return 'bg-orange-500';
+      default:
+        return 'bg-slate-500';
     }
   }
 }
@@ -15450,7 +16193,7 @@ import { ToastService } from '../../core/services/toast.service';
                 (click)="togglePref(pref.key)"
                 class="relative h-6 w-11 rounded-full transition-colors duration-300 shrink-0"
                 [class]="pref.enabled ? 'bg-violet-600' : 'bg-slate-200'">
-                <span class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all duration-300"
+                <span class="theme-preserve-light absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all duration-300"
                       [class]="pref.enabled ? 'start-[1.375rem]' : 'start-0.5'"></span>
               </button>
             </div>
@@ -15495,7 +16238,7 @@ import { ToastService } from '../../core/services/toast.service';
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1.5">Commercial Register / Identity Document</label>
-                    <input type="file" (change)="onSellerDocumentSelected($event)" accept="image/jpeg,image/png,application/pdf"
+                    <input type="file" (change)="onSellerDocumentSelected($event)" accept="image/jpeg,image/png,image/webp"
                            class="block w-full text-sm text-slate-500 file:me-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-all">
                     @if (sellerDocumentUrl()) {
                       <p class="text-xs text-emerald-600 mt-2 font-medium">Document uploaded successfully!</p>
@@ -15581,6 +16324,12 @@ export class AccountSettingsComponent implements OnInit {
   checkSellerStatus() {
     const roles = this.auth.user()?.roles || [];
     this.isSeller.set(roles.includes('Seller'));
+    if (!this.isSeller()) {
+      this.http.get<{ status: 'Pending' | 'Rejected' | 'Approved' } | null>(`${environment.apiUrl}/sellerrequests/mine`).subscribe({
+        next: request => this.sellerRequestStatus.set(request?.status === 'Pending' || request?.status === 'Rejected' ? request.status : 'None'),
+        error: () => undefined
+      });
+    }
   }
 
   onSellerDocumentSelected(event: any) {
@@ -15590,7 +16339,7 @@ export class AccountSettingsComponent implements OnInit {
       const formData = new FormData();
       formData.append('file', file);
       
-      this.http.post<{ url: string }>(`${environment.apiUrl}/images`, formData).subscribe({
+      this.http.post<{ url: string }>(`${environment.apiUrl}/images/upload`, formData).subscribe({
         next: (res) => {
           this.sellerDocumentUrl.set(res.url);
           this.uploadingDocument.set(false);
@@ -15870,7 +16619,7 @@ export class AccountSupportComponent implements OnInit {
 
 ``typescript
 import { Component, inject, signal, OnDestroy, OnInit } from '@angular/core';
-import { FormArray, FormBuilder, Validators, ReactiveFormsModule } from '@angular/forms';
+import { FormBuilder, Validators, ReactiveFormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { ToastService } from '../../core/services/toast.service';
@@ -15878,7 +16627,6 @@ import { ProductService } from '../../core/services/product.service';
 import { CloudinaryService } from '../../core/services/cloudinary.service';
 import { Category } from '../../core/models/shop.models';
 import { environment } from '../../../environments/environment';
-import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
 
 interface ProductImageState {
   url: string;
@@ -15912,14 +16660,14 @@ interface ProductImageState {
               </div>
 
               <div class="space-y-2">
-                <label for="categoryId" class="block text-sm font-semibold text-slate-700">Category <span class="text-rose-500">*</span></label>
-                <select id="categoryId" formControlName="categoryId"
-                        class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all">
-                  <option value="" disabled selected>Select a category</option>
+                <label for="categoryIds" class="block text-sm font-semibold text-slate-700">Categories <span class="text-rose-500">*</span></label>
+                <select id="categoryIds" formControlName="categoryIds" multiple
+                        class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all h-32">
                   @for (cat of categories(); track cat.id) {
                     <option [value]="cat.id">{{ cat.name }}</option>
                   }
                 </select>
+                <p class="text-xs text-slate-500 mt-1">Hold Ctrl (or Cmd) to select multiple categories.</p>
               </div>
 
               <div class="space-y-2 md:col-span-2">
@@ -15984,7 +16732,7 @@ interface ProductImageState {
                       class="relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none">
                 <span [class.translate-x-7]="form.get('isAvailableForRent')?.value"
                       [class.translate-x-1]="!form.get('isAvailableForRent')?.value"
-                      class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow inline-block transition-transform duration-200"></span>
+                      class="theme-preserve-light absolute top-0.5 w-5 h-5 bg-white rounded-full shadow inline-block transition-transform duration-200"></span>
               </button>
             </div>
 
@@ -15998,61 +16746,6 @@ interface ProductImageState {
                 </div>
               </div>
             }
-          </div>
-
-          <!-- Variants & Features -->
-          <div class="space-y-6">
-            <h3 class="text-base font-semibold text-slate-900 border-b border-slate-100 pb-2">Variants & Specifications</h3>
-
-            <div class="space-y-3" formArrayName="variants">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="text-sm font-semibold text-slate-800">Inventory variants</p>
-                  <p class="text-xs text-slate-500">Each SKU owns its stock and may override product prices.</p>
-                </div>
-                <button type="button" (click)="addVariant()" class="px-3 py-2 text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50">Add variant</button>
-              </div>
-              @for (variant of variants.controls; track $index; let i = $index) {
-                <div [formGroupName]="i" class="grid grid-cols-2 md:grid-cols-8 gap-3 p-4 rounded-xl border border-slate-200 bg-slate-50">
-                  <input formControlName="sku" placeholder="SKU" class="md:col-span-2 px-3 py-2 bg-white border border-slate-200 rounded-lg">
-                  <input formControlName="color" placeholder="Color" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
-                  <input formControlName="size" placeholder="Size" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
-                  <input type="number" min="0" formControlName="stockQuantity" placeholder="Stock" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
-                  <input type="number" min="0.01" step="0.01" formControlName="price" placeholder="Price override" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
-                  <input type="number" min="0.01" step="0.01" formControlName="rentalPricePerDay" placeholder="Rental/day" class="px-3 py-2 bg-white border border-slate-200 rounded-lg">
-                  <div class="flex items-center gap-2">
-                    <label class="flex items-center gap-1 text-xs text-slate-600"><input type="checkbox" formControlName="isActive"> Active</label>
-                    <button type="button" (click)="removeVariant(i)" class="px-2 py-2 text-xs font-semibold text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-50">Remove</button>
-                  </div>
-                </div>
-              }
-            </div>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div class="space-y-2">
-                <label for="colors" class="block text-sm font-semibold text-slate-700">Colors <span class="text-xs text-slate-500 font-normal">(Comma separated)</span></label>
-                <input type="text" id="colors" formControlName="colors" placeholder="e.g. Red, Blue, Black"
-                       class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400">
-              </div>
-
-              <div class="space-y-2">
-                <label for="sizes" class="block text-sm font-semibold text-slate-700">Sizes <span class="text-xs text-slate-500 font-normal">(Comma separated)</span></label>
-                <input type="text" id="sizes" formControlName="sizes" placeholder="e.g. S, M, L, XL"
-                       class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400">
-              </div>
-
-              <div class="space-y-2">
-                <label for="features" class="block text-sm font-semibold text-slate-700">Key Features <span class="text-xs text-slate-500 font-normal">(One per line)</span></label>
-                <textarea id="features" formControlName="features" rows="4" placeholder="e.g. Noise Cancelling&#10;Waterproof IP68"
-                          class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 resize-none"></textarea>
-              </div>
-
-              <div class="space-y-2">
-                <label for="specs" class="block text-sm font-semibold text-slate-700">Specifications <span class="text-xs text-slate-500 font-normal">(Key: Value per line)</span></label>
-                <textarea id="specs" formControlName="specs" rows="4" placeholder="e.g. Weight: 200g&#10;Battery Life: 24h"
-                          class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all placeholder:text-slate-400 resize-none"></textarea>
-              </div>
-            </div>
           </div>
 
           <!-- Product Images -->
@@ -16161,7 +16854,6 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
   private toast = inject(ToastService);
   private cloudinary = inject(CloudinaryService);
   private productService = inject(ProductService);
-  private sanitizer = inject(DomSanitizer);
 
   isSubmitting = false;
   isUploadingImage = signal(false);
@@ -16181,19 +16873,10 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
     price: [null as number | null, [Validators.required, Validators.min(0.01)]],
     originalPrice: [null as number | null, [Validators.min(0.01)]],
     stockQuantity: [null as number | null, [Validators.required, Validators.min(0)]],
-    categoryId: ['', [Validators.required]],
+    categoryIds: [[] as string[], [Validators.required]],
     isAvailableForRent: [false],
-    rentalPricePerDay: [null as number | null],
-    colors: [''],
-    sizes: [''],
-    features: [''],
-    specs: [''],
-    variants: this.fb.array([])
+    rentalPricePerDay: [null as number | null]
   });
-
-  get variants(): FormArray {
-    return this.form.controls.variants;
-  }
 
   ngOnInit() {
     this.productService.getCategories().subscribe(res => {
@@ -16220,13 +16903,9 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
           price: product.price,
           originalPrice: product.originalPrice,
           stockQuantity: product.stock,
-          categoryId: product.categoryId,
+          categoryIds: product.categories?.map(c => c.id) || [],
           isAvailableForRent: product.isAvailableForRent,
-          rentalPricePerDay: product.rentalPricePerDay,
-          colors: product.colors ? product.colors.map((c: any) => c.name).join(', ') : '',
-          sizes: product.sizes ? product.sizes.map((s: any) => s.name).join(', ') : '',
-          features: product.features ? product.features.map((f: any) => f.value).join('\n') : '',
-          specs: product.specs ? product.specs.map((s: any) => `${s.key}: ${s.value}`).join('\n') : ''
+          rentalPricePerDay: product.rentalPricePerDay
         });
         if (product.imageDetails?.length) {
           this.uploadedImages.set(product.imageDetails.map(image => ({
@@ -16235,10 +16914,6 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
           })));
         } else if (product.images) {
           this.uploadedImages.set(product.images.map(url => ({ url, publicId: null })));
-        }
-        this.variants.clear();
-        for (const variant of product.variants ?? []) {
-          this.variants.push(this.createVariantGroup(variant));
         }
         if (product.isAvailableForRent) {
           this.form.get('rentalPricePerDay')?.setValidators([Validators.required, Validators.min(0.01)]);
@@ -16266,27 +16941,6 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
       }
       rentPriceControl?.updateValueAndValidity();
     }
-  }
-
-  addVariant(): void {
-    this.variants.push(this.createVariantGroup());
-  }
-
-  removeVariant(index: number): void {
-    this.variants.removeAt(index);
-  }
-
-  private createVariantGroup(variant?: any) {
-    return this.fb.group({
-      id: [variant?.id ?? null],
-      sku: [variant?.sku ?? '', Validators.required],
-      color: [variant?.color ?? null],
-      size: [variant?.size ?? null],
-      stockQuantity: [variant?.stockQuantity ?? 0, [Validators.required, Validators.min(0)]],
-      price: [variant?.price ?? null, Validators.min(0.01)],
-      rentalPricePerDay: [variant?.rentalPricePerDay ?? null, Validators.min(0.01)],
-      isActive: [variant?.isActive ?? true]
-    });
   }
 
   onFileSelected(event: any): void {
@@ -16435,22 +17089,6 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
     this.isSubmitting = true;
     const val = this.form.value;
 
-    const categoryId = val.categoryId || '00000000-0000-0000-0000-000000000001';
-
-    // Parse Variants
-    const colors = val.colors ? val.colors.split(',').map((c: string) => c.trim()).filter((c: string) => c.length > 0) : [];
-    const sizes = val.sizes ? val.sizes.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0) : [];
-    const features = val.features ? val.features.split('\n').map((f: string) => f.trim()).filter((f: string) => f.length > 0) : [];
-    const specsDict: { [key: string]: string } = {};
-    if (val.specs) {
-      val.specs.split('\n').forEach((line: string) => {
-        const parts = line.split(':');
-        if (parts.length === 2) {
-          specsDict[parts[0].trim()] = parts[1].trim();
-        }
-      });
-    }
-
     const payload = {
       name: val.name,
       brand: val.brand,
@@ -16458,19 +17096,15 @@ export class AdminAddProductComponent implements OnInit, OnDestroy {
       price: val.price,
       originalPrice: val.originalPrice,
       stockQuantity: val.stockQuantity,
-      categoryId: categoryId,
+      categoryIds: val.categoryIds && val.categoryIds.length > 0 ? val.categoryIds : ['00000000-0000-0000-0000-000000000001'],
       images: this.uploadedImages(),
       isAvailableForRent: val.isAvailableForRent,
       rentalPricePerDay: val.rentalPricePerDay,
-      colors: colors.length > 0 ? colors : null,
-      sizes: sizes.length > 0 ? sizes : null,
-      features: features.length > 0 ? features : null,
-      specs: Object.keys(specsDict).length > 0 ? specsDict : null,
-      variants: this.variants.getRawValue().map(variant => ({
-        ...variant,
-        color: variant.color?.trim() || null,
-        size: variant.size?.trim() || null
-      }))
+      colors: [],
+      sizes: [],
+      features: [],
+      specs: {},
+      variants: []
     };
 
     if (this.isEditMode() && this.editProductId()) {
@@ -16531,7 +17165,27 @@ import { ToastService } from '../../core/services/toast.service';
           <form [formGroup]="form" (ngSubmit)="onSubmit()" class="space-y-4">
             <div>
               <label class="block text-sm font-medium text-slate-700 mb-1">Message *</label>
-              <textarea formControlName="message" rows="2" class="input-field" placeholder="E.g. Free shipping on orders over $75..."></textarea>
+              <textarea formControlName="message" rows="2" class="input-field" placeholder="E.g. Get 20% off your next order"></textarea>
+            </div>
+            
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">Subtitle (Optional)</label>
+              <textarea formControlName="subtitle" rows="2" class="input-field" placeholder="E.g. Apply code SAVE20 at checkout on any order."></textarea>
+            </div>
+
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Badge Text</label>
+                <input type="text" formControlName="badgeText" class="input-field" placeholder="Limited time" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Promo Code</label>
+                <input type="text" formControlName="promoCode" class="input-field" placeholder="SAVE20" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Discount %</label>
+                <input type="number" formControlName="discountPercent" class="input-field" placeholder="20" />
+              </div>
             </div>
 
             <div>
@@ -16667,6 +17321,10 @@ export class AdminAnnouncementsComponent implements OnInit {
 
   form = this.fb.group({
     message: ['', Validators.required],
+    subtitle: [''],
+    badgeText: [''],
+    promoCode: [''],
+    discountPercent: [null as number | null],
     linkUrl: [''],
     isActive: [true],
     startDate: [''],
@@ -16707,6 +17365,10 @@ export class AdminAnnouncementsComponent implements OnInit {
     this.editingId.set(item.id);
     this.form.patchValue({
       message: item.message,
+      subtitle: item.subtitle,
+      badgeText: item.badgeText,
+      promoCode: item.promoCode,
+      discountPercent: item.discountPercent,
       linkUrl: item.linkUrl,
       isActive: item.isActive,
       startDate: item.startDate ? item.startDate.substring(0, 16) : '', 
@@ -16744,6 +17406,10 @@ export class AdminAnnouncementsComponent implements OnInit {
     const val = this.form.value;
     const dto = {
       message: val.message!,
+      subtitle: val.subtitle || undefined,
+      badgeText: val.badgeText || undefined,
+      promoCode: val.promoCode || undefined,
+      discountPercent: val.discountPercent || undefined,
       linkUrl: val.linkUrl || undefined,
       isActive: val.isActive!,
       startDate: val.startDate ? new Date(val.startDate).toISOString() : undefined,
@@ -17104,7 +17770,7 @@ import { AuthService } from '../../core/services/auth.service';
               Manage Users
             </a>
           }
-          <a routerLink="/admin/products" class="px-4 py-2 bg-white text-teal-800 text-sm font-bold rounded-xl hover:bg-teal-50 transition-colors shadow-sm">
+          <a routerLink="/admin/products" class="theme-preserve-light px-4 py-2 bg-white text-teal-800 text-sm font-bold rounded-xl hover:bg-teal-50 transition-colors shadow-sm">
             View Products
           </a>
         </div>
@@ -17572,6 +18238,9 @@ import { Component, inject, computed, signal, effect, OnDestroy } from '@angular
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { NgTemplateOutlet } from '@angular/common';
 import { AuthService } from '../../core/services/auth.service';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { Notification, NotificationService } from '../../core/services/notification.service';
+import { Router } from '@angular/router';
 
 @Component({
   selector: 'app-admin-layout',
@@ -17694,6 +18363,15 @@ import { AuthService } from '../../core/services/auth.service';
             <span class="text-sm font-medium">Transaction Logs</span>
           </a>
 
+          <a routerLink="/admin/orders" (click)="mobileMenuOpen.set(false)"
+             routerLinkActive="bg-teal-700/60 text-white border-teal-600/40"
+             class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-teal-200 hover:bg-white/10 hover:text-white border border-transparent group">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-white/5">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5h6M7 9h10m-8 4h6m-9 6h10a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+            </div>
+            <span class="text-sm font-medium">Orders</span>
+          </a>
+
           @if (isAdminOrSuperAdmin()) {
             <a routerLink="/admin/categories" (click)="mobileMenuOpen.set(false)"
                routerLinkActive="bg-teal-700/60 text-white border-teal-600/40"
@@ -17742,6 +18420,29 @@ import { AuthService } from '../../core/services/auth.service';
             <h1 class="text-lg font-bold text-slate-800">{{ authService.user()?.roles?.includes('Seller') && !authService.user()?.roles?.includes('Admin') && !authService.user()?.roles?.includes('SuperAdmin') ? 'Seller Dashboard' : 'Budgetha Admin' }}</h1>
           </div>
           <div class="flex items-center gap-3">
+            <div class="relative">
+              <button type="button" (click)="toggleNotifications()" class="relative p-2 rounded-lg hover:bg-slate-100 text-slate-600" aria-label="Notifications">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" /></svg>
+                @if (unreadCount() > 0) {
+                  <span class="absolute -top-1 -end-1 min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">{{ unreadCount() }}</span>
+                }
+              </button>
+              @if (notificationsOpen()) {
+                <div class="absolute end-0 mt-2 w-80 max-w-[85vw] bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden">
+                  <div class="px-4 py-3 border-b border-slate-100 font-bold text-sm text-slate-800">Notifications</div>
+                  <div class="max-h-80 overflow-y-auto">
+                    @for (notification of notifications(); track notification.id) {
+                      <button type="button" (click)="openNotification(notification)" class="w-full text-start px-4 py-3 border-b border-slate-100 hover:bg-slate-50" [class.bg-teal-50]="!notification.isRead">
+                        <p class="text-sm font-semibold text-slate-800">{{ notification.title }}</p>
+                        <p class="text-xs text-slate-500 mt-1">{{ notification.message }}</p>
+                      </button>
+                    } @empty {
+                      <p class="px-4 py-8 text-center text-sm text-slate-400">No notifications yet.</p>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
             <span class="text-sm font-medium text-slate-600 hidden sm:block">
               {{ authService.user()?.firstName }} {{ authService.user()?.lastName }}
             </span>
@@ -17759,6 +18460,11 @@ import { AuthService } from '../../core/services/auth.service';
 export class AdminLayoutComponent implements OnDestroy {
   readonly authService = inject(AuthService);
   readonly mobileMenuOpen = signal(false);
+  readonly notificationsOpen = signal(false);
+  private readonly notificationService = inject(NotificationService);
+  private readonly router = inject(Router);
+  readonly notifications = toSignal(this.notificationService.notifications$, { initialValue: [] });
+  readonly unreadCount = toSignal(this.notificationService.unreadCount$, { initialValue: 0 });
 
   readonly isSuperAdmin = computed(() =>
     this.authService.user()?.roles?.includes('SuperAdmin') ?? false
@@ -17780,6 +18486,18 @@ export class AdminLayoutComponent implements OnDestroy {
 
   ngOnDestroy() {
     document.body.classList.remove('overflow-hidden');
+  }
+
+  openNotification(notification: Notification): void {
+    this.notificationService.markAsRead(notification.id);
+    this.notificationsOpen.set(false);
+    if (notification.relatedEntityId && notification.type === 'Order') {
+      void this.router.navigate(['/admin/orders'], { queryParams: { orderId: notification.relatedEntityId } });
+    }
+  }
+
+  toggleNotifications(): void {
+    this.notificationsOpen.update(isOpen => !isOpen);
   }
 }
 
@@ -18017,6 +18735,7 @@ import { HttpClient } from '@angular/common/http';
 import { DatePipe, CurrencyPipe, UpperCasePipe } from '@angular/common';
 import { environment } from '../../../environments/environment';
 import { ToastService } from '../../core/services/toast.service';
+import { AuthService } from '../../core/services/auth.service';
 
 @Component({
   selector: 'app-admin-orders',
@@ -18091,16 +18810,16 @@ import { ToastService } from '../../core/services/toast.service';
                     </td>
                     <td class="px-6 py-4">
                       <span class="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider rounded-full"
-                            [class.bg-amber-100]="order.status === 0"
-                            [class.text-amber-700]="order.status === 0"
-                            [class.bg-blue-100]="order.status === 1"
-                            [class.text-blue-700]="order.status === 1"
-                            [class.bg-indigo-100]="order.status === 2"
-                            [class.text-indigo-700]="order.status === 2"
-                            [class.bg-emerald-100]="order.status === 3"
-                            [class.text-emerald-700]="order.status === 3"
-                            [class.bg-rose-100]="order.status === 4 || order.status === 6"
-                            [class.text-rose-700]="order.status === 4 || order.status === 6">
+                             [class.bg-amber-100]="order.status === 'Pending'"
+                             [class.text-amber-700]="order.status === 'Pending'"
+                             [class.bg-blue-100]="order.status === 'Processing'"
+                             [class.text-blue-700]="order.status === 'Processing'"
+                             [class.bg-indigo-100]="order.status === 'Shipped'"
+                             [class.text-indigo-700]="order.status === 'Shipped'"
+                             [class.bg-emerald-100]="order.status === 'Delivered'"
+                             [class.text-emerald-700]="order.status === 'Delivered'"
+                             [class.bg-rose-100]="order.status === 'Cancelled' || order.status === 'Failed'"
+                             [class.text-rose-700]="order.status === 'Cancelled' || order.status === 'Failed'">
                         {{ getStatusText(order.status) }}
                       </span>
                     </td>
@@ -18109,18 +18828,25 @@ import { ToastService } from '../../core/services/toast.service';
                     </td>
                     <td class="px-6 py-4 text-center">
                       <div class="flex items-center justify-center gap-2">
-                      <select (change)="updateStatus(order.id, $event)" [value]="order.status" class="text-sm bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-500">
-                        <option [value]="0">Pending</option>
-                        <option [value]="1">Processing</option>
-                         <option [value]="2">Shipped</option>
-                         <option [value]="3">Delivered</option>
-                         <option [value]="4">Cancelled</option>
-                         <option [value]="5">Refunded</option>
-                       <option [value]="6">Failed</option>
-                       </select>
-                       @if (order.status !== 3 && order.status !== 4) {
-                         <button type="button" (click)="cancelOrder(order.id)" class="text-xs font-semibold text-rose-600 hover:text-rose-500">Cancel</button>
+                       @for (fulfillment of order.fulfillments ?? []; track fulfillment.id) {
+                          <div class="flex items-center gap-1 text-xs">
+                            <span class="text-slate-500">{{ fulfillment.sellerName }}: {{ fulfillment.status }}</span>
+                            @if (fulfillment.canShip) {
+                              <button type="button" (click)="shipOrder(order.id)" class="font-semibold text-indigo-600 hover:text-indigo-500">Ship</button>
+                              <button type="button" (click)="rejectOrder(order.id)" class="font-semibold text-rose-600 hover:text-rose-500">Reject</button>
                        }
+                       @for (report of order.deliveryReports ?? []; track report.id) {
+                         <div class="mt-2 rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-800 text-start">
+                           <p class="font-semibold">Delivery report: {{ report.status }}</p>
+                           <p>{{ report.reason }}</p>
+                           @if (report.status === 'Open' && isAdmin()) {
+                             <button type="button" (click)="resolveReport(report.id, false)" class="mt-1 font-semibold text-teal-700">Resolve</button>
+                             <button type="button" (click)="resolveReport(report.id, true)" class="mt-1 ms-2 font-semibold text-slate-600">Dismiss</button>
+                           }
+                         </div>
+                       }
+                          </div>
+                        }
                        </div>
                     </td>
                   </tr>
@@ -18137,16 +18863,16 @@ import { ToastService } from '../../core/services/toast.service';
               <div class="flex items-center justify-between mb-2">
                 <span class="font-mono font-medium text-indigo-600">#{{ order.id.substring(0, 8) | uppercase }}</span>
                 <span class="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider rounded-full"
-                      [class.bg-amber-100]="order.status === 0"
-                      [class.text-amber-700]="order.status === 0"
-                       [class.bg-blue-100]="order.status === 1"
-                       [class.text-blue-700]="order.status === 1"
-                       [class.bg-indigo-100]="order.status === 2"
-                       [class.text-indigo-700]="order.status === 2"
-                       [class.bg-emerald-100]="order.status === 3"
-                       [class.text-emerald-700]="order.status === 3"
-                       [class.bg-rose-100]="order.status === 4 || order.status === 6"
-                       [class.text-rose-700]="order.status === 4 || order.status === 6">
+                       [class.bg-amber-100]="order.status === 'Pending'"
+                       [class.text-amber-700]="order.status === 'Pending'"
+                        [class.bg-blue-100]="order.status === 'Processing'"
+                        [class.text-blue-700]="order.status === 'Processing'"
+                        [class.bg-indigo-100]="order.status === 'Shipped'"
+                        [class.text-indigo-700]="order.status === 'Shipped'"
+                        [class.bg-emerald-100]="order.status === 'Delivered'"
+                        [class.text-emerald-700]="order.status === 'Delivered'"
+                        [class.bg-rose-100]="order.status === 'Cancelled' || order.status === 'Failed'"
+                        [class.text-rose-700]="order.status === 'Cancelled' || order.status === 'Failed'">
                   {{ getStatusText(order.status) }}
                 </span>
               </div>
@@ -18156,20 +18882,16 @@ import { ToastService } from '../../core/services/toast.service';
               </div>
               <div class="flex items-center justify-between pt-3 border-t border-slate-100">
                 <span class="font-bold text-slate-900">{{ order.totalAmount | currency }}</span>
-                 <div class="flex items-center gap-2">
-                 <select (change)="updateStatus(order.id, $event)" [value]="order.status" class="text-sm bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-500">
-                  <option [value]="0">Pending</option>
-                  <option [value]="1">Processing</option>
-                   <option [value]="2">Shipped</option>
-                   <option [value]="3">Delivered</option>
-                   <option [value]="4">Cancelled</option>
-                   <option [value]="5">Refunded</option>
-                   <option [value]="6">Failed</option>
-                 </select>
-                 @if (order.status !== 3 && order.status !== 4) {
-                   <button type="button" (click)="cancelOrder(order.id)" class="text-xs font-semibold text-rose-600">Cancel</button>
-                 }
-                 </div>
+                  <div class="flex flex-col items-end gap-1">
+                    @for (fulfillment of order.fulfillments ?? []; track fulfillment.id) {
+                      @if (fulfillment.canShip) {
+                        <div class="flex items-center gap-2 text-xs">
+                          <button type="button" (click)="shipOrder(order.id)" class="font-semibold text-indigo-600">Ship</button>
+                          <button type="button" (click)="rejectOrder(order.id)" class="font-semibold text-rose-600">Reject</button>
+                        </div>
+                      }
+                    }
+                  </div>
               </div>
             </div>
           }
@@ -18206,22 +18928,21 @@ import { ToastService } from '../../core/services/toast.service';
 export class AdminOrdersComponent implements OnInit {
   private http = inject(HttpClient);
   private toast = inject(ToastService);
+  private auth = inject(AuthService);
 
   orders = signal<any[]>([]);
   isLoading = signal(true);
   
-  statuses = ['All', 'Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Refunded', 'Failed'];
+  statuses = ['All', 'Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Refunded', 'Failed', 'PartiallyFulfilled'];
   filterStatus = signal('All');
   currentPage = signal(1);
   pageSize = signal(10);
+  isAdmin = computed(() => this.auth.user()?.roles?.some((role: string) => role === 'Admin' || role === 'SuperAdmin') ?? false);
 
   filteredOrders = computed(() => {
     const statusStr = this.filterStatus();
     if (statusStr === 'All') return this.orders();
-    const statusMap: Record<string, number> = {
-      'Pending': 0, 'Processing': 1, 'Shipped': 2, 'Delivered': 3, 'Cancelled': 4, 'Refunded': 5, 'Failed': 6
-    };
-    return this.orders().filter(o => o.status === statusMap[statusStr]);
+    return this.orders().filter(o => o.status === statusStr);
   });
 
   totalPages = computed(() => Math.max(1, Math.ceil(this.filteredOrders().length / this.pageSize())));
@@ -18260,36 +18981,37 @@ export class AdminOrdersComponent implements OnInit {
     });
   }
 
-  getStatusText(status: number): string {
-    const map = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Refunded', 'Failed'];
-    return map[status] || 'Unknown';
+  getStatusText(status: string): string {
+    return status || 'Unknown';
   }
 
-  updateStatus(orderId: string, event: Event) {
-    const select = event.target as HTMLSelectElement;
-    const newStatus = parseInt(select.value, 10);
-    
-    this.http.put(`${environment.apiUrl}/orders/${orderId}/status`, { status: newStatus }).subscribe({
-      next: () => {
-        this.toast.success('Order status updated.');
-        this.orders.update(orders => orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
-      },
-      error: () => {
-        this.toast.error('Failed to update order status.');
-        this.loadOrders(); // reload to revert select
-      }
+  shipOrder(orderId: string): void {
+    const carrier = prompt('Carrier (optional):') ?? '';
+    const trackingNumber = prompt('Tracking number (optional):') ?? '';
+    this.http.post(`${environment.apiUrl}/orders/${orderId}/ship`, { carrier, trackingNumber }).subscribe({
+      next: () => { this.toast.success('Shipment marked as shipped.'); this.loadOrders(); },
+      error: () => this.toast.error('The shipment could not be updated.')
     });
   }
 
-  cancelOrder(orderId: string): void {
-    this.http.post(`${environment.apiUrl}/orders/${orderId}/cancel`, {}).subscribe({
-      next: () => {
-        this.toast.success('Order cancelled.');
-        this.loadOrders();
-      },
-      error: () => this.toast.error('Order could not be cancelled.')
+  rejectOrder(orderId: string): void {
+    const reason = prompt('Why is this order being rejected?')?.trim();
+    if (!reason) return;
+    this.http.post(`${environment.apiUrl}/orders/${orderId}/reject`, { reason }).subscribe({
+      next: () => { this.toast.success('Order fulfillment rejected.'); this.loadOrders(); },
+      error: () => this.toast.error('The order could not be rejected.')
     });
   }
+
+  resolveReport(reportId: string, dismiss: boolean): void {
+    const note = prompt(dismiss ? 'Why is this report being dismissed?' : 'How was this report resolved?')?.trim();
+    if (!note) return;
+    this.http.post(`${environment.apiUrl}/orders/delivery-reports/${reportId}/resolve`, { dismiss, note }).subscribe({
+      next: () => { this.toast.success('Delivery report updated.'); this.loadOrders(); },
+      error: () => this.toast.error('The delivery report could not be updated.')
+    });
+  }
+
 }
 
 ``
@@ -18300,15 +19022,17 @@ export class AdminOrdersComponent implements OnInit {
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { FormsModule } from '@angular/forms';
 import { AdminService, AdminProductResult } from '../../core/services/admin.service';
 import { AuthService } from '../../core/services/auth.service';
+import { ProductService } from '../../core/services/product.service';
 
 @Component({
   selector: 'app-admin-products',
-  imports: [CurrencyPipe, RouterLink],
+  imports: [CurrencyPipe, RouterLink, FormsModule],
   template: `
     <div class="max-w-7xl mx-auto space-y-6">
-      <div class="flex items-center justify-between">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Products Management</h2>
           <p class="mt-1 text-sm text-slate-500">
@@ -18316,7 +19040,22 @@ import { AuthService } from '../../core/services/auth.service';
           </p>
         </div>
 
-        <div class="flex items-center gap-4">
+        <div class="flex flex-wrap items-center gap-3">
+          <!-- Filters -->
+          <select [(ngModel)]="selectedCategory" (change)="applyFilters()" class="bg-white border border-slate-200 text-slate-700 text-sm rounded-xl px-3 py-2 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+            <option value="">All Categories</option>
+            @for (cat of categories(); track cat.id) {
+              <option [value]="cat.slug">{{ cat.name }}</option>
+            }
+          </select>
+
+          <select [(ngModel)]="selectedSort" (change)="applyFilters()" class="bg-white border border-slate-200 text-slate-700 text-sm rounded-xl px-3 py-2 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+            <option value="newest">Newest to Oldest</option>
+            <option value="price-asc">Price: Low to High</option>
+            <option value="price-desc">Price: High to Low</option>
+            <option value="rating">Highest Rated</option>
+          </select>
+
           <a routerLink="/admin/add-product" class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-colors">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
             Add New Product
@@ -18360,7 +19099,16 @@ import { AuthService } from '../../core/services/auth.service';
                       </div>
                       <div>
                         <p class="font-semibold text-slate-900 max-w-[200px] truncate" [title]="product.name">{{ product.name }}</p>
-                        <p class="text-xs text-slate-400">{{ product.category }}</p>
+                        <p class="text-xs text-slate-400 mt-0.5">
+                          @if (product.categories?.length) {
+                            {{ product.categories[0].name }}
+                            @if (product.categories.length > 1) {
+                              <span class="opacity-75"> +{{ product.categories.length - 1 }}</span>
+                            }
+                          } @else {
+                            Uncategorized
+                          }
+                        </p>
                       </div>
                     </div>
                   </td>
@@ -18377,6 +19125,13 @@ import { AuthService } from '../../core/services/auth.service';
                   </td>
                   <td class="px-6 py-4 text-end">
                     <div class="flex items-center justify-end gap-2">
+                      <!-- View Details -->
+                      <button (click)="viewDetails(product)"
+                              class="inline-flex items-center gap-1 text-xs font-semibold text-sky-600 border border-sky-200 hover:bg-sky-50 px-3 py-1.5 rounded-lg transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                        View Details
+                      </button>
+
                       <!-- Edit -->
                       @if (canManageProducts()) {
                         <a [routerLink]="['/admin/edit-product', product.slug]"
@@ -18392,6 +19147,12 @@ import { AuthService } from '../../core/services/auth.service';
                           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                           Delete
                         </button>
+                      }
+                      @if (canApproveProducts() && product.approvalStatus !== 'Approved') {
+                        <button (click)="approve(product.id, 'Approved')" [disabled]="processingId() === product.id" class="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 border border-emerald-200 hover:bg-emerald-50 px-3 py-1.5 rounded-lg transition-colors">Approve</button>
+                      }
+                      @if (canApproveProducts() && product.approvalStatus !== 'Rejected') {
+                        <button (click)="approve(product.id, 'Rejected')" [disabled]="processingId() === product.id" class="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 border border-amber-200 hover:bg-amber-50 px-3 py-1.5 rounded-lg transition-colors">Reject</button>
                       }
                     </div>
                   </td>
@@ -18434,7 +19195,16 @@ import { AuthService } from '../../core/services/auth.service';
                 </div>
                 <div>
                   <p class="font-semibold text-slate-900 truncate" [title]="product.name">{{ product.name }}</p>
-                  <p class="text-xs text-slate-400">{{ product.category }}</p>
+                  <p class="text-xs text-slate-400 mt-0.5">
+                    @if (product.categories?.length) {
+                      {{ product.categories[0].name }}
+                      @if (product.categories.length > 1) {
+                        <span class="opacity-75"> +{{ product.categories.length - 1 }}</span>
+                      }
+                    } @else {
+                      Uncategorized
+                    }
+                  </p>
                 </div>
               </div>
               <div class="flex justify-between items-center text-sm mb-4">
@@ -18443,7 +19213,12 @@ import { AuthService } from '../../core/services/auth.service';
                   Stock: {{ product.stock }}
                 </span>
               </div>
-              <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <div class="flex flex-wrap items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button (click)="viewDetails(product)"
+                        class="inline-flex items-center gap-1 text-xs font-semibold text-sky-600 border border-sky-200 hover:bg-sky-50 px-3 py-1.5 rounded-lg transition-colors">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                  Details
+                </button>
                 @if (canManageProducts()) {
                   <a [routerLink]="['/admin/edit-product', product.slug]" class="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors">
                     Edit
@@ -18488,6 +19263,98 @@ import { AuthService } from '../../core/services/auth.service';
       }
     </div>
 
+    <!-- Product Details Modal -->
+    @if (selectedProductDetails()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" (click)="selectedProductDetails.set(null)"></div>
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div class="p-6">
+            <div class="flex items-center justify-between mb-6">
+              <h3 class="text-xl font-bold text-slate-900">Product Details</h3>
+              <button (click)="selectedProductDetails.set(null)" class="text-slate-400 hover:text-slate-600 transition-colors">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+            
+            <div class="space-y-6">
+              <div class="flex gap-4 items-start">
+                <div class="w-24 h-24 bg-slate-100 rounded-xl overflow-hidden flex-shrink-0">
+                  @if (selectedProductDetails()?.images && selectedProductDetails()?.images?.length > 0) {
+                    <img [src]="selectedProductDetails()?.images[0]" [alt]="selectedProductDetails()?.name" class="w-full h-full object-cover">
+                  } @else {
+                    <div class="w-full h-full flex items-center justify-center text-slate-300">
+                      <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    </div>
+                  }
+                </div>
+                <div>
+                  <h4 class="text-lg font-bold text-slate-900">{{ selectedProductDetails()?.name }}</h4>
+                  <p class="text-sm text-slate-500 mt-1 line-clamp-2">{{ selectedProductDetails()?.description }}</p>
+                  <div class="flex gap-2 mt-2">
+                    @for (cat of selectedProductDetails()?.categories; track cat.id) {
+                      <span class="inline-flex px-2 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-md">
+                        {{ cat.name }}
+                      </span>
+                    }
+                    <span class="inline-flex px-2 py-1 bg-slate-100 text-slate-700 text-xs font-semibold rounded-md">
+                      {{ selectedProductDetails()?.brand || 'No Brand' }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-xl">
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Price</p>
+                  <p class="text-lg font-bold text-slate-900">{{ selectedProductDetails()?.price | currency }}</p>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Stock</p>
+                  <p class="text-lg font-bold" [class.text-rose-600]="selectedProductDetails()?.stock < 10" [class.text-slate-900]="selectedProductDetails()?.stock >= 10">
+                    {{ selectedProductDetails()?.stock }}
+                  </p>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Rating</p>
+                  <p class="text-lg font-bold text-slate-900 flex items-center gap-1">
+                    {{ selectedProductDetails()?.rating }}
+                    <svg class="w-4 h-4 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                  </p>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Reviews</p>
+                  <p class="text-lg font-bold text-slate-900">{{ selectedProductDetails()?.reviewCount }}</p>
+                </div>
+              </div>
+
+              <!-- Seller Info Section -->
+              <div class="border-t border-slate-100 pt-4">
+                <h5 class="text-sm font-bold text-slate-900 mb-3">Seller Information</h5>
+                <div class="bg-indigo-50/50 rounded-xl p-4 border border-indigo-100/50">
+                  <div class="flex items-center gap-4">
+                    <div class="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold text-lg">
+                      {{ selectedProductDetails()?.sellerName?.charAt(0) || '?' }}
+                    </div>
+                    <div>
+                      <p class="font-semibold text-slate-900">{{ selectedProductDetails()?.sellerName || 'Unknown Seller' }}</p>
+                      <p class="text-sm text-slate-500">Seller ID: {{ selectedProductDetails()?.sellerId }}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="mt-8 flex justify-end">
+              <button (click)="selectedProductDetails.set(null)"
+                      class="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-colors text-sm">
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    }
+
     <!-- Delete Confirmation Modal -->
     @if (productToDelete()) {
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -18521,13 +19388,20 @@ import { AuthService } from '../../core/services/auth.service';
 })
 export class AdminProductsComponent implements OnInit {
   private readonly adminService = inject(AdminService);
+  private readonly productService = inject(ProductService);
   readonly authService = inject(AuthService);
 
   readonly productsResult = signal<AdminProductResult | null>(null);
   readonly processingId = signal<string | null>(null);
   readonly productToDelete = signal<any>(null);
+  readonly selectedProductDetails = signal<any>(null);
   readonly isLoading = signal(true);
   readonly currentPage = signal(1);
+  readonly categories = signal<any[]>([]);
+
+  // Filter state
+  selectedCategory = '';
+  selectedSort = 'newest';
 
   readonly isSuperAdmin = computed(() =>
     this.authService.user()?.roles?.includes('SuperAdmin') ?? false
@@ -18538,17 +19412,29 @@ export class AdminProductsComponent implements OnInit {
     return roles.includes('SuperAdmin') || roles.includes('Seller');
   });
 
+  readonly canApproveProducts = computed(() => {
+    const roles = this.authService.user()?.roles ?? [];
+    return roles.includes('Admin') || roles.includes('SuperAdmin');
+  });
+
   readonly filteredProducts = computed(() => {
     return this.productsResult()?.items ?? [];
   });
 
   ngOnInit(): void {
+    this.loadCategories();
     this.loadProducts(this.currentPage());
+  }
+
+  loadCategories(): void {
+    this.productService.getCategories().subscribe(cats => {
+      this.categories.set(cats);
+    });
   }
 
   loadProducts(page: number = 1): void {
     this.isLoading.set(true);
-    this.adminService.getAllProducts(page).subscribe({
+    this.adminService.getAllProducts(page, 50, this.selectedSort, this.selectedCategory).subscribe({
       next: (result) => {
         this.productsResult.set(result);
         this.currentPage.set(page);
@@ -18561,10 +19447,30 @@ export class AdminProductsComponent implements OnInit {
     });
   }
 
+  applyFilters(): void {
+    this.currentPage.set(1);
+    this.loadProducts(1);
+  }
+
   changePage(page: number): void {
     if (page > 0 && page <= (this.productsResult()?.totalPages || 1)) {
       this.loadProducts(page);
     }
+  }
+
+  viewDetails(product: any): void {
+    this.selectedProductDetails.set(product);
+  }
+
+  approve(productId: string, status: 'Approved' | 'Rejected'): void {
+    this.processingId.set(productId);
+    this.adminService.approveProduct(productId, status).subscribe({
+      next: () => {
+        this.processingId.set(null);
+        this.loadProducts(this.currentPage());
+      },
+      error: () => this.processingId.set(null)
+    });
   }
 
   confirmDelete(product: any): void {
@@ -18878,7 +19784,16 @@ import { ToastService } from '../../core/services/toast.service';
                       </div>
                       <div class="flex-1 min-w-0">
                         <h4 class="text-sm font-bold text-slate-900 truncate">{{ product.name }}</h4>
-                        <p class="text-xs text-slate-500 mt-0.5 truncate">{{ product.category }}</p>
+                        <p class="text-xs text-slate-500 mt-0.5 truncate">
+                          @if (product.categories?.length) {
+                            {{ product.categories[0].name }}
+                            @if (product.categories.length > 1) {
+                              <span class="opacity-75"> +{{ product.categories.length - 1 }}</span>
+                            }
+                          } @else {
+                            Uncategorized
+                          }
+                        </p>
                         <div class="flex items-center gap-3 mt-2">
                           <span class="text-sm font-bold text-teal-600">{{ product.price | currency }}</span>
                           <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"
@@ -19253,7 +20168,7 @@ import { ToastService } from '../../core/services/toast.service';
                         class="relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-2">
                   <span [class.translate-x-6]="hasRole('Admin')"
                         [class.translate-x-0]="!hasRole('Admin')"
-                        class="absolute top-0.5 start-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
+                        class="theme-preserve-light absolute top-0.5 start-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
                 </button>
               </div>
 
@@ -19274,7 +20189,7 @@ import { ToastService } from '../../core/services/toast.service';
                         class="relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2">
                   <span [class.translate-x-6]="hasRole('Seller')"
                         [class.translate-x-0]="!hasRole('Seller')"
-                        class="absolute top-0.5 start-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
+                        class="theme-preserve-light absolute top-0.5 start-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 inline-block"></span>
                 </button>
               </div>
 
@@ -19633,7 +20548,7 @@ export class ForgotPasswordComponent {
     <div class="relative z-10 flex flex-col justify-between p-12 lg:p-16 w-full text-white">
       <!-- Logo -->
       <div class="flex items-center gap-4 -ms-2">
-        <div class="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-2xl shadow-teal-900/40 overflow-hidden shrink-0">
+        <div class="theme-preserve-light w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-2xl shadow-teal-900/40 overflow-hidden shrink-0">
           <img src="/images/logo.png" alt="Budgetha" class="h-14 w-auto object-contain" />
         </div>
         <span class="text-4xl font-black tracking-tighter text-white" style="font-family: 'Outfit', sans-serif;">Budgetha</span>
@@ -19666,13 +20581,13 @@ export class ForgotPasswordComponent {
   </div>
 
   <!-- ── Right Form Panel ── -->
-  <div class="flex-1 flex items-center justify-center p-6 sm:p-12 bg-slate-50 relative overflow-hidden bg-[radial-gradient(#cbd5e1_1.5px,transparent_1.5px)] [background-size:24px_24px] animate-pan-bg">
+  <div class="flex-1 flex items-center justify-center p-6 sm:p-12 bg-slate-50 dark:bg-slate-950 relative overflow-hidden bg-[radial-gradient(#cbd5e1_1.5px,transparent_1.5px)] dark:bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:24px_24px] animate-pan-bg">
     
     <!-- Optional: Super soft glowing orb in background of right panel to make it even more magical -->
     <div class="absolute top-1/4 end-1/4 w-96 h-96 bg-teal-400/10 rounded-full blur-3xl pointer-events-none"></div>
     <div class="absolute bottom-1/4 start-1/4 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl pointer-events-none"></div>
 
-    <div class="w-full max-w-[420px] bg-white/80 backdrop-blur-xl p-8 sm:p-10 rounded-[2rem] shadow-2xl border border-white relative z-10">
+    <div class="w-full max-w-[420px] bg-white/80 dark:bg-slate-900/90 backdrop-blur-xl p-8 sm:p-10 rounded-[2rem] shadow-2xl border border-white dark:border-slate-700 relative z-10">
       <!-- Mobile logo (visible < lg) -->
       <div class="lg:hidden flex items-center justify-center gap-2 mb-10">
         <img src="/images/logo.png" alt="Budgetha" class="h-16 w-auto object-contain" />
@@ -19942,7 +20857,7 @@ export class LoginComponent {
     <div class="relative z-10 flex flex-col justify-between p-12 lg:p-16 w-full text-white">
       <!-- Logo -->
       <div class="flex items-center gap-4 -ms-2">
-        <div class="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-2xl shadow-teal-900/40 overflow-hidden shrink-0">
+        <div class="theme-preserve-light w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-2xl shadow-teal-900/40 overflow-hidden shrink-0">
           <img src="/images/logo.png" alt="Budgetha" class="h-14 w-auto object-contain" />
         </div>
         <span class="text-4xl font-black tracking-tighter text-white" style="font-family: 'Outfit', sans-serif;">Budgetha</span>
@@ -19975,14 +20890,14 @@ export class LoginComponent {
   </div>
 
   <!-- ── Right Form Panel ── -->
-  <div class="flex-1 flex items-center justify-center p-6 sm:p-12 bg-slate-50 relative overflow-hidden bg-[radial-gradient(#cbd5e1_1.5px,transparent_1.5px)] [background-size:24px_24px] animate-pan-bg">
+  <div class="flex-1 flex items-center justify-center p-6 sm:p-12 bg-slate-50 dark:bg-slate-950 relative overflow-hidden bg-[radial-gradient(#cbd5e1_1.5px,transparent_1.5px)] dark:bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:24px_24px] animate-pan-bg">
     
     <!-- Optional: Super soft glowing orb in background of right panel to make it even more magical -->
     <div class="absolute top-1/4 end-1/4 w-96 h-96 bg-teal-400/10 rounded-full blur-3xl pointer-events-none"></div>
     <div class="absolute bottom-1/4 start-1/4 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl pointer-events-none"></div>
 
     <!-- Form Container -->
-    <div class="w-full max-w-[440px] bg-white/80 backdrop-blur-xl p-8 sm:p-10 rounded-[2rem] shadow-2xl border border-white relative z-10">
+    <div class="w-full max-w-[440px] bg-white/80 dark:bg-slate-900/90 backdrop-blur-xl p-8 sm:p-10 rounded-[2rem] shadow-2xl border border-white dark:border-slate-700 relative z-10">
       <!-- Mobile logo -->
       <div class="lg:hidden flex items-center justify-center gap-2 mb-10">
         <img src="/images/logo.png" alt="Budgetha" class="h-16 w-auto object-contain" />
@@ -20378,7 +21293,7 @@ function passwordMatchValidator(control: AbstractControl): ValidationErrors | nu
 import { Component, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators, AbstractControl, ValidationErrors } from '@angular/forms';
-import { RouterLink, Router } from '@angular/router';
+import { ActivatedRoute, RouterLink, Router } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { ToastService } from '../../../core/services/toast.service';
 
@@ -20520,7 +21435,8 @@ export class ResetPasswordComponent {
     private fb: FormBuilder,
     private authService: AuthService,
     private toastService: ToastService,
-    private router: Router
+    private router: Router,
+    private route: ActivatedRoute
   ) {
     this.form = this.fb.group({
       email: ['', [Validators.required, Validators.email]],
@@ -20528,6 +21444,13 @@ export class ResetPasswordComponent {
       newPassword: ['', [Validators.required, Validators.minLength(8)]],
       confirmPassword: ['', [Validators.required]]
     }, { validators: this.passwordMatchValidator });
+
+    this.route.queryParamMap.subscribe(params => {
+      this.form.patchValue({
+        email: params.get('email') ?? '',
+        token: params.get('token') ?? ''
+      });
+    });
   }
 
   private passwordMatchValidator(control: AbstractControl): ValidationErrors | null {
@@ -20535,8 +21458,13 @@ export class ResetPasswordComponent {
     const confirmPassword = control.get('confirmPassword');
 
     if (password && confirmPassword && password.value !== confirmPassword.value) {
-      confirmPassword.setErrors({ passwordMismatch: true });
+      confirmPassword.setErrors({ ...confirmPassword.errors, passwordMismatch: true });
       return { passwordMismatch: true };
+    }
+    if (confirmPassword?.hasError('passwordMismatch')) {
+      const errors = { ...confirmPassword.errors };
+      delete errors['passwordMismatch'];
+      confirmPassword.setErrors(Object.keys(errors).length ? errors : null);
     }
     return null;
   }
@@ -20784,8 +21712,9 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../core/services/product.service';
 import { WishlistService } from '../../core/services/wishlist.service';
-import { CatalogResult, Product, SortOption } from '../../core/models/shop.models';
+import { CatalogQuery, CatalogResult, SortOption } from '../../core/models/shop.models';
 import { ProductCardComponent } from '../../shared/components/product-card/product-card.component';
+import { SkeletonCardComponent } from '../../shared/components/skeleton-card/skeleton-card.component';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
 import { StarRatingComponent } from '../../shared/components/star-rating/star-rating.component';
 
@@ -20793,7 +21722,7 @@ const PAGE_SIZE = 9;
 
 @Component({
   selector: 'app-catalog',
-  imports: [CurrencyPipe, NgTemplateOutlet, RouterLink, ProductCardComponent, EmptyStateComponent, StarRatingComponent],
+  imports: [CurrencyPipe, NgTemplateOutlet, RouterLink, ProductCardComponent, EmptyStateComponent, StarRatingComponent, SkeletonCardComponent],
   template: `
     <div class="max-w-7xl mx-auto px-4 sm:px-6 py-8 lg:py-10">
       <!-- Breadcrumb + heading -->
@@ -20875,12 +21804,12 @@ const PAGE_SIZE = 9;
       </div>
 
       <div class="mt-8 flex gap-8">
-        <!-- ══ Sidebar filters (desktop) ══ -->
+        <!-- â•â• Sidebar filters (desktop) â•â• -->
         <aside class="hidden lg:block w-64 shrink-0 space-y-6">
           <ng-container *ngTemplateOutlet="filterPanel"></ng-container>
         </aside>
 
-        <!-- ══ Mobile filter drawer ══ -->
+        <!-- â•â• Mobile filter drawer â•â• -->
         @if (filtersOpen()) {
           <div class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm lg:hidden" (click)="filtersOpen.set(false)" aria-hidden="true"></div>
           <aside class="fixed inset-y-0 start-0 z-50 w-80 max-w-[85vw] bg-white shadow-2xl overflow-y-auto p-5 lg:hidden animate-[slideInLeft_0.3s_ease-out]"
@@ -20899,7 +21828,7 @@ const PAGE_SIZE = 9;
           </aside>
         }
 
-        <!-- ══ Filter panel template (shared desktop/mobile) ══ -->
+        <!-- â•â• Filter panel template (shared desktop/mobile) â•â• -->
         <ng-template #filterPanel>
           <!-- Active filters / clear -->
           @if (activeFilterCount() > 0) {
@@ -20961,7 +21890,7 @@ const PAGE_SIZE = 9;
                 <span class="block text-[10px] uppercase tracking-wider text-slate-400">Min</span>
                 <span class="text-sm font-bold text-slate-900">{{ minPrice() | currency: 'USD' : 'symbol' : '1.0-0' }}</span>
               </div>
-              <span class="text-slate-300">—</span>
+              <span class="text-slate-300">â€”</span>
               <div class="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-center">
                 <span class="block text-[10px] uppercase tracking-wider text-slate-400">Max</span>
                 <span class="text-sm font-bold text-slate-900">{{ maxPrice() | currency: 'USD' : 'symbol' : '1.0-0' }}</span>
@@ -21004,10 +21933,26 @@ const PAGE_SIZE = 9;
           </div>
         </ng-template>
 
-        <!-- ══ Results ══ -->
+        <!-- â•â• Results â•â• -->
         <div class="flex-1 min-w-0">
-          @if (isLoading()) {
-            <div class="card p-12 text-center text-slate-500">Loading products...</div>
+          @if (isLoading() && result().items.length === 0) {
+            @if (view() === 'grid') {
+              <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+                <app-skeleton-card layout="grid" />
+                <app-skeleton-card layout="grid" />
+                <app-skeleton-card layout="grid" />
+                <app-skeleton-card layout="grid" />
+                <app-skeleton-card layout="grid" />
+                <app-skeleton-card layout="grid" />
+              </div>
+            } @else {
+              <div class="space-y-5">
+                <app-skeleton-card layout="list" />
+                <app-skeleton-card layout="list" />
+                <app-skeleton-card layout="list" />
+                <app-skeleton-card layout="list" />
+              </div>
+            }
           } @else if (loadError()) {
             <div class="card p-12 text-center">
               <p class="text-sm text-rose-600">Products could not be loaded.</p>
@@ -21023,6 +21968,12 @@ const PAGE_SIZE = 9;
                 ctaLink="/shop" />
             </div>
           } @else {
+            @if (isLoading()) {
+              <div class="mb-4 flex items-center gap-2 text-xs font-medium text-violet-600" role="status" aria-live="polite">
+                <span class="h-2.5 w-2.5 rounded-full border-2 border-violet-200 border-t-violet-600 animate-spin"></span>
+                Updating products...
+              </div>
+            }
             @if (view() === 'grid') {
               <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
                 @for (product of result().items; track product.id) {
@@ -21099,7 +22050,8 @@ export class CatalogComponent {
   readonly brands = toSignal(this.productService.getBrands(), { initialValue: [] }); 
   
   
-  readonly bounds = toSignal(this.productService.priceBounds(), { initialValue: { min: 0, max: 10000 } });
+  private readonly boundsValue = toSignal(this.productService.priceBounds(), { initialValue: null });
+  readonly bounds = computed(() => this.boundsValue() ?? { min: 0, max: 10000 });
 
   readonly search = signal('');
   readonly selectedCategories = signal<string[]>([]);
@@ -21113,17 +22065,12 @@ export class CatalogComponent {
   readonly filtersOpen = signal(false);
   readonly dealsOnly = signal(false);
   readonly wishlistOnly = signal(false);
+  readonly sellerId = signal<string | null>(null);
 
-  
-  
-  
-  
-  
-  
-  
   readonly result = signal<CatalogResult>({ items: [], total: 0, totalPages: 1 });
   readonly isLoading = signal(true);
   readonly loadError = signal(false);
+  readonly reload = signal(0);
 
   readonly pages = computed(() => Array.from({ length: this.result().totalPages }, (_, i) => i + 1));
 
@@ -21138,8 +22085,9 @@ export class CatalogComponent {
 
   readonly pageTitle = computed(() => {
     if (this.wishlistOnly()) return 'My Wishlist';
-    if (this.dealsOnly()) return 'Today’s Deals';
-    if (this.search()) return `Results for “${this.search()}”`;
+    if (this.dealsOnly()) return 'Todayâ€™s Deals';
+    if (this.sellerId()) return 'Seller Products';
+    if (this.search()) return `Results for â€œ${this.search()}â€`;
     if (this.selectedCategories().length === 1) {
       return this.categories().find(c => c.slug === this.selectedCategories()[0])?.name ?? 'Shop';
     }
@@ -21170,22 +22118,29 @@ export class CatalogComponent {
       this.selectedBrands.set(brand ? [brand] : []);
       this.dealsOnly.set(params.get('deals') === '1');
       this.wishlistOnly.set(params.get('wishlist') === '1');
+      this.sellerId.set(params.get('sellerId'));
+      this.page.set(1);
       const sort = params.get('sort') as SortOption | null;
       if (sort && ['featured', 'newest', 'price-asc', 'price-desc', 'rating'].includes(sort)) {
         this.sort.set(sort);
       }
-      this.page.set(1);
     });
 
-    
     this.productService.priceBounds().pipe(takeUntilDestroyed()).subscribe(b => {
        this.minPrice.set(b.min);
        this.maxPrice.set(b.max);
     });
 
-    
-    effect(() => {
-      const q = {
+    effect(onCleanup => {
+      this.reload();
+      const loadedBounds = this.boundsValue();
+      if (!loadedBounds) return;
+      const currentPage = this.page();
+      const isWishlist = this.wishlistOnly();
+      const isDeals = this.dealsOnly();
+      const currentSellerId = this.sellerId();
+
+      const q: CatalogQuery = {
         search: this.search(),
         categories: this.selectedCategories(),
         brands: this.selectedBrands(),
@@ -21193,45 +22148,54 @@ export class CatalogComponent {
         maxPrice: this.maxPrice(),
         minRating: this.minRating(),
         sort: this.sort(),
-        page: this.wishlistOnly() || this.dealsOnly() ? 1 : this.page(),
-        pageSize: this.wishlistOnly() || this.dealsOnly() ? 100 : PAGE_SIZE,
+        page: isWishlist || isDeals ? 1 : currentPage,
+        pageSize: isWishlist || isDeals ? 100 : PAGE_SIZE,
       };
-      this.isLoading.set(true);
-      this.productService.query(q).subscribe(res => {
-        let items = res?.items || [];
-        if (this.dealsOnly()) {
-          items = items.filter(p => p.originalPrice && p.originalPrice > p.price);
-        }
-        if (this.wishlistOnly()) {
-          const ids = this.wishlist.ids();
-          items = items.filter(p => ids.includes(p.id));
-        }
-        
-        let total = res.total;
-        let totalPages = res.totalPages;
-        
-        if (this.wishlistOnly() || this.dealsOnly()) {
-          total = items.length;
-          totalPages = Math.ceil(total / PAGE_SIZE);
-          
-          const start = (this.page() - 1) * PAGE_SIZE;
-          items = items.slice(start, start + PAGE_SIZE);
-        }
-        
-        this.result.set({ items, total, totalPages });
+
+      q.sellerId = currentSellerId ?? undefined;
+
+      const cached = this.productService.getCachedQuery(q);
+      if (cached) {
+        this.applyResult(cached, currentPage, isDeals, isWishlist);
+        this.isLoading.set(false);
+      } else {
+        this.isLoading.set(true);
+      }
+      const subscription = this.productService.query(q).subscribe(res => {
+        this.applyResult(res, currentPage, isDeals, isWishlist);
         this.isLoading.set(false);
         this.loadError.set(false);
       }, () => {
         this.isLoading.set(false);
         this.loadError.set(true);
       });
+      onCleanup(() => subscription.unsubscribe());
     });
+  }
+
+  private applyResult(res: CatalogResult, currentPage: number, isDeals: boolean, isWishlist: boolean): void {
+    let items = res?.items || [];
+    if (isDeals) items = items.filter(p => p.originalPrice && p.originalPrice > p.price);
+    if (isWishlist) {
+      const ids = this.wishlist.ids();
+      items = items.filter(p => ids.includes(p.id));
+    }
+
+    let total = res.total;
+    let totalPages = res.totalPages;
+    if (isWishlist || isDeals) {
+      total = items.length;
+      totalPages = Math.ceil(total / PAGE_SIZE);
+      const start = (currentPage - 1) * PAGE_SIZE;
+      items = items.slice(start, start + PAGE_SIZE);
+    }
+    this.result.set({ items, total, totalPages });
   }
 
   retry(): void {
     this.loadError.set(false);
     this.isLoading.set(true);
-    this.page.update(page => page);
+    this.reload.update(value => value + 1);
   }
 
   toggleCategory(slug: string): void {
@@ -21288,10 +22252,10 @@ export class CatalogComponent {
 ## src\app\features\checkout\checkout.component.ts
 
 ``typescript
-import { Component, DestroyRef, OnInit, effect, inject, signal } from '@angular/core';
-import { CurrencyPipe } from '@angular/common';
+import { Component, DestroyRef, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { CurrencyPipe, LowerCasePipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormBuilder, FormsModule, ReactiveFormsModule, Validators, AbstractControl, ValidationErrors } from '@angular/forms';
 import { CartService } from '../../core/services/cart.service';
 import { CheckoutQuote, OrderService } from '../../core/services/order.service';
 import { AccountService } from '../../core/services/account.service';
@@ -21299,16 +22263,28 @@ import { AuthService } from '../../core/services/auth.service';
 import { ToastService } from '../../core/services/toast.service';
 import { Address } from '../../core/models/shop.models';
 import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
-import { NgxPayPalModule, IPayPalConfig, ICreateOrderRequest } from 'ngx-paypal';
 import { debounceTime, Observable, switchMap } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { environment } from '../../../environments/environment';
+import { COUNTRIES, CountryData } from '../../core/data/countries.data';
 
-type PaymentMethod = 'paypal' | 'cod';
+type PaymentMethod = 'mock' | 'cod';
+
+function phoneValidator(getDialCode: () => CountryData | undefined) {
+  return (control: AbstractControl): ValidationErrors | null => {
+    const value = (control.value || '').replace(/\D/g, '');
+    const country = getDialCode();
+    if (!value) return { required: true };
+    const lengths = Array.isArray(country?.phoneLength) ? country.phoneLength : [country?.phoneLength ?? 7];
+    if (!lengths.includes(value.length)) {
+      return { phoneLength: { expected: lengths, actual: value.length } };
+    }
+    return null;
+  };
+}
 
 @Component({
   selector: 'app-checkout',
-  imports: [CurrencyPipe, RouterLink, ReactiveFormsModule, EmptyStateComponent, NgxPayPalModule],
+  imports: [CurrencyPipe, LowerCasePipe, RouterLink, ReactiveFormsModule, FormsModule, EmptyStateComponent],
   template: `
     @if (cart.items().length === 0) {
       <div class="max-w-2xl mx-auto px-4 py-16">
@@ -21356,19 +22332,71 @@ type PaymentMethod = 'paypal' | 'cod';
               </h2>
               <div class="mt-5 grid sm:grid-cols-2 gap-4">
                 <div>
-                  <label for="email" class="block text-sm font-medium text-slate-700 mb-1.5">Email address</label>
+                  <label for="email" class="block text-sm font-medium text-slate-700 mb-1.5">
+                    Email address <span class="text-red-500">*</span>
+                  </label>
                   <input id="email" type="email" formControlName="email" autocomplete="email" placeholder="you@example.com"
                          class="input-field" [class.input-error]="invalid('email')" />
                   @if (invalid('email')) {
                     <p class="mt-1.5 text-xs text-red-500">A valid email is required for your receipt.</p>
                   }
                 </div>
+
+                <!-- Phone with dial code -->
                 <div>
-                  <label for="phone" class="block text-sm font-medium text-slate-700 mb-1.5">Phone number</label>
-                  <input id="phone" type="tel" formControlName="phone" autocomplete="tel" placeholder="+1 (555) 000-0000"
-                         class="input-field" [class.input-error]="invalid('phone')" />
+                  <label class="block text-sm font-medium text-slate-700 mb-1.5">
+                    Phone number <span class="text-red-500">*</span>
+                  </label>
+                  <div class="flex" [class.ring-2]="invalid('phone')" [class.ring-red-400]="invalid('phone')" [class.rounded-xl]="invalid('phone')">
+                    <!-- Dial code selector -->
+                    <button type="button" (click)="dialDropdownOpen.set(!dialDropdownOpen())"
+                            class="relative flex items-center gap-1.5 px-3 py-2.5 bg-slate-50 border border-slate-200 border-r-0 rounded-l-xl text-sm font-medium text-slate-700 hover:bg-slate-100 transition-colors shrink-0 min-w-[90px]">
+                      <span class="text-lg leading-none">{{ selectedCountryData()?.flag }}</span>
+                      <span class="text-xs text-slate-500">{{ selectedCountryData()?.dialCode }}</span>
+                      <svg class="w-3 h-3 text-slate-400 ml-auto" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                      </svg>
+                    </button>
+                    <input id="phone" type="tel" formControlName="phone" autocomplete="tel"
+                           [placeholder]="phonePlaceholder()"
+                           class="input-field rounded-l-none border-l-0 flex-1 min-w-0"
+                           [class.border-red-400]="invalid('phone')"
+                           [class.focus:ring-red-400]="invalid('phone')" />
+                  </div>
+
+                  <!-- Dial code dropdown -->
+                  @if (dialDropdownOpen()) {
+                    <div class="relative z-50">
+                      <div class="absolute top-1 left-0 w-72 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden">
+                        <div class="p-2 border-b border-slate-100">
+                          <input type="text" [value]="dialSearch" (input)="dialSearch = $any($event.target).value"
+                                 placeholder="Search country..." class="input-field py-2 text-sm" />
+                        </div>
+                        <div class="max-h-56 overflow-y-auto">
+                          @for (country of filteredDialCountries(); track country.code) {
+                            <button type="button" (click)="selectDialCountry(country)"
+                                    class="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-violet-50 text-sm transition-colors"
+                                    [class.bg-violet-50]="selectedDialCountry() === country.code">
+                              <span class="text-lg">{{ country.flag }}</span>
+                              <span class="flex-1 text-start text-slate-800">{{ country.name }}</span>
+                              <span class="text-slate-400 text-xs">{{ country.dialCode }}</span>
+                            </button>
+                          }
+                        </div>
+                      </div>
+                    </div>
+                  }
+
                   @if (invalid('phone')) {
-                    <p class="mt-1.5 text-xs text-red-500">Phone number is required for delivery updates.</p>
+                    <p class="mt-1.5 text-xs text-red-500">
+                      @if (form.get('phone')?.errors?.['required']) {
+                        Phone number is required.
+                      } @else if (form.get('phone')?.errors?.['phoneLength']) {
+                        Phone must be {{ expectedPhoneLength() }} digits for {{ selectedCountryData()?.name }}.
+                      }
+                    </p>
+                  } @else {
+                    <p class="mt-1.5 text-xs text-slate-400">Enter {{ expectedPhoneLength() }} digits without the country code</p>
                   }
                 </div>
               </div>
@@ -21387,7 +22415,7 @@ type PaymentMethod = 'paypal' | 'cod';
                       <button type="button" (click)="useAddress(address)"
                               class="rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all duration-300"
                               [class]="selectedAddressId() === address.id ? 'border-violet-500 bg-violet-50 text-violet-700' : 'border-slate-200 text-slate-600 hover:border-violet-300 hover:text-violet-700'">
-                        Use â€œ{{ address.label }}â€
+                        Use "{{ address.label }}"
                       </button>
                     }
                   </div>
@@ -21401,7 +22429,9 @@ type PaymentMethod = 'paypal' | 'cod';
 
               <div class="mt-5 grid sm:grid-cols-2 gap-4">
                 <div class="sm:col-span-2">
-                  <label for="fullName" class="block text-sm font-medium text-slate-700 mb-1.5">Full name</label>
+                  <label for="fullName" class="block text-sm font-medium text-slate-700 mb-1.5">
+                    Full name <span class="text-red-500">*</span>
+                  </label>
                   <input id="fullName" type="text" formControlName="fullName" autocomplete="name" placeholder="Jane Doe"
                          class="input-field" [class.input-error]="invalid('fullName')" />
                   @if (invalid('fullName')) {
@@ -21409,7 +22439,9 @@ type PaymentMethod = 'paypal' | 'cod';
                   }
                 </div>
                 <div class="sm:col-span-2">
-                  <label for="line1" class="block text-sm font-medium text-slate-700 mb-1.5">Street address</label>
+                  <label for="line1" class="block text-sm font-medium text-slate-700 mb-1.5">
+                    Street address <span class="text-red-500">*</span>
+                  </label>
                   <input id="line1" type="text" formControlName="line1" autocomplete="address-line1" placeholder="123 Main Street"
                          class="input-field" [class.input-error]="invalid('line1')" />
                   @if (invalid('line1')) {
@@ -21420,44 +22452,75 @@ type PaymentMethod = 'paypal' | 'cod';
                   <label for="line2" class="block text-sm font-medium text-slate-700 mb-1.5">Apartment, suite, etc. <span class="text-slate-400 font-normal">(optional)</span></label>
                   <input id="line2" type="text" formControlName="line2" autocomplete="address-line2" placeholder="Apt 4B" class="input-field" />
                 </div>
+
+                <!-- Country selector -->
+                <div class="sm:col-span-2">
+                  <label for="country" class="block text-sm font-medium text-slate-700 mb-1.5">
+                    Country <span class="text-red-500">*</span>
+                  </label>
+                  <div class="relative">
+                    <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-lg pointer-events-none">{{ selectedAddressCountry()?.flag }}</span>
+                    <select id="country" formControlName="country" autocomplete="country-name"
+                            class="input-field pl-10 appearance-none"
+                            [class.input-error]="invalid('country')">
+                      <option value="" disabled>Select a country</option>
+                      @for (c of countries; track c.code) {
+                        <option [value]="c.name">{{ c.flag }} {{ c.name }}</option>
+                      }
+                    </select>
+                    <svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                    </svg>
+                  </div>
+                </div>
+
                 <div>
-                  <label for="city" class="block text-sm font-medium text-slate-700 mb-1.5">City</label>
+                  <label for="city" class="block text-sm font-medium text-slate-700 mb-1.5">
+                    City <span class="text-red-500">*</span>
+                  </label>
                   <input id="city" type="text" formControlName="city" autocomplete="address-level2" placeholder="Springfield"
                          class="input-field" [class.input-error]="invalid('city')" />
                   @if (invalid('city')) {
                     <p class="mt-1.5 text-xs text-red-500">City is required.</p>
                   }
                 </div>
-                <div class="grid grid-cols-2 gap-4">
-                  <div>
-                    <label for="state" class="block text-sm font-medium text-slate-700 mb-1.5">State</label>
-                    <input id="state" type="text" formControlName="state" autocomplete="address-level1" placeholder="IL"
+
+                <!-- State: dropdown if country has states, text input otherwise -->
+                <div>
+                  <label for="state" class="block text-sm font-medium text-slate-700 mb-1.5">
+                    {{ stateLabel() }} <span class="text-red-500">*</span>
+                  </label>
+                  @if (availableStates().length) {
+                    <div class="relative">
+                      <select id="state" formControlName="state" autocomplete="address-level1"
+                              class="input-field appearance-none" [class.input-error]="invalid('state')">
+                        <option value="" disabled>Select {{ stateLabel() | lowercase }}</option>
+                        @for (s of availableStates(); track s) {
+                          <option [value]="s">{{ s }}</option>
+                        }
+                      </select>
+                      <svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                      </svg>
+                    </div>
+                  } @else {
+                    <input id="state" type="text" formControlName="state" autocomplete="address-level1" [placeholder]="stateLabel()"
                            class="input-field" [class.input-error]="invalid('state')" />
-                    @if (invalid('state')) {
-                      <p class="mt-1.5 text-xs text-red-500">Required.</p>
-                    }
-                  </div>
-                  <div>
-                    <label for="zip" class="block text-sm font-medium text-slate-700 mb-1.5">ZIP code</label>
-                    <input id="zip" type="text" formControlName="zip" autocomplete="postal-code" placeholder="62704"
-                           class="input-field" [class.input-error]="invalid('zip')" />
-                    @if (invalid('zip')) {
-                      <p class="mt-1.5 text-xs text-red-500">Valid ZIP required.</p>
-                    }
-                  </div>
+                  }
+                  @if (invalid('state')) {
+                    <p class="mt-1.5 text-xs text-red-500">{{ stateLabel() }} is required.</p>
+                  }
                 </div>
+
                 <div class="sm:col-span-2">
-                  <label for="country" class="block text-sm font-medium text-slate-700 mb-1.5">Country</label>
-                  <select id="country" formControlName="country" autocomplete="country-name" class="input-field">
-                    <option>United States</option>
-                    <option>Canada</option>
-                    <option>United Kingdom</option>
-                    <option>Germany</option>
-                    <option>Australia</option>
-                    <option>United Arab Emirates</option>
-                    <option>Saudi Arabia</option>
-                    <option>Jordan</option>
-                  </select>
+                  <label for="zip" class="block text-sm font-medium text-slate-700 mb-1.5">
+                    ZIP / Postal code <span class="text-red-500">*</span>
+                  </label>
+                  <input id="zip" type="text" formControlName="zip" autocomplete="postal-code" placeholder="62704"
+                         class="input-field" [class.input-error]="invalid('zip')" />
+                  @if (invalid('zip')) {
+                    <p class="mt-1.5 text-xs text-red-500">Valid ZIP / postal code is required.</p>
+                  }
                 </div>
               </div>
             </section>
@@ -21470,19 +22533,16 @@ type PaymentMethod = 'paypal' | 'cod';
               </h2>
 
               <div class="mt-5 grid sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Payment method">
-                <!-- PayPal option -->
-                <button type="button" role="radio" [attr.aria-checked]="paymentMethod() === 'paypal'" (click)="paymentMethod.set('paypal')"
-                        class="rounded-2xl border-2 p-4 text-start transition-all duration-300"
-                        [class]="paymentMethod() === 'paypal' ? 'border-violet-600 bg-violet-50/60 shadow-md shadow-violet-100' : 'border-slate-200 hover:border-slate-300'">
+                <button type="button" role="radio" [attr.aria-checked]="paymentMethod() === 'mock'" (click)="paymentMethod.set('mock')"
+                         class="rounded-2xl border-2 p-4 text-start transition-all duration-300"
+                         [class]="paymentMethod() === 'mock' ? 'border-violet-600 bg-violet-50/60 shadow-md shadow-violet-100' : 'border-slate-200 hover:border-slate-300'">
                   <svg class="w-7 h-7 mb-2" viewBox="0 0 24 24" fill="none">
-                    <path d="M7.076 21.337H4.13a.64.64 0 01-.633-.74L6.222 3.384a.77.77 0 01.76-.65h6.673c2.217 0 3.916.472 4.933 1.404.95.87 1.322 2.083 1.106 3.72-.023.15-.048.302-.078.458-.71 3.65-3.14 4.913-6.24 4.913h-1.58a.77.77 0 00-.76.65l-.81 5.148-.15 1.31z" [attr.fill]="paymentMethod() === 'paypal' ? '#003087' : '#94a3b8'"/>
-                    <path d="M19.62 7.858c-.023.15-.048.302-.078.458-.71 3.65-3.14 4.913-6.24 4.913h-1.58a.77.77 0 00-.76.65l-1.04 6.6a.54.54 0 00.534.625h2.79a.673.673 0 00.665-.568l.027-.142.526-3.336.034-.183a.673.673 0 01.665-.569h.418c2.712 0 4.835-1.101 5.455-4.288.26-1.33.126-2.442-.56-3.223a2.68 2.68 0 00-.856-.637z" [attr.fill]="paymentMethod() === 'paypal' ? '#0070E0' : '#cbd5e1'"/>
+                    <path d="M3 6.5A2.5 2.5 0 015.5 4h13A2.5 2.5 0 0121 6.5v11a2.5 2.5 0 01-2.5 2.5h-13A2.5 2.5 0 013 17.5v-11zm0 2.5h18M7 15h4" [attr.stroke]="paymentMethod() === 'mock' ? '#7c3aed' : '#94a3b8'" stroke-width="1.8" stroke-linecap="round"/>
                   </svg>
-                  <p class="text-sm font-bold text-slate-900">PayPal</p>
-                  <p class="text-xs text-slate-400 mt-0.5">Fast &amp; buyer protected</p>
+                  <p class="text-sm font-bold text-slate-900">Test Payment</p>
+                  <p class="text-xs text-slate-400 mt-0.5">Development only, no real charge</p>
                 </button>
 
-                <!-- COD option -->
                 <button type="button" role="radio" [attr.aria-checked]="paymentMethod() === 'cod'" (click)="paymentMethod.set('cod')"
                         class="rounded-2xl border-2 p-4 text-start transition-all duration-300"
                         [class]="paymentMethod() === 'cod' ? 'border-violet-600 bg-violet-50/60 shadow-md shadow-violet-100' : 'border-slate-200 hover:border-slate-300'">
@@ -21494,18 +22554,10 @@ type PaymentMethod = 'paypal' | 'cod';
                 </button>
               </div>
 
-              @if (paymentMethod() === 'paypal') {
-                <div class="mt-6">
-                  <p class="text-sm text-slate-600 mb-4">Click the button below to log in to PayPal and complete your purchase securely.</p>
-                  
-                  @if (form.valid) {
-                    <!-- Render PayPal Button -->
-                    <ngx-paypal [config]="payPalConfig"></ngx-paypal>
-                  } @else {
-                    <div class="rounded-xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-sm text-amber-700">
-                      Please fill in your Contact Information and Delivery Address above to unlock the PayPal checkout.
-                    </div>
-                  }
+              @if (paymentMethod() === 'mock') {
+                <div class="mt-6 rounded-2xl bg-violet-50 ring-1 ring-violet-100 p-5">
+                  <p class="text-sm font-semibold text-violet-900">Safe test checkout</p>
+                  <p class="text-sm text-violet-700 mt-1">No card details are collected and no money is charged. The order is marked paid for testing the full shipping workflow.</p>
                 </div>
               } @else {
                 <div class="mt-6 rounded-2xl bg-emerald-50 ring-1 ring-emerald-100 p-5 flex items-center gap-4">
@@ -21517,7 +22569,7 @@ type PaymentMethod = 'paypal' | 'cod';
                     Please have the exact amount ready for the courier.
                   </p>
                 </div>
-                
+
                 @if (form.invalid) {
                   <div class="mt-4 rounded-xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-sm text-amber-700">
                     Please fill in your Contact Information and Delivery Address above to place your order.
@@ -21584,14 +22636,14 @@ type PaymentMethod = 'paypal' | 'cod';
 
             @if (submitted() && form.invalid) {
               <div class="mt-5 rounded-xl bg-red-50 ring-1 ring-red-100 px-4 py-3 flex items-start gap-2.5">
-                <svg class="w-4.5 h-4.5 w-[18px] h-[18px] text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <svg class="w-[18px] h-[18px] text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                 </svg>
                 <p class="text-xs text-red-600 leading-relaxed">Please fix the highlighted fields above.</p>
               </div>
             }
 
-            @if (paymentMethod() === 'cod') {
+            @if (paymentMethod() === 'cod' || paymentMethod() === 'mock') {
               <button type="submit" [disabled]="placing() || form.invalid" class="btn-primary w-full mt-6 py-4 sm:py-5 text-base sm:text-lg shadow-lg shadow-violet-600/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none">
                 @if (placing()) {
                   <svg class="animate-spin -ms-1 me-2.5 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
@@ -21600,7 +22652,7 @@ type PaymentMethod = 'paypal' | 'cod';
                   </svg>
                   Placing orderâ€¦
                 } @else {
-                  Place Order â€” {{ (quote()?.totalAmount ?? cart.total()) | currency }}
+                  {{ paymentMethod() === 'mock' ? 'Complete Test Payment' : 'Place COD Order' }} â€” {{ (quote()?.totalAmount ?? cart.total()) | currency }}
                 }
               </button>
             }
@@ -21614,6 +22666,11 @@ type PaymentMethod = 'paypal' | 'cod';
           </aside>
         </form>
       </div>
+
+      <!-- Backdrop to close dial dropdown -->
+      @if (dialDropdownOpen()) {
+        <div class="fixed inset-0 z-40" (click)="dialDropdownOpen.set(false)"></div>
+      }
     }
   `,
 })
@@ -21627,26 +22684,68 @@ export class CheckoutComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly destroyRef = inject(DestroyRef);
 
-  public payPalConfig?: IPayPalConfig;
-
-  readonly paymentMethod = signal<PaymentMethod>('paypal');
+  readonly countries = COUNTRIES;
+  readonly paymentMethod = signal<PaymentMethod>('mock');
   readonly placing = signal(false);
   readonly submitted = signal(false);
   readonly selectedAddressId = signal<number | string | null>(null);
   readonly quote = signal<CheckoutQuote | null>(null);
 
+  readonly dialDropdownOpen = signal(false);
+  readonly selectedDialCountry = signal('JO');
+  dialSearch = '';
+
   readonly savedAddresses = this.account.addresses;
+
+  readonly selectedCountryData = computed(() =>
+    COUNTRIES.find(c => c.code === this.selectedDialCountry())
+  );
+
+  readonly selectedAddressCountry = computed(() =>
+    COUNTRIES.find(c => c.name === this.form?.controls?.country?.value)
+  );
+
+  readonly availableStates = computed(() => {
+    const country = this.selectedAddressCountry();
+    return country?.states ?? [];
+  });
+
+  readonly stateLabel = computed(() => {
+    const name = this.form?.controls?.country?.value ?? '';
+    if (['United States', 'Australia', 'India', 'Brazil'].includes(name)) return 'State';
+    if (['Canada'].includes(name)) return 'Province';
+    if (['United Kingdom'].includes(name)) return 'Region';
+    return 'State / Province';
+  });
+
+  readonly phonePlaceholder = computed(() => {
+    const len = this.selectedCountryData()?.phoneLength;
+    const n = Array.isArray(len) ? len[0] : (len ?? 9);
+    return '0'.repeat(n);
+  });
+
+  readonly expectedPhoneLength = computed(() => {
+    const len = this.selectedCountryData()?.phoneLength;
+    if (Array.isArray(len)) return len.join(' or ');
+    return String(len ?? 9);
+  });
+
+  readonly filteredDialCountries = computed(() => {
+    const q = this.dialSearch.toLowerCase();
+    if (!q) return COUNTRIES;
+    return COUNTRIES.filter(c => c.name.toLowerCase().includes(q) || c.dialCode.includes(q));
+  });
 
   readonly form = this.fb.group({
     email: [this.auth.user()?.email ?? '', [Validators.required, Validators.email]],
-    phone: ['', Validators.required],
+    phone: ['', [phoneValidator(() => this.selectedCountryData())]],
     fullName: [this.defaultName(), Validators.required],
     line1: ['', Validators.required],
     line2: [''],
     city: ['', Validators.required],
     state: ['', Validators.required],
     zip: ['', [Validators.required, Validators.pattern(/^[0-9A-Za-z\- ]{3,10}$/)]],
-    country: ['United States', Validators.required],
+    country: ['Jordan', Validators.required],
   });
 
   constructor() {
@@ -21667,10 +22766,20 @@ export class CheckoutComponent implements OnInit {
       this.cart.promo();
       this.refreshQuote();
     });
+
+    this.form.controls.country.valueChanges.pipe(
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe(countryName => {
+      this.form.controls.state.setValue('');
+      const match = COUNTRIES.find(c => c.name === countryName);
+      if (match) {
+        this.selectedDialCountry.set(match.code);
+        this.form.controls.phone.updateValueAndValidity();
+      }
+    });
   }
 
   ngOnInit(): void {
-    this.initConfig();
     this.refreshQuote();
   }
 
@@ -21681,108 +22790,17 @@ export class CheckoutComponent implements OnInit {
       this.quote.set(null);
       return;
     }
-
     this.orders.getQuote(country, state, this.cart.promo()?.code).subscribe({
       next: quote => this.quote.set(quote),
       error: () => this.quote.set(null)
     });
   }
 
-  private initConfig(): void {
-    this.payPalConfig = {
-      currency: 'USD',
-      clientId: environment.payPalClientId,
-      createOrderOnServer: (data) => {
-        // Place the Budgetha order first
-        return new Promise<string>((resolve, reject) => {
-          this.submitted.set(true);
-          if (this.form.invalid) {
-            this.form.markAllAsTouched();
-            this.toast.error('Please complete your delivery address first.');
-            reject('Invalid form');
-            return;
-          }
-
-          const v = this.form.getRawValue();
-          this.placeOrderRequest({
-            items: this.cart.items(),
-            subtotal: this.cart.subtotal(),
-            discount: this.cart.discount(),
-            total: this.cart.total(),
-            address: {
-              id: 0,
-              label: 'Shipping',
-              fullName: v.fullName!,
-              line1: v.line1!,
-              line2: v.line2 || undefined,
-              city: v.city!,
-              state: v.state!,
-              zip: v.zip!,
-              country: v.country!,
-              phone: v.phone!,
-              isDefault: false,
-            },
-            paymentSummary: 'PayPal',
-            paymentMethod: 'CreditCard',
-            promoCode: this.cart.promo()?.code
-          }).subscribe({
-            next: (orderId) => {
-              // Now create the PayPal order on backend
-              this.orders.createPayPalOrder(orderId).subscribe({
-                next: (res) => {
-                  (window as any)._currentBudgethaOrderId = orderId; // Store temporarily for capture
-                  resolve(res.id);
-                },
-                error: (err) => reject(err)
-              });
-            },
-            error: (err) => reject(err)
-          });
-        });
-      },
-      advanced: {
-        commit: 'true'
-      },
-      style: {
-        label: 'paypal',
-        layout: 'vertical'
-      },
-      onApprove: (data, actions) => {
-        this.placing.set(true);
-        const orderId = (window as any)._currentBudgethaOrderId;
-        if (orderId) {
-          this.orders.capturePayPalOrder(orderId, data.orderID).subscribe({
-            next: () => {
-              this.cart.clear();
-              this.placing.set(false);
-              this.router.navigate(['/checkout/success', orderId.substring(0, 8).toUpperCase()]);
-            },
-            error: () => {
-              this.placing.set(false);
-              this.toast.error('Failed to capture PayPal payment.');
-            }
-          });
-        }
-      },
-      onCancel: (data, actions) => {
-        this.placing.set(false);
-        const orderId = (window as any)._currentBudgethaOrderId as string | undefined;
-        if (orderId) {
-          this.orders.cancelOrder(orderId).subscribe({
-            next: () => delete (window as any)._currentBudgethaOrderId,
-            error: () => this.toast.error('Payment was cancelled, but the pending order could not be released yet.')
-          });
-        }
-        this.toast.info('PayPal payment cancelled');
-      },
-      onError: err => {
-        this.placing.set(false);
-        const orderId = (window as any)._currentBudgethaOrderId as string | undefined;
-        if (orderId) this.orders.cancelOrder(orderId).subscribe();
-        this.toast.error('An error occurred during PayPal payment');
-        console.log('PayPal Error', err);
-      }
-    };
+  selectDialCountry(country: CountryData): void {
+    this.selectedDialCountry.set(country.code);
+    this.dialDropdownOpen.set(false);
+    this.dialSearch = '';
+    this.form.controls.phone.updateValueAndValidity();
   }
 
   invalid(control: string): boolean {
@@ -21802,31 +22820,27 @@ export class CheckoutComponent implements OnInit {
       phone: address.phone || this.form.controls.phone.value || '',
     });
     this.selectedAddressId.set(address.id);
-    if (notify) this.toast.info(`Address â€œ${address.label}â€ selected`);
+    const match = COUNTRIES.find(c => c.name === address.country);
+    if (match) this.selectedDialCountry.set(match.code);
+    if (notify) this.toast.info(`Address "${address.label}" selected`);
   }
 
   placeOrder(): void {
-    if (this.paymentMethod() !== 'cod') {
-      return; 
-    }
-
     this.submitted.set(true);
-
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       this.toast.error('Please complete the highlighted fields.');
       return;
     }
-
     this.placing.set(true);
-    
     setTimeout(() => {
-      this.completeOrder('Cash on Delivery');
+      this.completeOrder(this.paymentMethod() === 'mock' ? 'Test Payment' : 'Cash on Delivery');
     }, 900);
   }
 
   private completeOrder(paymentSummary: string): void {
     const v = this.form.getRawValue();
+    const fullPhone = `${this.selectedCountryData()?.dialCode ?? ''}${v.phone}`;
     this.placeOrderRequest({
       items: this.cart.items(),
       subtotal: this.cart.subtotal(),
@@ -21842,18 +22856,17 @@ export class CheckoutComponent implements OnInit {
         state: v.state!,
         zip: v.zip!,
         country: v.country!,
-        phone: v.phone!,
+        phone: fullPhone,
         isDefault: false,
       },
       paymentSummary,
-      paymentMethod: paymentSummary.includes('PayPal') ? 'CreditCard' : 'CashOnDelivery',
+      paymentMethod: paymentSummary === 'Test Payment' ? 'Mock' : 'CashOnDelivery',
       promoCode: this.cart.promo()?.code
     }).subscribe({
       next: (orderId) => {
         this.cart.clear();
         this.placing.set(false);
-        // Navigate using the first 8 characters of orderId as order number
-        this.router.navigate(['/checkout/success', orderId.substring(0, 8).toUpperCase()]);
+        this.router.navigate(['/checkout/success', this.orders.formatOrderNumber(orderId)]);
       },
       error: () => {
         this.placing.set(false);
@@ -21869,7 +22882,6 @@ export class CheckoutComponent implements OnInit {
     if (selected && typeof selected.id === 'string') {
       return this.orders.placeOrder({ ...input, shippingAddressId: selected.id });
     }
-
     const v = this.form.getRawValue();
     return this.account.createCheckoutAddress({
       fullName: v.fullName!,
@@ -22023,17 +23035,20 @@ export class OrderSuccessComponent {
 ## src\app\features\home\home.component.ts
 
 ``typescript
-import { Component, inject } from '@angular/core';
+import { Component, computed, inject, signal, OnInit, OnDestroy } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ProductService } from '../../core/services/product.service';
+import { AnnouncementService, Announcement } from '../../core/services/announcement.service';
 import { ProductCardComponent } from '../../shared/components/product-card/product-card.component';
+
+import { SkeletonCardComponent } from '../../shared/components/skeleton-card/skeleton-card.component';
 
 @Component({
   selector: 'app-home',
-  imports: [RouterLink, ProductCardComponent],
+  imports: [RouterLink, ProductCardComponent, SkeletonCardComponent],
   template: `
-    <!-- ══ Hero ══ -->
+    <!-- â•â• Hero â•â• -->
     <section class="relative overflow-hidden bg-gradient-to-br from-teal-950 via-teal-900 to-teal-800">
       <!-- Decorative blurs -->
       <div class="absolute top-0 start-1/4 w-96 h-96 bg-teal-500/20 rounded-full blur-3xl"></div>
@@ -22043,7 +23058,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       <div class="relative max-w-7xl mx-auto px-4 sm:px-6 py-16 lg:py-24 grid lg:grid-cols-2 gap-12 items-center">
         <div class="text-center lg:text-start">
           <span class="badge bg-white/10 text-teal-200 ring-1 ring-white/20 backdrop-blur px-4 py-1.5">
-            Summer Sale — up to 40% off
+            Summer Sale â€” up to 40% off
           </span>
           <h1 class="mt-6 text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.1]">
             Shop smarter.<br />
@@ -22077,7 +23092,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
               <div class="text-xs text-teal-200/70 mt-1">Trusted Vendors</div>
             </div>
             <div class="text-center lg:text-start">
-              <div class="text-2xl font-bold text-white">4.9★</div>
+              <div class="text-2xl font-bold text-white">4.9â˜…</div>
               <div class="text-xs text-teal-200/70 mt-1">Average Rating</div>
             </div>
           </div>
@@ -22121,7 +23136,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
     </section>
 
-    <!-- ══ Value props ══ -->
+    <!-- â•â• Value props â•â• -->
     <section class="max-w-7xl mx-auto px-4 sm:px-6 -mt-8 relative z-10">
       <div class="card grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 shadow-lg shadow-slate-200/60">
         @for (prop of valueProps; track prop.title) {
@@ -22140,7 +23155,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
     </section>
 
-    <!-- ══ Top categories ══ -->
+    <!-- â•â• Top categories â•â• -->
     <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20">
       <div class="flex items-end justify-between mb-8">
         <div>
@@ -22156,7 +23171,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
 
       <div class="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-4 sm:gap-6">
-        @for (category of categories(); track category.id) {
+        @for (category of categories() || []; track category.id) {
           <a
             [routerLink]="['/shop']"
             [queryParams]="{ category: category.slug }"
@@ -22180,7 +23195,7 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
     </section>
 
-    <!-- ══ Featured deals ══ -->
+    <!-- â•â• Featured deals â•â• -->
     <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20">
       <div class="flex items-end justify-between mb-8">
         <div>
@@ -22196,32 +23211,46 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 sm:gap-6">
-        @for (product of featured(); track product.id) {
-          <app-product-card [product]="product" layout="grid" />
+        @if (featured() === undefined) {
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+        } @else {
+          @for (product of featured()!.slice(0, 4); track product.id) {
+            <app-product-card [product]="product" layout="grid" />
+          }
         }
       </div>
     </section>
 
-    <!-- ══ Promo banner ══ -->
-    <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20">
-      <div class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-teal-700 to-teal-800 px-8 py-12 sm:px-14 sm:py-16">
-        <div class="absolute -top-16 -end-16 w-64 h-64 bg-white/10 rounded-full blur-2xl"></div>
-        <div class="absolute -bottom-20 start-1/4 w-72 h-72 bg-teal-400/20 rounded-full blur-3xl"></div>
-        <div class="relative max-w-xl">
-          <span class="badge bg-white/15 text-white ring-1 ring-white/25 px-3 py-1">Limited time</span>
-          <h2 class="mt-4 text-3xl sm:text-4xl font-extrabold text-white tracking-tight">Get 20% off your next order</h2>
-          <p class="mt-3 text-teal-50/90 leading-relaxed">
-            Apply code <span class="font-bold bg-white/15 rounded-md px-2 py-0.5 tracking-wider">SAVE20</span> at checkout on any order. New arrivals included.
-          </p>
-          <a routerLink="/shop" class="mt-7 inline-flex items-center justify-center rounded-xl bg-white px-7 py-3.5 text-sm font-bold text-teal-700
-                                       hover:bg-teal-50 shadow-lg shadow-teal-950/30 transition-all duration-300">
-            Claim the Deal
-          </a>
+    <!-- â•â• Promo banner â•â• -->
+    @if (activeAnnouncement()) {
+      <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20">
+        <div class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-teal-700 to-teal-800 px-8 py-12 sm:px-14 sm:py-16">
+          <div class="absolute -top-16 -end-16 w-64 h-64 bg-white/10 rounded-full blur-2xl"></div>
+          <div class="absolute -bottom-20 start-1/4 w-72 h-72 bg-teal-400/20 rounded-full blur-3xl"></div>
+          <div class="relative max-w-xl">
+            @if (activeAnnouncement()?.badgeText) {
+              <span class="badge bg-white/15 text-white ring-1 ring-white/25 px-3 py-1">{{ activeAnnouncement()?.badgeText }}</span>
+            }
+            <h2 class="mt-4 text-3xl sm:text-4xl font-extrabold text-white tracking-tight">{{ activeAnnouncement()?.message }}</h2>
+            @if (activeAnnouncement()?.subtitle) {
+              <p class="mt-3 text-teal-50/90 leading-relaxed">
+                {{ activeAnnouncement()?.subtitle }}
+              </p>
+            }
+            @if (activeAnnouncement()?.linkUrl) {
+              <a [routerLink]="activeAnnouncement()?.linkUrl" class="mt-7 inline-flex items-center justify-center rounded-xl bg-white px-7 py-3.5 text-sm font-bold text-teal-700 hover:bg-teal-50 shadow-lg shadow-teal-950/30 transition-all duration-300">
+                Claim the Deal
+              </a>
+            }
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    }
 
-    <!-- ══ New arrivals ══ -->
+    <!-- â•â• New arrivals â•â• -->
     <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20 mb-4">
       <div class="flex items-end justify-between mb-8">
         <div>
@@ -22237,19 +23266,59 @@ import { ProductCardComponent } from '../../shared/components/product-card/produ
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6">
-        @for (product of newArrivals(); track product.id) {
-          <app-product-card [product]="product" layout="grid" />
+        @if (newArrivals() === undefined) {
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+        } @else {
+          @for (product of newArrivals()!.slice(0, 4); track product.id) {
+            <app-product-card [product]="product" layout="grid" />
+          }
+        }
+      </div>
+    </section>
+
+    <!-- â•â• Top rated â•â• -->
+    <section class="max-w-7xl mx-auto px-4 sm:px-6 mt-16 lg:mt-20 mb-4">
+      <div class="flex items-end justify-between mb-8">
+        <div>
+          <h2 class="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Top Rated Products</h2>
+          <p class="mt-1.5 text-sm text-slate-500">Highest rated by our customers</p>
+        </div>
+        <a routerLink="/shop" [queryParams]="{ sort: 'rating' }" class="hidden sm:inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors duration-300">
+          View all
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+          </svg>
+        </a>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6">
+        @if (topRated() === undefined) {
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+          <app-skeleton-card layout="grid" />
+        } @else {
+          @for (product of topRated()!.slice(0, 4); track product.id) {
+            <app-product-card [product]="product" layout="grid" />
+          }
         }
       </div>
     </section>
   `,
 })
-export class HomeComponent {
+export class HomeComponent implements OnInit {
   private readonly productService = inject(ProductService);
+  private readonly announcementService = inject(AnnouncementService);
+  
+  readonly activeAnnouncement = signal<Announcement | null>(null);
 
-  readonly categories = toSignal(this.productService.getCategories(), { initialValue: [] });
-  readonly featured = toSignal(this.productService.getFeatured(), { initialValue: [] });
-  readonly newArrivals = toSignal(this.productService.getNewArrivals(), { initialValue: [] });
+  readonly categories = toSignal(this.productService.getCategories());
+  readonly featured = toSignal(this.productService.getFeatured());
+  readonly newArrivals = toSignal(this.productService.getNewArrivals());
+  readonly topRated = toSignal(this.productService.getTopRated());
 
   readonly valueProps = [
     {
@@ -22268,6 +23337,12 @@ export class HomeComponent {
       icon: 'M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z',
     },
   ];
+
+  ngOnInit() {
+    this.announcementService.getActive().subscribe(data => {
+      this.activeAnnouncement.set(data);
+    });
+  }
 }
 
 ``
@@ -22407,12 +23482,12 @@ type Tab = 'description' | 'specs' | 'reviews';
           <span>/</span>
           <a routerLink="/shop" class="hover:text-violet-600 transition-colors duration-300">Shop</a>
           <span>/</span>
-          <a routerLink="/shop" [queryParams]="{ category: p.category }" class="hover:text-violet-600 transition-colors duration-300 capitalize">{{ categoryName() }}</a>
+          <a routerLink="/shop" [queryParams]="{ category: p.categories[0]?.slug }" class="hover:text-violet-600 transition-colors duration-300 capitalize">{{ categoryName() }}</a>
           <span>/</span>
           <span class="text-slate-600 font-medium truncate max-w-[16rem]">{{ p.name }}</span>
         </nav>
 
-        <!-- ══ Main section ══ -->
+        <!-- â•â• Main section â•â• -->
         <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14">
           <!-- Gallery -->
           <div>
@@ -22436,7 +23511,9 @@ type Tab = 'description' | 'specs' | 'reviews';
           <!-- Buy panel -->
           <div class="flex flex-col">
             <div class="flex items-center gap-2">
-              <span class="text-xs font-medium uppercase tracking-wider text-slate-400">{{ p.brand }}</span>
+              <span class="text-xs font-medium uppercase tracking-wider text-slate-400">
+                Sold by: <a [routerLink]="['/sellers', p.sellerId]" class="hover:text-violet-600 hover:underline transition-colors duration-300">{{ p.sellerName || 'Seller' }}</a>
+              </span>
               @if (p.isNew) {
                 <span class="badge bg-violet-100 text-violet-700">New</span>
               }
@@ -22554,11 +23631,24 @@ type Tab = 'description' | 'specs' | 'reviews';
                 </button>
               </div>
 
-               <button type="button" (click)="addToCart()" [disabled]="selectedStock() === 0" class="btn-primary flex-1 py-3.5 text-base gap-2">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-                </svg>
-                 {{ selectedStock() === 0 ? 'Out of stock' : 'Add to Cart — ' + (selectedPrice() * quantity() | currency) }}
+               <button type="button" (click)="addToCart()" [disabled]="selectedStock() === 0 || isAddingToCart()" class="btn-primary flex-1 py-3.5 text-base gap-2 relative overflow-hidden transition-all duration-300" [class.opacity-70]="isAddingToCart()" [class.scale-95]="isAddingToCart()">
+                @if (isAddingToCart()) {
+                  <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Adding...
+                } @else if (addedSuccess()) {
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                  Added!
+                } @else {
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+                  </svg>
+                  {{ selectedStock() === 0 ? 'Out of stock' : 'Add to Cart â€” ' + (selectedPrice() * quantity() | currency) }}
+                }
               </button>
 
               <button
@@ -22581,19 +23671,19 @@ type Tab = 'description' | 'specs' | 'reviews';
                 <svg class="w-5 h-5 text-violet-500 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
                 </svg>
-                <p class="text-sm text-slate-600"><span class="font-semibold text-slate-900">Free delivery</span> on orders over $75 · arrives in 2–4 business days</p>
+                <p class="text-sm text-slate-600"><span class="font-semibold text-slate-900">Free delivery</span> on orders over $75 Â· arrives in 2â€“4 business days</p>
               </div>
               <div class="flex items-center gap-3 px-5 py-3.5">
                 <svg class="w-5 h-5 text-violet-500 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
                 </svg>
-                <p class="text-sm text-slate-600"><span class="font-semibold text-slate-900">Free 30-day returns</span> — no questions asked</p>
+                <p class="text-sm text-slate-600"><span class="font-semibold text-slate-900">Free 30-day returns</span> â€” no questions asked</p>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- ══ Tabs ══ -->
+        <!-- â•â• Tabs â•â• -->
         <div class="mt-14" id="product-tabs">
           <div class="border-b border-slate-200 flex gap-1 overflow-x-auto no-scrollbar" role="tablist" aria-label="Product information">
             @for (tab of tabs; track tab.key) {
@@ -22685,19 +23775,21 @@ type Tab = 'description' | 'specs' | 'reviews';
                         }
                       </div>
 
-                      @if (authService.isAuthenticated()) {
+                      @if (canReview()) {
                         <div class="mt-8 border-t border-slate-100 pt-6">
                           <h3 class="font-bold text-sm mb-3">Write a Review</h3>
                           <div class="flex items-center gap-1 mb-4">
                             @for (star of [1,2,3,4,5]; track star) {
-                              <button type="button" (click)="newReviewRating.set(star)" class="text-2xl transition-colors" [class]="star <= newReviewRating() ? 'text-amber-400' : 'text-slate-200'">★</button>
+                              <button type="button" (click)="newReviewRating.set(star)" class="text-2xl transition-colors" [class]="star <= newReviewRating() ? 'text-amber-400' : 'text-slate-200'">â˜…</button>
                             }
                           </div>
                           <textarea [(ngModel)]="newReviewComment" rows="3" class="w-full rounded-xl border-slate-200 text-sm focus:border-violet-500 focus:ring-violet-500 mb-3" placeholder="Share your thoughts..."></textarea>
                           <button type="button" (click)="submitReview()" [disabled]="isSubmittingReview()" class="btn-primary w-full disabled:opacity-50">Submit Review</button>
                         </div>
-                      } @else {
+                      } @else if (!authService.isAuthenticated()) {
                         <button type="button" routerLink="/login" class="btn-primary w-full mt-6">Log in to Review</button>
+                      } @else if (!hasReviewed()) {
+                        <p class="mt-6 text-sm text-slate-500">You can review this product after your order has been delivered.</p>
                       }
                     </div>
                   </div>
@@ -22708,14 +23800,14 @@ type Tab = 'description' | 'specs' | 'reviews';
                       <app-empty-state
                         icon="reviews"
                         title="No reviews yet"
-                        message="Be the first to share your experience with this product — your review helps other shoppers decide." />
+                        message="Be the first to share your experience with this product â€” your review helps other shoppers decide." />
                     }
                     @for (review of reviews(); track review.id) {
                       <article class="card p-6">
                         @if (isEditingReview() === review.id) {
                           <div class="flex items-center gap-1 mb-4">
                             @for (star of [1,2,3,4,5]; track star) {
-                              <button type="button" (click)="editReviewRating.set(star)" class="text-2xl transition-colors" [class]="star <= editReviewRating() ? 'text-amber-400' : 'text-slate-200'">★</button>
+                              <button type="button" (click)="editReviewRating.set(star)" class="text-2xl transition-colors" [class]="star <= editReviewRating() ? 'text-amber-400' : 'text-slate-200'">â˜…</button>
                             }
                           </div>
                           <textarea [(ngModel)]="editReviewComment" rows="3" class="w-full rounded-xl border-slate-200 text-sm focus:border-violet-500 focus:ring-violet-500 mb-3"></textarea>
@@ -22762,7 +23854,7 @@ type Tab = 'description' | 'specs' | 'reviews';
           </div>
         </div>
 
-        <!-- ══ Related products ══ -->
+        <!-- â•â• Related products â•â• -->
         <section class="mt-10">
           <h2 class="text-2xl font-bold text-slate-900 tracking-tight mb-6">You might also like</h2>
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -22771,6 +23863,20 @@ type Tab = 'description' | 'specs' | 'reviews';
             }
           </div>
         </section>
+      </div>
+    } @else if (isLoading()) {
+      <div class="max-w-2xl mx-auto px-4 py-16">
+        <div class="card overflow-hidden animate-pulse" aria-label="Loading product" role="status">
+          <div class="h-64 bg-slate-200"></div>
+          <div class="p-8 space-y-4">
+            <div class="h-3 w-24 rounded bg-slate-200"></div>
+            <div class="h-7 w-3/4 rounded bg-slate-200"></div>
+            <div class="h-4 w-full rounded bg-slate-200"></div>
+            <div class="h-4 w-5/6 rounded bg-slate-200"></div>
+            <div class="h-12 w-full rounded-xl bg-violet-100"></div>
+          </div>
+        </div>
+        <p class="mt-4 text-center text-sm text-slate-500">Preparing your product details...</p>
       </div>
     } @else {
       <!-- Product not found -->
@@ -22829,6 +23935,7 @@ export class ProductDetailComponent implements OnDestroy {
   private readonly metaService = inject(Meta);
 
   readonly product = signal<Product | undefined>(undefined);
+  readonly isLoading = signal(true);
   readonly confirmDeleteReviewId = signal<string | number | null>(null);
   readonly activeIndex = signal(0);
   readonly selectedColor = signal('');
@@ -22839,6 +23946,8 @@ export class ProductDetailComponent implements OnDestroy {
   readonly rentalStartDate = signal('');
   readonly rentalEndDate = signal('');
   readonly activeTab = signal<Tab>('description');
+  readonly isAddingToCart = signal(false);
+  readonly addedSuccess = signal(false);
   readonly categories = toSignal(this.productService.getCategories(), { initialValue: [] });
   readonly relatedProducts = signal<Product[]>([]);
 
@@ -22872,10 +23981,7 @@ export class ProductDetailComponent implements OnDestroy {
 
   readonly categoryName = computed(() => {
     const p = this.product();
-    const cats = this.categories();
-    return p
-      ? cats.find(c => c.slug === p.category)?.name ?? p.category
-      : '';
+    return p?.categories?.length ? p.categories[0].name : 'Uncategorized';
   });
 
   private readonly reviewService = inject(ReviewService);
@@ -22883,6 +23989,8 @@ export class ProductDetailComponent implements OnDestroy {
 
   readonly reviews = signal<Review[]>([]);
   readonly isSubmittingReview = signal(false);
+  readonly canReview = signal(false);
+  readonly hasReviewed = signal(false);
   readonly newReviewRating = signal(5);
   readonly newReviewComment = signal('');
   
@@ -22921,63 +24029,76 @@ export class ProductDetailComponent implements OnDestroy {
     this.route.paramMap.pipe(takeUntilDestroyed()).subscribe(params => {
       const slug = params.get('slug') ?? '';
       if (slug) {
-        this.productService.getBySlug(slug).subscribe(product => {
+        const cachedProduct = this.productService.getCachedProduct(slug);
+        this.isLoading.set(!cachedProduct);
+        this.product.set(cachedProduct);
+        this.productService.getBySlug(slug).subscribe({ next: product => {
+          this.isLoading.set(false);
           this.product.set(product);
-          this.activeIndex.set(0);
-           this.quantity.set(1);
-           this.purchaseType.set('Purchase');
-           this.rentalStartDate.set('');
-           this.rentalEndDate.set('');
-          this.activeTab.set('description');
-           const firstVariant = product?.variants?.find(variant => variant.isActive);
-           this.selectedColor.set(firstVariant?.color ?? '');
-           this.selectedSize.set(firstVariant?.size ?? '');
-           this.selectedVariantId.set(firstVariant?.id);
-          window.scrollTo({ top: 0 });
-
-          if (product) {
-            this.titleService.setTitle(`${product.name} - Budgetha`);
-            this.metaService.updateTag({ name: 'description', content: product.shortDescription || product.description.substring(0, 160) });
-            this.metaService.updateTag({ property: 'og:title', content: product.name });
-            this.metaService.updateTag({ property: 'og:description', content: product.shortDescription || product.description.substring(0, 160) });
-            if (product.images?.length > 0) {
-              this.metaService.updateTag({ property: 'og:image', content: product.images[0] });
-            }
-
-            this.productService.getRelated(product).subscribe(related => {
-              this.relatedProducts.set(related);
-            });
-            this.reviewService.getReviews(product.id.toString()).subscribe(revs => {
-              this.reviews.set(revs);
-            });
-            
-            // Setup SignalR
-            if (this.hubConnection) {
-              this.hubConnection.stop();
-            }
-            this.hubConnection = new signalR.HubConnectionBuilder()
-              .withUrl(`${environment.hubUrl}/reviews`, {
-                accessTokenFactory: () => this.authService.getToken() || ''
-              })
-              .withAutomaticReconnect()
-              .build();
-              
-            this.hubConnection.on('ReviewsUpdated', () => {
-              this.reviewService.getReviews(product.id.toString()).subscribe(revs => {
-                this.reviews.set(revs);
-              });
-            });
-            
-            this.hubConnection.start().then(() => {
-              this.hubConnection?.invoke('JoinProductGroup', product.id.toString());
-            }).catch(err => console.error('Error connecting to SignalR', err));
-
-          } else {
-             this.relatedProducts.set([]);
-          }
-        });
+          this.prepareProduct(product);
+        }, error: () => {
+          this.isLoading.set(false);
+          this.relatedProducts.set([]);
+          this.reviews.set([]);
+        }});
       }
     });
+  }
+
+  private prepareProduct(product: Product): void {
+    this.activeIndex.set(0);
+    this.quantity.set(1);
+    this.purchaseType.set('Purchase');
+    this.rentalStartDate.set('');
+    this.rentalEndDate.set('');
+    this.activeTab.set('description');
+    const firstVariant = product.variants?.find(variant => variant.isActive && variant.stockQuantity > 0)
+      ?? product.variants?.find(variant => variant.isActive);
+    this.selectedColor.set(firstVariant?.color ?? '');
+    this.selectedSize.set(firstVariant?.size ?? '');
+    this.selectedVariantId.set(firstVariant?.id);
+    window.scrollTo({ top: 0 });
+
+    this.titleService.setTitle(`${product.name} - Budgetha`);
+    this.metaService.updateTag({ name: 'description', content: product.shortDescription || product.description.substring(0, 160) });
+    this.metaService.updateTag({ property: 'og:title', content: product.name });
+    this.metaService.updateTag({ property: 'og:description', content: product.shortDescription || product.description.substring(0, 160) });
+    if (product.images?.length > 0) {
+      this.metaService.updateTag({ property: 'og:image', content: product.images[0] });
+    }
+
+    this.productService.getRelated(product).subscribe(related => this.relatedProducts.set(related));
+    this.reviewService.getReviews(product.id.toString()).subscribe(revs => this.reviews.set(revs));
+    if (this.authService.isAuthenticated()) {
+      this.reviewService.getEligibility(product.id.toString()).subscribe(eligibility => {
+        this.canReview.set(eligibility.canReview);
+        this.hasReviewed.set(eligibility.hasReviewed);
+      });
+    } else {
+      this.canReview.set(false);
+      this.hasReviewed.set(false);
+    }
+            
+    // Setup SignalR after cached content is already visible.
+    if (this.hubConnection) {
+      this.hubConnection.stop();
+    }
+    this.hubConnection = new signalR.HubConnectionBuilder()
+      .withUrl(`${environment.hubUrl}/reviews`, {
+        accessTokenFactory: () => this.authService.getToken() || ''
+      })
+      .withAutomaticReconnect()
+      .build();
+
+    this.hubConnection.on('ReviewsUpdated', () => {
+      this.reviewService.getReviews(product.id.toString()).subscribe(revs => {
+        this.reviews.set(revs);
+      });
+    });
+
+    this.hubConnection.start().then(() => {
+      this.hubConnection?.invoke('JoinProductGroup', product.id.toString());
+    }).catch(err => console.error('Error connecting to SignalR', err));
   }
 
   ngOnDestroy(): void {
@@ -22997,7 +24118,7 @@ export class ProductDetailComponent implements OnDestroy {
 
   addToCart(): void {
     const p = this.product();
-    if (!p || this.selectedStock() === 0) return;
+    if (!p || this.selectedStock() === 0 || this.isAddingToCart()) return;
     if (this.purchaseType() === 'Rental' && (!this.rentalStartDate() || !this.rentalEndDate())) {
       this.toastService.error('Select rental start and end dates first.');
       return;
@@ -23006,9 +24127,14 @@ export class ProductDetailComponent implements OnDestroy {
       this.toastService.error('Rental end date must be after the start date.');
       return;
     }
+    this.isAddingToCart.set(true);
+    this.addedSuccess.set(false);
     this.cart.add(p, this.quantity(), this.selectedColor() || undefined, this.selectedSize() || undefined,
       this.purchaseType(), this.rentalStartDate() || undefined, this.rentalEndDate() || undefined,
       this.selectedVariantId());
+    this.isAddingToCart.set(false);
+    this.addedSuccess.set(true);
+    setTimeout(() => this.addedSuccess.set(false), 2000);
   }
 
   selectColor(color: string): void {
@@ -23052,6 +24178,8 @@ export class ProductDetailComponent implements OnDestroy {
       next: () => {
         this.newReviewComment.set('');
         this.newReviewRating.set(5);
+        this.canReview.set(false);
+        this.hasReviewed.set(true);
         this.isSubmittingReview.set(false);
         this.reviewService.getReviews(p.id.toString()).subscribe(revs => this.reviews.set(revs));
       },
@@ -23117,6 +24245,82 @@ export class ProductDetailComponent implements OnDestroy {
 
 ``
 
+## src\app\features\seller-profile\seller-profile.component.ts
+
+``typescript
+import { Component, inject, signal } from '@angular/core';
+import { DatePipe } from '@angular/common';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { switchMap } from 'rxjs';
+import { ProductService } from '../../core/services/product.service';
+import { SellerProfile } from '../../core/models/shop.models';
+import { ProductCardComponent } from '../../shared/components/product-card/product-card.component';
+
+@Component({
+  selector: 'app-seller-profile',
+  imports: [DatePipe, RouterLink, ProductCardComponent],
+  template: `
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-8 lg:py-10">
+      @if (loading()) {
+        <div class="card p-12 text-center text-slate-500">Loading seller profile...</div>
+      } @else if (!profile()) {
+        <div class="card p-12 text-center">
+          <h1 class="text-xl font-bold text-slate-900">Seller not found</h1>
+          <a routerLink="/shop" class="btn-primary inline-flex mt-5">Back to shop</a>
+        </div>
+      } @else {
+        <a routerLink="/shop" class="text-sm text-violet-600 hover:underline">Back to shop</a>
+        <section class="mt-5 rounded-3xl bg-gradient-to-br from-slate-950 via-violet-950 to-violet-700 text-white p-7 sm:p-10">
+          <div class="flex flex-col sm:flex-row gap-6 items-start sm:items-center">
+            @if (profile()?.avatarUrl) {
+              <img [src]="profile()?.avatarUrl" [alt]="profile()?.displayName" class="h-24 w-24 rounded-full object-cover ring-4 ring-white/20" />
+            } @else {
+              <div class="h-24 w-24 rounded-full bg-white/15 ring-4 ring-white/20 flex items-center justify-center text-3xl font-bold">{{ profile()?.displayName?.charAt(0) }}</div>
+            }
+            <div>
+              <p class="text-violet-200 text-sm font-semibold uppercase tracking-widest">Seller profile</p>
+              <h1 class="mt-1 text-3xl sm:text-4xl font-extrabold">{{ profile()?.businessName || profile()?.displayName }}</h1>
+              <p class="mt-2 text-violet-100 max-w-2xl">{{ profile()?.businessDescription || 'Explore this sellerâ€™s approved products on Budgetha.' }}</p>
+            </div>
+          </div>
+          <div class="mt-8 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="rounded-2xl bg-white/10 p-4"><span class="block text-2xl font-bold">{{ profile()?.activeProductCount }}</span><span class="text-sm text-violet-200">Active products</span></div>
+            <div class="rounded-2xl bg-white/10 p-4"><span class="block text-2xl font-bold">{{ profile()?.averageRating || 'New' }}</span><span class="text-sm text-violet-200">Average rating</span></div>
+            <div class="rounded-2xl bg-white/10 p-4"><span class="block text-2xl font-bold">{{ profile()?.reviewCount }}</span><span class="text-sm text-violet-200">Reviews</span></div>
+            <div class="rounded-2xl bg-white/10 p-4"><span class="block text-2xl font-bold">{{ profile()?.memberSince | date:'yyyy' }}</span><span class="text-sm text-violet-200">Member since</span></div>
+          </div>
+        </section>
+        <section class="mt-10">
+          <div class="flex items-end justify-between gap-4"><div><p class="text-sm text-violet-600 font-semibold">Approved catalog</p><h2 class="mt-1 text-2xl font-bold text-slate-900">Products by {{ profile()?.displayName }}</h2></div></div>
+          @if (products().length) {
+            <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">@for (product of products(); track product.id) {<app-product-card [product]="product" layout="grid" />}</div>
+          } @else {<div class="mt-6 card p-10 text-center text-slate-500">This seller has no approved products yet.</div>}
+        </section>
+      }
+    </div>
+  `
+})
+export class SellerProfileComponent {
+  private readonly route = inject(ActivatedRoute);
+  private readonly productsService = inject(ProductService);
+  readonly profile = signal<SellerProfile | null>(null);
+  readonly products = signal<any[]>([]);
+  readonly loading = signal(true);
+
+  constructor() {
+    this.route.paramMap.pipe(switchMap(params => this.productsService.getSellerProfile(params.get('id') ?? ''))).subscribe({
+      next: profile => {
+        this.profile.set(profile);
+        this.productsService.query({ search: '', categories: [], brands: [], minPrice: 0, maxPrice: 1000000, minRating: 0, sort: 'newest', page: 1, pageSize: 100, sellerId: profile.id }).subscribe(result => this.products.set(result.items));
+        this.loading.set(false);
+      },
+      error: () => this.loading.set(false)
+    });
+  }
+}
+
+``
+
 ## src\app\layout\cart-drawer\cart-drawer.component.ts
 
 ``typescript
@@ -23139,7 +24343,7 @@ import { CartItem } from '../../core/models/shop.models';
 
       <!-- Drawer panel -->
       <aside
-        class="fixed inset-y-0 end-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col animate-[slideIn_0.3s_ease-out]"
+        class="fixed inset-y-0 end-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col animate-[slideIn_0.3s_ease-out] dark:bg-slate-900 dark:text-slate-100"
         role="dialog"
         aria-modal="true"
         aria-label="Shopping cart">
@@ -23304,7 +24508,7 @@ import { PwaService } from '../../core/services/pwa.service';
       <div class="max-w-7xl mx-auto px-4 sm:px-6 py-12 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-8">
         <div class="col-span-2 lg:col-span-2">
           <div class="flex items-center gap-3 mb-6">
-            <div class="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg flex-shrink-0 overflow-hidden">
+            <div class="theme-preserve-light w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg flex-shrink-0 overflow-hidden">
               <img src="/images/logo.png" alt="Budgetha" class="h-10 w-auto object-contain" />
             </div>
             <span class="text-3xl font-black text-white tracking-tighter" style="font-family: 'Outfit', sans-serif;">Budgetha</span>
@@ -23452,6 +24656,8 @@ import { NotificationService } from '../../core/services/notification.service';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { DatePipe } from '@angular/common';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ProductService } from '../../core/services/product.service';
 
 @Component({
   selector: 'app-header',
@@ -23491,23 +24697,53 @@ import { DatePipe } from '@angular/common';
             </button>
 
             <a routerLink="/" class="flex items-center gap-2 group -ms-3">
-              <img src="/images/logo.png" alt="Budgetha" class="h-16 w-auto object-contain" />
+              <img src="/images/logo.png" alt="Budgetha" class="h-16 w-auto object-contain dark:bg-white/90 dark:rounded-xl dark:p-1 dark:shadow-sm" />
               <span class="text-3xl font-black text-slate-900 tracking-tighter hidden sm:block" style="font-family: 'Outfit', sans-serif; padding-top: 4px;">Budgetha</span>
             </a>
           </div>
 
           <!-- Center: desktop nav -->
           <nav class="hidden lg:flex items-center gap-1" aria-label="Primary">
-            @for (link of navLinks; track link.path) {
-              <a
-                [routerLink]="link.path"
-                [queryParams]="link.query"
-                routerLinkActive="text-teal-700 bg-teal-50"
-                [routerLinkActiveOptions]="{ exact: link.exact }"
-                class="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 transition-all duration-300">
-                {{ link.label }}
-              </a>
-            }
+            <a routerLink="/" routerLinkActive="text-teal-700 bg-teal-50" [routerLinkActiveOptions]="{ exact: true }" class="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 transition-all duration-300">Home</a>
+            <a routerLink="/shop" routerLinkActive="text-teal-700 bg-teal-50" [routerLinkActiveOptions]="{ exact: true }" class="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 transition-all duration-300">Shop</a>
+            
+            <!-- Categories Dropdown -->
+            <div class="relative group" (mouseenter)="categoriesMenuOpen.set(true)" (mouseleave)="categoriesMenuOpen.set(false)">
+              <button type="button" class="flex items-center gap-1 px-4 py-2 rounded-xl text-sm font-medium text-slate-600 group-hover:text-teal-700 group-hover:bg-teal-50 transition-all duration-300">
+                Categories
+                <svg class="w-4 h-4 transition-transform duration-300 group-hover:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+              </button>
+              
+              @if (categoriesMenuOpen()) {
+                <div class="absolute top-full start-1/2 -translate-x-1/2 pt-2 w-[36rem] z-50 animate-[menuIn_0.15s_ease-out]">
+                  <div class="bg-white rounded-2xl shadow-xl shadow-teal-900/10 border border-slate-100 p-6 overflow-hidden relative">
+                    <div class="absolute top-0 end-0 w-64 h-64 bg-gradient-to-br from-teal-50 to-emerald-50 rounded-full blur-3xl -z-10 opacity-70"></div>
+                    <div class="grid grid-cols-2 gap-4">
+                      @for (category of categories()?.slice(0, 8); track category.id) {
+                        <a [routerLink]="['/shop']" [queryParams]="{ category: category.slug }" (click)="categoriesMenuOpen.set(false)" class="flex items-center gap-4 group/item p-2 rounded-xl hover:bg-white hover:shadow-md hover:shadow-teal-100/40 border border-transparent hover:border-slate-100 transition-all duration-300">
+                          <div class="w-12 h-12 rounded-xl bg-slate-50 overflow-hidden shrink-0 ring-1 ring-slate-100 group-hover/item:ring-teal-200 transition-colors">
+                            @if (category.image) {
+                              <img [src]="category.image" [alt]="category.name" class="w-full h-full object-cover group-hover/item:scale-110 transition-transform duration-500" />
+                            } @else {
+                              <div class="w-full h-full flex items-center justify-center bg-teal-50 text-teal-600 font-bold">{{ category.name[0] }}</div>
+                            }
+                          </div>
+                          <div>
+                            <p class="text-sm font-bold text-slate-800 group-hover/item:text-teal-700 transition-colors">{{ category.name }}</p>
+                            <p class="text-xs text-slate-500">{{ category.productCount }} items</p>
+                          </div>
+                        </a>
+                      }
+                    </div>
+                    <div class="mt-6 pt-4 border-t border-slate-100 text-center">
+                      <a routerLink="/shop" (click)="categoriesMenuOpen.set(false)" class="text-sm font-bold text-teal-600 hover:text-teal-700 hover:underline">Explore all categories &rarr;</a>
+                    </div>
+                  </div>
+                </div>
+              }
+            </div>
+
+            <a routerLink="/shop" [queryParams]="{ deals: 1 }" routerLinkActive="text-teal-700 bg-teal-50" [routerLinkActiveOptions]="{ exact: false }" class="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-teal-700 hover:bg-teal-50 transition-all duration-300">Deals</a>
           </nav>
 
           <!-- Right: search + actions -->
@@ -23525,7 +24761,7 @@ import { DatePipe } from '@angular/common';
                 name="search"
                 [(ngModel)]="searchTerm"
                 (ngModelChange)="onSearchChange($event)"
-                placeholder="Search products…"
+                placeholder="Search productsâ€¦"
                 aria-label="Search products"
                 class="w-44 lg:w-64 rounded-full border border-slate-200 bg-slate-50/70 ps-10 pe-4 py-2.5 text-sm
                        placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20
@@ -23686,7 +24922,7 @@ import { DatePipe } from '@angular/common';
             name="search-mobile"
             [(ngModel)]="searchTerm"
             (ngModelChange)="onSearchChange($event)"
-            placeholder="Search products…"
+            placeholder="Search productsâ€¦"
             aria-label="Search products"
             class="w-full rounded-full border border-slate-200 bg-slate-50/70 ps-10 pe-4 py-2.5 text-sm
                    placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20
@@ -23708,6 +24944,26 @@ import { DatePipe } from '@angular/common';
               {{ link.label }}
             </a>
           }
+
+          <!-- Mobile Categories -->
+          <div class="px-4 py-3">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Categories</p>
+            <div class="grid grid-cols-2 gap-2">
+              @for (category of categories()?.slice(0, 8); track category.id) {
+                <a [routerLink]="['/shop']" [queryParams]="{ category: category.slug }" (click)="mobileMenuOpen.set(false)" class="flex items-center gap-2 p-2 rounded-lg text-sm text-slate-600 hover:bg-teal-50 hover:text-teal-700 transition-colors">
+                  <div class="w-6 h-6 rounded-md bg-slate-100 overflow-hidden shrink-0 flex items-center justify-center text-xs font-bold text-teal-600">
+                    @if (category.image) {
+                      <img [src]="category.image" alt="" class="w-full h-full object-cover" />
+                    } @else {
+                      {{ category.name[0] }}
+                    }
+                  </div>
+                  <span class="truncate">{{ category.name }}</span>
+                </a>
+              }
+            </div>
+            <a routerLink="/shop" (click)="mobileMenuOpen.set(false)" class="block text-center mt-3 text-xs font-medium text-teal-600 hover:underline">View all categories</a>
+          </div>
 
           @if (!auth.isAuthenticated()) {
             <div class="pt-2 mt-2 border-t border-slate-100 grid grid-cols-2 gap-3">
@@ -23743,11 +24999,13 @@ export class HeaderComponent implements OnInit {
   private readonly toast = inject(ToastService);
   private readonly wishlist = inject(WishlistService);
   private readonly router = inject(Router);
+  private readonly productService = inject(ProductService);
 
   readonly announcement = signal<Announcement | null>(null);
   readonly mobileMenuOpen = signal(false);
   readonly userMenuOpen = signal(false);
   readonly notificationMenuOpen = signal(false);
+  readonly categoriesMenuOpen = signal(false);
   searchTerm = '';
   private searchSubject = new Subject<string>();
 
@@ -23759,11 +25017,11 @@ export class HeaderComponent implements OnInit {
   notifications = signal<any[]>([]);
   notificationCount = signal<number>(0);
 
+  readonly categories = toSignal(this.productService.getCategories());
+
   readonly navLinks = [
     { label: 'Home', path: '/', query: {}, exact: true },
     { label: 'Shop', path: '/shop', query: {}, exact: true },
-    { label: 'Electronics', path: '/shop', query: { category: 'electronics' }, exact: false },
-    { label: 'Fashion', path: '/shop', query: { category: 'fashion' }, exact: false },
     { label: 'Deals', path: '/shop', query: { deals: 1 }, exact: false },
   ];
 
@@ -23829,7 +25087,7 @@ export class HeaderComponent implements OnInit {
   logout(): void {
     this.userMenuOpen.set(false);
     this.auth.logout();
-    this.toast.success('You’ve been signed out.');
+    this.toast.success('Youâ€™ve been signed out.');
   }
 
   installApp(): void {
@@ -23843,8 +25101,10 @@ export class HeaderComponent implements OnInit {
 ## src\app\layout\shell\shell.component.ts
 
 ``typescript
-import { Component } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { Component, inject } from '@angular/core';
+import { NavigationCancel, NavigationEnd, NavigationError, NavigationStart, Router, RouterOutlet } from '@angular/router';
+import { filter, map, merge, of, startWith, switchMap, timer } from 'rxjs';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { HeaderComponent } from '../header/header.component';
 import { FooterComponent } from '../footer/footer.component';
 import { CartDrawerComponent } from '../cart-drawer/cart-drawer.component';
@@ -23854,9 +25114,14 @@ import { OfflineBannerComponent } from '../../shared/components/offline-banner/o
 @Component({
   selector: 'app-shell',
   imports: [RouterOutlet, HeaderComponent, FooterComponent, CartDrawerComponent, QuickViewComponent, OfflineBannerComponent],
-  template: `
+   template: `
     <div class="min-h-screen flex flex-col bg-slate-50">
       <app-offline-banner />
+      @if (navigationLoading()) {
+        <div class="fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden bg-teal-100" role="status" aria-label="Loading page">
+          <div class="h-full w-1/3 bg-teal-600 animate-[loadingBar_1.1s_ease-in-out_infinite]"></div>
+        </div>
+      }
       <app-header />
       <main class="flex-1">
         <router-outlet />
@@ -23864,18 +25129,45 @@ import { OfflineBannerComponent } from '../../shared/components/offline-banner/o
       <app-footer />
       <app-cart-drawer />
       <app-quick-view />
-    </div>
+      </div>
+  `,
+  styles: `
+    @keyframes loadingBar {
+      0% { transform: translateX(-120%); }
+      100% { transform: translateX(420%); }
+    }
   `,
 })
-export class ShellComponent {}
+export class ShellComponent {
+  private readonly router = inject(Router);
+
+  readonly navigationLoading = toSignal(
+    this.router.events.pipe(
+      switchMap(event => {
+        if (event instanceof NavigationStart) {
+          return timer(120).pipe(map(() => true));
+        }
+        if (event instanceof NavigationEnd || event instanceof NavigationCancel || event instanceof NavigationError) {
+          return of(false);
+        }
+        return of(null);
+      }),
+      filter((value): value is boolean => value !== null),
+      startWith(false),
+      takeUntilDestroyed()
+    ),
+    { initialValue: false }
+  );
+}
 
 ``
 
 ## src\app\shared\components\auth-slider\auth-slider.component.ts
 
 ``typescript
-import { Component, signal } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { DomSanitizer } from '@angular/platform-browser';
 
 @Component({
   selector: 'app-auth-slider',
@@ -23896,7 +25188,7 @@ import { CommonModule } from '@angular/common';
             <div class="flex gap-4 items-start mb-2">
               <div class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border"
                    [ngClass]="card.iconBgClass">
-                <i class="w-6 h-6 flex items-center justify-center" [ngClass]="card.iconColorClass" [innerHTML]="card.icon"></i>
+                <i class="w-6 h-6 flex items-center justify-center" [ngClass]="card.iconColorClass" [innerHTML]="sanitizer.bypassSecurityTrustHtml(card.icon)"></i>
               </div>
               <div>
                 <div class="text-white font-bold text-lg leading-tight">{{ card.title }}</div>
@@ -23937,6 +25229,7 @@ import { CommonModule } from '@angular/common';
   `
 })
 export class AuthSliderComponent {
+  sanitizer = inject(DomSanitizer);
   currentCardIndex = signal(0);
 
   cards = [
@@ -24241,9 +25534,9 @@ export class OfflineBannerComponent {
 ## src\app\shared\components\product-card\product-card.component.ts
 
 ``typescript
-import { Component, computed, inject, input } from '@angular/core';
+import { Component, computed, inject, input, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { Product } from '../../../core/models/shop.models';
 import { CartService } from '../../../core/services/cart.service';
 import { QuickViewService } from '../../../core/services/quick-view.service';
@@ -24255,7 +25548,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
   imports: [CurrencyPipe, RouterLink, StarRatingComponent],
   template: `
     @if (layout() === 'grid') {
-      <!-- ── Grid card ── -->
+      <!-- â”€â”€ Grid card â”€â”€ -->
       <article class="group card overflow-hidden hover:shadow-xl hover:shadow-violet-100/60 hover:-translate-y-1 transition-all duration-300 flex flex-col h-full">
         <div class="relative aspect-square overflow-hidden bg-slate-100">
           <a [routerLink]="['/products', product().slug]" class="block h-full p-4">
@@ -24317,10 +25610,21 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
               class="w-full rounded-xl bg-slate-900/90 backdrop-blur text-white text-sm font-semibold py-2.5
                      hover:bg-violet-600 disabled:opacity-50 disabled:hover:bg-slate-900/90
                      transition-colors duration-300 flex items-center justify-center gap-2">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-              </svg>
-              {{ product().stock === 0 ? 'Out of stock' : 'Add to cart' }}
+              @if (isAdding()) {
+                <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              } @else if (cardAddedSuccess()) {
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              } @else {
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+                </svg>
+              }
+              {{ isAdding() ? 'Adding...' : cardAddedSuccess() ? 'Added!' : (product().stock === 0 ? 'Out of stock' : 'Add to cart') }}
             </button>
           </div>
         </div>
@@ -24343,7 +25647,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
         </div>
       </article>
     } @else {
-      <!-- ── List card ── -->
+      <!-- â”€â”€ List card â”€â”€ -->
       <article class="group card overflow-hidden hover:shadow-xl hover:shadow-violet-100/60 transition-all duration-300 flex flex-col sm:flex-row">
         <div class="relative sm:w-56 lg:w-64 shrink-0 aspect-square sm:aspect-auto overflow-hidden bg-slate-100">
           <a [routerLink]="['/products', product().slug]" class="block h-full p-4">
@@ -24397,12 +25701,15 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
                   <path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
                 </svg>
               </button>
-              <button
+                <button
                 type="button"
                 (click)="addToCart()"
-                [disabled]="product().stock === 0"
-                class="btn-primary px-5 py-2.5">
-                {{ product().stock === 0 ? 'Out of stock' : 'Add to cart' }}
+                [disabled]="product().stock === 0 || isAdding()"
+                class="btn-primary px-5 py-2.5 flex items-center gap-2">
+                @if (cardAddedSuccess()) {
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                }
+                {{ product().stock === 0 ? 'Out of stock' : isAdding() ? 'Adding...' : cardAddedSuccess() ? 'Added!' : 'Add to cart' }}
               </button>
             </div>
           </div>
@@ -24418,8 +25725,11 @@ export class ProductCardComponent {
   private readonly cart = inject(CartService);
   private readonly wishlist = inject(WishlistService);
   private readonly quickViewService = inject(QuickViewService);
+  private readonly router = inject(Router);
 
   readonly inWishlist = computed(() => this.wishlist.ids().includes(this.product().id));
+  readonly isAdding = signal(false);
+  readonly cardAddedSuccess = signal(false);
   readonly discountPercent = computed(() => {
     const p = this.product();
     if (!p.originalPrice || p.originalPrice <= p.price) return 0;
@@ -24428,8 +25738,17 @@ export class ProductCardComponent {
 
   addToCart(): void {
     const p = this.product();
-    const variant = p.variants?.find(item => item.isActive);
+    const activeVariants = p.variants?.filter(item => item.isActive) ?? [];
+    if (activeVariants.length > 1) {
+      this.router.navigate(['/products', p.slug]);
+      return;
+    }
+    const variant = activeVariants[0];
+    this.isAdding.set(true);
     this.cart.add(p, 1, variant?.color, variant?.size, 'Purchase', undefined, undefined, variant?.id);
+    this.isAdding.set(false);
+    this.cardAddedSuccess.set(true);
+    setTimeout(() => this.cardAddedSuccess.set(false), 1500);
   }
 
   toggleWishlist(): void {
@@ -24644,6 +25963,60 @@ export class QuickViewComponent {
 
 ``
 
+## src\app\shared\components\skeleton-card\skeleton-card.component.ts
+
+``typescript
+import { Component, Input } from '@angular/core';
+
+@Component({
+  selector: 'app-skeleton-card',
+  standalone: true,
+  template: `
+    @if (layout === 'grid') {
+      <!-- Grid Layout Skeleton -->
+      <div class="card overflow-hidden h-full flex flex-col group animate-pulse">
+        <div class="relative aspect-square w-full bg-slate-200"></div>
+        <div class="flex flex-col flex-1 p-4 sm:p-5">
+          <div class="h-3 w-1/3 bg-slate-200 rounded mb-3"></div>
+          <div class="h-5 w-3/4 bg-slate-200 rounded mb-2"></div>
+          <div class="h-4 w-1/4 bg-slate-200 rounded mb-4"></div>
+          <div class="mt-auto pt-4 border-t border-slate-100 flex items-center justify-between">
+            <div class="h-6 w-1/3 bg-slate-200 rounded"></div>
+            <div class="h-10 w-10 bg-slate-200 rounded-xl"></div>
+          </div>
+        </div>
+      </div>
+    } @else {
+      <!-- List Layout Skeleton -->
+      <div class="card flex flex-col sm:flex-row overflow-hidden animate-pulse">
+        <div class="relative sm:w-48 xl:w-56 aspect-square sm:aspect-auto bg-slate-200 shrink-0"></div>
+        <div class="flex-1 p-5 sm:p-6 flex flex-col">
+          <div class="flex justify-between items-start gap-4">
+            <div class="space-y-3 flex-1">
+              <div class="h-3 w-1/4 bg-slate-200 rounded"></div>
+              <div class="h-6 w-3/4 bg-slate-200 rounded"></div>
+              <div class="h-4 w-1/5 bg-slate-200 rounded"></div>
+            </div>
+          </div>
+          <div class="mt-4 hidden sm:block space-y-2">
+            <div class="h-3 w-full bg-slate-200 rounded"></div>
+            <div class="h-3 w-5/6 bg-slate-200 rounded"></div>
+          </div>
+          <div class="mt-auto pt-6 flex items-end justify-between">
+            <div class="h-7 w-1/4 bg-slate-200 rounded"></div>
+            <div class="h-10 w-32 bg-slate-200 rounded-xl"></div>
+          </div>
+        </div>
+      </div>
+    }
+  `
+})
+export class SkeletonCardComponent {
+  @Input() layout: 'grid' | 'list' = 'grid';
+}
+
+``
+
 ## src\app\shared\components\star-rating\star-rating.component.ts
 
 ``typescript
@@ -24685,6 +26058,65 @@ export class StarRatingComponent {
 
 ``
 
+## src\app\shared\components\theme-toggle\theme-toggle.component.ts
+
+``typescript
+import { Component, computed, inject } from '@angular/core';
+import { ThemeService } from '../../../core/services/theme.service';
+
+@Component({
+  selector: 'app-theme-toggle',
+  standalone: true,
+  template: `
+    <button
+      type="button"
+      (click)="theme.cycleMode()"
+      class="theme-toggle inline-flex h-9 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white/80 px-2.5 text-slate-600 shadow-sm transition-colors hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 dark:border-slate-700 dark:bg-slate-800/90 dark:text-slate-200 dark:hover:border-teal-700 dark:hover:bg-teal-950/60 dark:hover:text-teal-300"
+      [attr.aria-label]="ariaLabel()"
+      [attr.title]="ariaLabel()"
+      [attr.data-mode]="theme.mode()">
+      @switch (theme.mode()) {
+        @case ('light') {
+          <svg class="h-[18px] w-[18px]" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="3.5" />
+            <path stroke-linecap="round" d="M12 2.5v2M12 19.5v2M21.5 12h-2M4.5 12h-2M18.72 5.28l-1.42 1.42M6.7 17.3l-1.42 1.42M18.72 18.72l-1.42-1.42M6.7 6.7L5.28 5.28" />
+          </svg>
+        }
+        @case ('dark') {
+          <svg class="h-[18px] w-[18px]" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M20.4 15.2A8.7 8.7 0 018.8 3.6 8.7 8.7 0 1020.4 15.2z" />
+          </svg>
+        }
+        @default {
+          <svg class="h-[18px] w-[18px]" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="13" rx="2" />
+            <path stroke-linecap="round" d="M8 21h8M12 17v4" />
+          </svg>
+        }
+      }
+      <span class="hidden text-xs font-semibold sm:inline">{{ label() }}</span>
+      <span class="sr-only">Current theme: {{ label() }}</span>
+    </button>
+  `,
+})
+export class ThemeToggleComponent {
+  readonly theme = inject(ThemeService);
+  readonly label = computed(() => {
+    const mode = this.theme.mode();
+    return mode === 'light' ? 'Light' : mode === 'dark' ? 'Dark' : 'System';
+  });
+  readonly ariaLabel = computed(() =>
+    `Theme: ${this.label()}. Activate to switch to ${this.nextLabel()}.`
+  );
+
+  private nextLabel(): string {
+    const mode = this.theme.mode();
+    return mode === 'light' ? 'Dark' : mode === 'dark' ? 'System' : 'Light';
+  }
+}
+
+``
+
 ## src\app\shared\components\toast\toast.component.ts
 
 ``typescript
@@ -24710,7 +26142,7 @@ import { Toast, ToastService, ToastType } from '../../../core/services/toast.ser
 
       @for (toast of toasts(); track toast.id) {
         <div
-          class="w-full pointer-events-auto rounded-2xl border bg-white/95 shadow-lg shadow-slate-900/10 backdrop-blur
+          class="w-full pointer-events-auto rounded-2xl border bg-white/95 shadow-lg shadow-slate-900/10 backdrop-blur dark:bg-slate-900/95 dark:shadow-black/30
                  animate-[toastIn_0.28s_cubic-bezier(0.21,1.02,0.73,1)]"
           [class]="shell(toast.type)">
           <div class="flex items-start gap-3 p-4">
@@ -24721,7 +26153,7 @@ import { Toast, ToastService, ToastType } from '../../../core/services/toast.ser
             </span>
 
             <div class="min-w-0 flex-1">
-              <p class="text-sm font-medium leading-snug text-slate-800">{{ toast.message }}</p>
+              <p class="text-sm font-medium leading-snug text-slate-800 dark:text-slate-100">{{ toast.message }}</p>
               @if (toast.action; as action) {
                 <button
                   type="button"
@@ -24736,7 +26168,7 @@ import { Toast, ToastService, ToastType } from '../../../core/services/toast.ser
               type="button"
               (click)="dismiss(toast.id)"
               aria-label="Dismiss notification"
-              class="-me-1 -mt-1 shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600
+               class="-me-1 -mt-1 shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200
                      focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600
                      transition-colors duration-200">
               <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">

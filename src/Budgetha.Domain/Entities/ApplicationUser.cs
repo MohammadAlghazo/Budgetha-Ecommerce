@@ -23,4 +23,5 @@ public class ApplicationUser : IdentityUser
     public SellerVerification? SellerVerification { get; set; }
     public ICollection<SupportTicket> SupportTickets { get; set; } = new List<SupportTicket>();
     public ICollection<Wishlist> Wishlists { get; set; } = new List<Wishlist>();
+    public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
 }

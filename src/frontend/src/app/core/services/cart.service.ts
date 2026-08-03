@@ -73,6 +73,10 @@ export class CartService {
     this.fetchFromBackend();
   }
 
+  refresh(): void {
+    this.fetchFromBackend();
+  }
+
   private mergeGuestCartIntoBackend() {
     const localItems = this.load();
     if (localItems.length > 0) {

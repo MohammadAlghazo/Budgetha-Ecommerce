@@ -64,22 +64,15 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
         }
 
         
-        var slug = ProductRules.GenerateSlug(request.Name);
-        var originalSlug = slug;
-        var counter = 1;
-
-        
-        while (await _context.Products.AnyAsync(p => p.Slug == slug, cancellationToken))
-        {
-            slug = $"{originalSlug}-{counter}";
-            counter++;
-        }
+        var productId = Guid.NewGuid();
+        var slug = $"{ProductRules.GenerateSlug(request.Name)}-{productId:N}";
 
         var roles = await _identityService.GetRolesAsync(request.SellerId);
         var isAdmin = roles.Contains("Admin") || roles.Contains("SuperAdmin");
 
         var product = new Product
         {
+            Id = productId,
             Name = request.Name,
             Description = request.Description,
             Price = request.Price,

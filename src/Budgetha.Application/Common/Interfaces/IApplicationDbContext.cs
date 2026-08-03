@@ -34,6 +34,7 @@ public interface IApplicationDbContext
     DbSet<PendingImageUpload> PendingImageUploads { get; }
     DbSet<PendingImageDeletion> PendingImageDeletions { get; }
     DbSet<OutboxDelivery> OutboxDeliveries { get; }
+    DbSet<RefreshToken> RefreshTokens { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }

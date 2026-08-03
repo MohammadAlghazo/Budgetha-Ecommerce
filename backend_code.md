@@ -14,6 +14,9 @@
   "ConnectionStrings": {
     "DefaultConnection": ""
   },
+  "EmailSettings": {
+    "Enabled": false
+  },
   "JwtSettings": {
     "Secret": "",
     "Issuer": "Budgetha.API",
@@ -35,6 +38,11 @@
     "WebhookId": "",
     "MerchantId": "",
     "PayeeEmail": ""
+  },
+  "Payments": {
+    "Mock": {
+      "Enabled": true
+    }
   },
   "CheckoutPricing": {
     "Currency": "USD",
@@ -59,12 +67,14 @@
     }
   },
   "EmailSettings": {
+    "Enabled": false,
     "Host": "smtp.mailtrap.io",
-    "Port": "2525",
-    "EnableSsl": "true",
+    "Port": 2525,
+    "EnableSsl": true,
     "Username": "mock_user",
     "Password": "mock_password",
-    "FromEmail": "support@budgetha.com"
+    "FromEmail": "support@budgetha.com",
+    "TimeoutSeconds": 30
   },
   "AllowedHosts": "*",
   "BootstrapAdmin": {
@@ -94,6 +104,11 @@
     "WebhookId": "",
     "MerchantId": "",
     "PayeeEmail": ""
+  },
+  "Payments": {
+    "Mock": {
+      "Enabled": false
+    }
   },
   "CheckoutPricing": {
     "Currency": "USD",
@@ -161,6 +176,31 @@ Accept: application/json
 
 ``
 
+## Budgetha.API\GetIndexes.csx
+
+``
+using System;
+using System.Linq;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Budgetha.Infrastructure.Persistence;
+
+var services = new ServiceCollection();
+services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseNpgsql("Host=ep-fancy-shape-agm0ehmi.c-2.eu-central-1.aws.neon.tech;Database=neondb;Username=neondb_owner;Password=npg_R9K3vGnlxhbj;SSL Mode=Require;Trust Server Certificate=true;"));
+
+var provider = services.BuildServiceProvider();
+var db = provider.GetRequiredService<ApplicationDbContext>();
+
+var indexes = db.Database.SqlQueryRaw<string>("SELECT indexdef FROM pg_indexes WHERE tablename = 'CartItems'").ToList();
+
+foreach (var index in indexes)
+{
+    Console.WriteLine(index);
+}
+
+``
+
 ## Budgetha.API\Program.cs
 
 ``csharp
@@ -187,6 +227,7 @@ builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
+builder.Services.AddScoped<IRealtimeNotificationPublisher, SignalRNotificationPublisher>();
 builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddRateLimiter(options =>
@@ -436,6 +477,7 @@ public class AdminController : ControllerBase
     }
 
     [HttpGet("stats")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> GetStats()
     {
         var stats = await _adminService.GetStatsAsync();
@@ -456,6 +498,8 @@ public class AdminController : ControllerBase
     [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> GetAllUsers([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
         var result = await _adminService.GetAllUsersAsync(page, pageSize);
         return Ok(result);
     }
@@ -464,28 +508,33 @@ public class AdminController : ControllerBase
     [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> GetRecentUsers([FromQuery] int count = 5)
     {
+        count = Math.Clamp(count, 1, 50);
         var users = await _adminService.GetRecentUsersAsync(count);
         return Ok(users);
     }
 
     [HttpGet("products")]
-    public async Task<IActionResult> GetAllProducts([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
+    public async Task<IActionResult> GetAllProducts([FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] string? sort = "newest", [FromQuery] string? category = null)
     {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
         var isSuperAdminOrAdmin = User.IsInRole("Admin") || User.IsInRole("SuperAdmin");
         var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         
-        var query = new GetProductsQuery(
-            Search: null,
-            Categories: null,
-            Brands: null,
-            MinPrice: 0,
-            MaxPrice: int.MaxValue,
-            MinRating: 0,
-            Sort: "newest",
-            Page: page,
-            PageSize: pageSize,
-            SellerId: isSuperAdminOrAdmin ? null : userId
-        );
+        var query = new GetProductsQuery
+        {
+            Search = null,
+            Categories = string.IsNullOrEmpty(category) ? null : new List<string> { category },
+            Brands = null,
+            MinPrice = 0,
+            MaxPrice = int.MaxValue,
+            MinRating = 0,
+            Sort = sort,
+            Page = page,
+            PageSize = pageSize,
+            SellerId = isSuperAdminOrAdmin ? null : userId,
+            IncludeUnapproved = true
+        };
 
         var result = await _mediator.Send(query);
         return Ok(result);
@@ -625,6 +674,8 @@ using Google.Apis.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Budgetha.API.Controllers;
 
@@ -636,12 +687,18 @@ public class AuthController : ControllerBase
     private readonly IIdentityService _identityService;
     private readonly IConfiguration _configuration;
     private readonly IEmailService _emailService;
+    private readonly IApplicationDbContext _context;
 
-    public AuthController(IIdentityService identityService, IConfiguration configuration, IEmailService emailService)
+    public AuthController(
+        IIdentityService identityService,
+        IConfiguration configuration,
+        IEmailService emailService,
+        IApplicationDbContext context)
     {
         _identityService = identityService;
         _configuration = configuration;
         _emailService = emailService;
+        _context = context;
     }
 
     [HttpPost("register")]
@@ -688,8 +745,16 @@ public class AuthController : ControllerBase
             var baseUrl = _configuration["FrontendBaseUrl"] ?? "http://localhost:4200";
             var resetLink = $"{baseUrl}/reset-password?email={Uri.EscapeDataString(request.Email)}&token={Uri.EscapeDataString(token)}";
             var emailBody = $"<p>You requested a password reset.</p><p>Please click the link below to reset your password:</p><p><a href='{resetLink}'>Reset Password</a></p>";
-            
-            await _emailService.SendEmailAsync(request.Email, "Password Reset", emailBody);
+            var resetKey = Convert.ToHexString(SHA256.HashData(
+                Encoding.UTF8.GetBytes($"{request.Email.ToUpperInvariant()}:{token}")));
+
+            await _emailService.QueueEmailAsync(
+                request.Email,
+                "Password Reset",
+                emailBody,
+                $"password-reset:{resetKey}",
+                HttpContext.RequestAborted);
+            await _context.SaveChangesAsync(HttpContext.RequestAborted);
             
             return Ok(new { Message = "If an account with that email exists, a reset link has been sent." });
         }
@@ -762,7 +827,7 @@ public class AuthController : ControllerBase
             if (!result.Succeeded)
                 return BadRequest(new AuthResponse(false, null, null, null, null, null, null, null, result.Errors));
 
-            return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, result.Email, result.FirstName, result.LastName, result.Roles, null));
+            return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, result.Email, result.FirstName, result.LastName, result.Roles, null, result.RefreshToken));
         }
         catch (InvalidJwtException)
         {
@@ -929,6 +994,153 @@ public class CategoriesController : ControllerBase
 
 ``
 
+## Budgetha.API\Controllers\DatabaseSeedController.cs
+
+``csharp
+using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
+using Budgetha.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+
+namespace Budgetha.API.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class DatabaseSeedController : ControllerBase
+{
+    private readonly ApplicationDbContext _context;
+    private readonly UserManager<ApplicationUser> _userManager;
+
+    public DatabaseSeedController(ApplicationDbContext context, UserManager<ApplicationUser> userManager)
+    {
+        _context = context;
+        _userManager = userManager;
+    }
+
+    [HttpPost("seed-products")]
+    public async Task<IActionResult> SeedProducts()
+    {
+        var targetUsers = new[] { "Lina Ahmad", "Sara Nasser", "Ahmad Yassin", "Mohammad Alghazo" };
+        var users = new List<ApplicationUser>();
+
+        foreach (var name in targetUsers)
+        {
+            var parts = name.Split(' ');
+            var user = await _userManager.Users.FirstOrDefaultAsync(u => u.FirstName == parts[0] && u.LastName == parts[1]);
+            if (user != null) users.Add(user);
+        }
+
+        if (users.Count == 0) return BadRequest("No target users found.");
+
+        var categories = await _context.Categories.ToListAsync();
+        if (categories.Count < 5)
+        {
+            var newCats = new List<Category>
+            {
+                new Category { Name = "Smartphones", Slug = "smartphones", Description = "Latest smartphones and accessories." },
+                new Category { Name = "Laptops", Slug = "laptops", Description = "High performance laptops for work and gaming." },
+                new Category { Name = "Men's Fashion", Slug = "mens-fashion", Description = "Trendy clothing and accessories for men." },
+                new Category { Name = "Women's Fashion", Slug = "womens-fashion", Description = "Elegant and stylish clothing for women." },
+                new Category { Name = "Home Appliances", Slug = "home-appliances", Description = "Essential appliances for your home." },
+                new Category { Name = "Books", Slug = "books", Description = "Bestselling books across all genres." },
+                new Category { Name = "Sports & Outdoors", Slug = "sports", Description = "Gear and apparel for sports and outdoor activities." }
+            };
+            foreach(var c in newCats)
+            {
+                if(!categories.Any(x => x.Slug == c.Slug))
+                {
+                    _context.Categories.Add(c);
+                    categories.Add(c);
+                }
+            }
+            await _context.SaveChangesAsync();
+        }
+
+        var rng = new Random(42);
+        var productsAdded = 0;
+
+        foreach (var user in users)
+        {
+            var existingProducts = await _context.Products.CountAsync(p => p.SellerId == user.Id);
+            if (existingProducts >= 10) continue;
+
+            for (int i = existingProducts; i < 10; i++)
+            {
+                var prodData = GenerateProduct(user.FirstName, i, categories, rng);
+                prodData.SellerId = user.Id;
+                _context.Products.Add(prodData);
+                productsAdded++;
+            }
+        }
+
+        await _context.SaveChangesAsync();
+        return Ok(new { Message = $"Added {productsAdded} products." });
+    }
+
+    private Product GenerateProduct(string userFirstName, int index, List<Category> categories, Random rng)
+    {
+        var templates = new List<(string name, string desc, decimal price, int stock, List<Category> cats, string img)>
+        {
+            ("Samsung Galaxy S24 Ultra", "Experience the ultimate smartphone with AI features, a stunning display, and a pro-grade camera system.", 1199.99m, 15, GetCats(categories, "smartphones", "electronics"), "https://images.unsplash.com/photo-1610945265064-0e34e5519bbf?auto=format&fit=crop&q=80&w=800"),
+            ("MacBook Pro M3 Max", "Supercharged for pros. The most advanced Mac laptop for demanding workflows.", 2499.00m, 8, GetCats(categories, "laptops", "electronics"), "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&q=80&w=800"),
+            ("Sony WH-1000XM5 Noise Cancelling Headphones", "Industry leading noise cancellation with two processors control 8 microphones for unprecedented noise cancellation.", 398.00m, 25, GetCats(categories, "electronics", "smartphones"), "https://images.unsplash.com/photo-1618366712010-f4ae9c647dcb?auto=format&fit=crop&q=80&w=800"),
+            ("Nike Air Force 1 '07", "The radiance lives on in the Nike Air Force 1 '07, the b-ball icon that puts a fresh spin on what you know best.", 115.00m, 50, GetCats(categories, "mens-fashion", "clothing"), "https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?auto=format&fit=crop&q=80&w=800"),
+            ("Dyson V15 Detect Absolute", "The most powerful, intelligent cordless vacuum. Reveals invisible dust.", 749.99m, 12, GetCats(categories, "home-appliances"), "https://images.unsplash.com/photo-1558317374-067fb5f30001?auto=format&fit=crop&q=80&w=800"),
+            ("The Psychology of Money", "Timeless lessons on wealth, greed, and happiness doing well with money isn't necessarily about what you know. It's about how you behave.", 18.99m, 100, GetCats(categories, "books"), "https://images.unsplash.com/photo-1589829085413-56de8ae18c73?auto=format&fit=crop&q=80&w=800"),
+            ("Garmin Fenix 7X Pro", "Ultimate multisport GPS smartwatch with a large 1.4â€ display, built-in LED flashlight, and solar charging lens.", 899.99m, 10, GetCats(categories, "sports", "electronics"), "https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=800"),
+            ("Zara Tailored Wool Coat", "Long coat made of wool blend fabric. Lapel collar and long sleeves. Front flap pockets.", 149.00m, 30, GetCats(categories, "womens-fashion", "clothing"), "https://images.unsplash.com/photo-1539533113208-f6df8cc8b543?auto=format&fit=crop&q=80&w=800"),
+            ("KitchenAid Artisan Series 5 Quart", "Make up to 9 dozen cookies in a single batch with the KitchenAid Artisan Series 5 Quart Tilt-Head Stand Mixer.", 449.99m, 20, GetCats(categories, "home-appliances"), "https://images.unsplash.com/photo-1593011388053-4876251bbf39?auto=format&fit=crop&q=80&w=800"),
+            ("Spalding NBA Official Game Basketball", "The official basketball of the NBA. Features a full-grain leather cover that turns butter-soft once broken in.", 169.99m, 40, GetCats(categories, "sports"), "https://images.unsplash.com/photo-1519861531473-9200262188bf?auto=format&fit=crop&q=80&w=800"),
+            ("LG C3 Series 65-Inch Class OLED", "The OLED evo C3 blends into the background with an almost invisible bezel for a seamless look.", 1696.99m, 5, GetCats(categories, "electronics", "home-appliances"), "https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?auto=format&fit=crop&q=80&w=800"),
+            ("Atomic Habits", "No matter your goals, Atomic Habits offers a proven framework for improving--every day.", 13.99m, 150, GetCats(categories, "books"), "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=800"),
+            ("Yeti Rambler 20 oz Tumbler", "Any tumbler that's coming along for the ride needs to be tough enough to keep up.", 35.00m, 80, GetCats(categories, "sports", "home-appliances"), "https://images.unsplash.com/photo-1614213193988-18e47eb5ce83?auto=format&fit=crop&q=80&w=800"),
+            ("Levi's 501 Original Fit Jeans", "The blueprint for every jean in existence - burned into the world's collective cortex.", 79.50m, 60, GetCats(categories, "mens-fashion", "womens-fashion", "clothing"), "https://images.unsplash.com/photo-1542272604-780c8d5a1ce7?auto=format&fit=crop&q=80&w=800"),
+            ("Nintendo Switch OLED Model", "Play at home on the TV or on-the-go with a vibrant 7-inch OLED screen with the Nintendo Switch system.", 349.99m, 25, GetCats(categories, "electronics", "sports"), "https://images.unsplash.com/photo-1578306044702-863a137bc39d?auto=format&fit=crop&q=80&w=800")
+        };
+
+        var t = templates[(index + userFirstName.Length * 3) % templates.Count];
+
+        var product = new Product
+        {
+            Name = $"{t.name} (By {userFirstName})",
+            Slug = $"{t.name}-{userFirstName}-{index}-{Guid.NewGuid().ToString().Substring(0, 4)}".ToLower().Replace(" ", "-").Replace("'", ""),
+            Description = t.desc,
+            Price = t.price,
+            StockQuantity = t.stock,
+            Categories = t.cats,
+            ThumbnailUrl = t.img,
+            ThumbnailPublicId = $"dummy-{Guid.NewGuid()}",
+            Brand = "PremiumBrand",
+            IsActive = true,
+            ApprovalStatus = ApprovalStatus.Approved,
+            IsFeatured = rng.NextDouble() > 0.8,
+            Images = new List<ProductImage>
+            {
+                new ProductImage { Url = t.img, PublicId = $"dummy-img-{Guid.NewGuid()}", DisplayOrder = 0 }
+            }
+        };
+
+        return product;
+    }
+
+    private List<Category> GetCats(List<Category> all, params string[] slugs)
+    {
+        var result = new List<Category>();
+        foreach (var s in slugs)
+        {
+            var c = all.FirstOrDefault(x => x.Slug == s);
+            if (c != null) result.Add(c);
+        }
+        if (result.Count == 0) result.Add(all.First());
+        return result;
+    }
+}
+
+``
+
 ## Budgetha.API\Controllers\ImagesController.cs
 
 ``csharp
@@ -945,7 +1157,7 @@ namespace Budgetha.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin,SuperAdmin,Seller")]
+[Authorize]
 public class ImagesController : ControllerBase
 {
     private readonly IImageService _imageService;
@@ -969,7 +1181,7 @@ public class ImagesController : ControllerBase
         if (file.Length > 5 * 1024 * 1024)
             return BadRequest("File size exceeds 5MB limit.");
             
-        var allowedMimeTypes = new[] { "image/jpeg", "image/png", "image/webp", "application/pdf" };
+        var allowedMimeTypes = new[] { "image/jpeg", "image/png", "image/webp" };
         if (!allowedMimeTypes.Contains(file.ContentType.ToLowerInvariant()))
             return BadRequest("Invalid file type.");
 
@@ -1032,7 +1244,7 @@ public class NotificationsController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetNotifications([FromQuery] int limit = 20)
     {
-        var result = await _mediator.Send(new GetNotificationsQuery(limit));
+        var result = await _mediator.Send(new GetNotificationsQuery(Math.Clamp(limit, 1, 100)));
         return Ok(result);
     }
 
@@ -1163,12 +1375,41 @@ public class OrdersController : ControllerBase
         return Ok(result);
     }
 
-    [HttpPut("{id:guid}/status")]
-    [Authorize(Roles = "Seller,Admin,SuperAdmin")]
-    public async Task<ActionResult> UpdateStatus(Guid id, [FromBody] UpdateOrderStatusRequest request)
+    [HttpPost("{id:guid}/ship")]
+    [Authorize(Roles = "Seller")]
+    public async Task<ActionResult> Ship(Guid id, [FromBody] ShipOrderRequest request)
     {
-        var success = await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.UpdateOrderStatusCommand(id, request.Status));
-        if (!success) return BadRequest("Failed to update status.");
+        await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.ShipOrderCommand(id, request.Carrier, request.TrackingNumber));
+        return Ok();
+    }
+
+    [HttpPost("{id:guid}/reject")]
+    [Authorize(Roles = "Seller")]
+    public async Task<ActionResult> Reject(Guid id, [FromBody] ReasonRequest request)
+    {
+        await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.RejectOrderCommand(id, request.Reason));
+        return Ok();
+    }
+
+    [HttpPost("{id:guid}/confirm-received")]
+    public async Task<ActionResult> ConfirmReceived(Guid id)
+    {
+        await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.ConfirmOrderReceivedCommand(id));
+        return Ok();
+    }
+
+    [HttpPost("{id:guid}/report-not-received")]
+    public async Task<ActionResult> ReportNotReceived(Guid id, [FromBody] ReasonRequest request)
+    {
+        await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.ReportOrderNotReceivedCommand(id, request.Reason));
+        return Ok();
+    }
+
+    [HttpPost("delivery-reports/{reportId:guid}/resolve")]
+    [Authorize(Roles = "Admin,SuperAdmin")]
+    public async Task<ActionResult> ResolveDeliveryReport(Guid reportId, [FromBody] ResolveDeliveryReportRequest request)
+    {
+        await _mediator.Send(new Budgetha.Application.Features.Orders.Commands.ResolveDeliveryReportCommand(reportId, request.Dismiss, request.Note));
         return Ok();
     }
 
@@ -1181,14 +1422,26 @@ public class OrdersController : ControllerBase
     }
 }
 
-public class UpdateOrderStatusRequest
-{
-    public Budgetha.Domain.Enums.OrderStatus Status { get; set; }
-}
-
 public class CapturePayPalOrderRequest
 {
     public string PayPalOrderId { get; set; } = string.Empty;
+}
+
+public class ShipOrderRequest
+{
+    public string? Carrier { get; set; }
+    public string? TrackingNumber { get; set; }
+}
+
+public class ReasonRequest
+{
+    public string Reason { get; set; } = string.Empty;
+}
+
+public class ResolveDeliveryReportRequest
+{
+    public bool Dismiss { get; set; }
+    public string Note { get; set; } = string.Empty;
 }
 
 ``
@@ -1220,9 +1473,10 @@ public class ProductsController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<CatalogResultDto>> GetProducts([FromQuery] GetProductsQuery query)
     {
-        
-        if (query.Page <= 0) query = query with { Page = 1 };
-        if (query.PageSize <= 0) query = query with { PageSize = 12 };
+        if (query.Page <= 0) query.Page = 1;
+        if (query.PageSize <= 0) query.PageSize = 12;
+        query.PageSize = Math.Min(query.PageSize, 100);
+        query.IncludeUnapproved = false;
 
         var result = await _mediator.Send(query);
         return Ok(result);
@@ -1248,7 +1502,7 @@ public class ProductsController : ControllerBase
             request.Description,
             request.Price,
             request.StockQuantity,
-            request.CategoryId,
+            request.CategoryIds,
             request.Images ?? new List<ProductImageInput>(),
             request.IsAvailableForRent,
             request.RentalPricePerDay,
@@ -1279,7 +1533,7 @@ public class ProductsController : ControllerBase
             request.Description,
             request.Price,
             request.StockQuantity,
-            request.CategoryId,
+            request.CategoryIds,
             request.Images ?? new List<ProductImageInput>(),
             request.IsAvailableForRent,
             request.RentalPricePerDay,
@@ -1333,6 +1587,7 @@ public class ProductsController : ControllerBase
         if (!result) return NotFound();
         return NoContent();
     }
+
 }
 
 public record CreateProductRequest(
@@ -1340,7 +1595,7 @@ public record CreateProductRequest(
     string Description,
     decimal Price,
     int StockQuantity,
-    Guid CategoryId,
+    List<Guid> CategoryIds,
     List<ProductImageInput> Images,
     bool IsAvailableForRent,
     decimal? RentalPricePerDay,
@@ -1431,6 +1686,12 @@ public class ReviewsController : ControllerBase
     public async Task<ActionResult<List<ReviewDto>>> GetReviews(Guid productId)
     {
         return await _mediator.Send(new GetProductReviewsQuery(productId));
+    }
+
+    [HttpGet("{productId:guid}/eligibility")]
+    public async Task<ActionResult<ReviewEligibilityDto>> GetEligibility(Guid productId)
+    {
+        return await _mediator.Send(new GetReviewEligibilityQuery(productId));
     }
 
     [HttpPost]
@@ -1571,6 +1832,20 @@ public class SellerRequestsController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("mine")]
+    [Authorize]
+    public async Task<IActionResult> GetMyRequest([FromServices] Budgetha.Application.Common.Interfaces.IApplicationDbContext context)
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
+
+        var request = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(
+            context.SellerRequests
+                .Where(candidate => candidate.UserId == userId)
+                .OrderByDescending(candidate => candidate.Created));
+        return Ok(request is null ? null : new { request.Id, request.Status, request.Created });
+    }
+
     [HttpPost("{id:guid}/approve")]
     [Authorize(Roles = "Admin,SuperAdmin")]
     public async Task<IActionResult> ApproveRequest(Guid id)
@@ -1587,6 +1862,36 @@ public class SellerRequestsController : ControllerBase
         var result = await _mediator.Send(new RejectSellerRequestCommand(id));
         if (!result) return BadRequest("Could not reject request.");
         return Ok();
+    }
+}
+
+``
+
+## Budgetha.API\Controllers\SellersController.cs
+
+``csharp
+using Budgetha.Application.Features.Sellers.Queries;
+using MediatR;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Budgetha.API.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class SellersController : ControllerBase
+{
+    private readonly IMediator _mediator;
+
+    public SellersController(IMediator mediator)
+    {
+        _mediator = mediator;
+    }
+
+    [HttpGet("{id}")]
+    public async Task<ActionResult<SellerProfileDto>> GetProfile(string id)
+    {
+        var profile = await _mediator.Send(new GetSellerProfileQuery(id));
+        return profile is null ? NotFound() : Ok(profile);
     }
 }
 
@@ -1677,21 +1982,26 @@ public class WebhooksController : ControllerBase
 {
     private readonly IApplicationDbContext _context;
     private readonly IPaymentService _paymentService;
+    private readonly IOrderCompletionService _completionService;
     private readonly ILogger<WebhooksController> _logger;
 
     public WebhooksController(
         IApplicationDbContext context,
         IPaymentService paymentService,
+        IOrderCompletionService completionService,
         ILogger<WebhooksController> logger)
     {
         _context = context;
         _paymentService = paymentService;
+        _completionService = completionService;
         _logger = logger;
     }
 
     [HttpPost("paypal")]
     public async Task<IActionResult> PayPalWebhook(CancellationToken cancellationToken)
     {
+        Guid? paymentId = null;
+        string? verifiedCaptureId = null;
         if (!Request.Headers.TryGetValue("PAYPAL-TRANSMISSION-ID", out var transmissionId) ||
             !Request.Headers.TryGetValue("PAYPAL-TRANSMISSION-TIME", out var transmissionTime) ||
             !Request.Headers.TryGetValue("PAYPAL-TRANSMISSION-SIG", out var transmissionSignature) ||
@@ -1715,9 +2025,13 @@ public class WebhooksController : ControllerBase
             var payment = await _context.Payments
                 .Include(p => p.Order)
                 .ThenInclude(o => o.Items)
+                .ThenInclude(item => item.Product)
+                .Include(p => p.Order)
+                .ThenInclude(o => o.User)
                 .FirstOrDefaultAsync(p => p.ExternalTransactionId == paypalOrderId, cancellationToken);
             if (payment == null)
                 return Ok();
+            paymentId = payment.Id;
 
             if (payment.Provider != PaymentProvider.PayPal ||
                 payment.Status is not (PaymentStatus.Pending or PaymentStatus.Processing) ||
@@ -1733,18 +2047,19 @@ public class WebhooksController : ControllerBase
                 string.IsNullOrWhiteSpace(verification.CaptureId) ||
                 verification.OrderId != payment.ExternalTransactionId)
                 return Unauthorized();
+            verifiedCaptureId = verification.CaptureId;
 
             if (payment.LastWebhookEventId == verification.EventId || payment.Status == PaymentStatus.Completed)
                 return Ok();
 
-            payment.Status = PaymentStatus.Completed;
-            payment.ExternalCaptureId = verification.CaptureId;
-            payment.LastWebhookEventId = verification.EventId;
             if (payment.Order != null)
             {
-                payment.Order.Status = OrderStatus.Processing;
-                payment.Order.ReservationExpiresAt = null;
-                RemoveUnchangedOrderItemsFromCart(payment.Order);
+                await _completionService.CompletePayPalAsync(
+                    payment.Order,
+                    payment,
+                    verification.CaptureId,
+                    verification.EventId,
+                    cancellationToken);
             }
 
             await _context.SaveChangesAsync(cancellationToken);
@@ -1754,32 +2069,19 @@ public class WebhooksController : ControllerBase
         {
             return BadRequest();
         }
-        catch (DbUpdateConcurrencyException)
+        catch (DbUpdateException)
         {
-            // A duplicate delivery racing the first delivery is already safe to acknowledge.
-            _logger.LogInformation("Concurrent PayPal webhook delivery acknowledged.");
-            return Ok();
-        }
-    }
-
-    private void RemoveUnchangedOrderItemsFromCart(Order order)
-    {
-        var cartItems = _context.CartItems
-            .Where(item => item.Cart.UserId == order.UserId)
-            .ToList();
-
-        foreach (var orderItem in order.Items)
-        {
-            var cartItem = cartItems.FirstOrDefault(item =>
-                item.ProductId == orderItem.ProductId && item.VariantId == orderItem.VariantId &&
-                item.Quantity == orderItem.Quantity && item.Type == orderItem.Type &&
-                item.RentalStartDate == orderItem.RentalStartDate && item.RentalEndDate == orderItem.RentalEndDate &&
-                item.Color == orderItem.Color && item.Size == orderItem.Size);
-            if (cartItem != null)
+            var completedConcurrently = paymentId.HasValue && verifiedCaptureId != null &&
+                await _context.Payments.AsNoTracking().AnyAsync(payment =>
+                    payment.Id == paymentId.Value && payment.Status == PaymentStatus.Completed &&
+                    payment.ExternalCaptureId == verifiedCaptureId, cancellationToken);
+            if (completedConcurrently)
             {
-                _context.CartItems.Remove(cartItem);
-                cartItems.Remove(cartItem);
+                _logger.LogInformation("Concurrent PayPal webhook delivery acknowledged.");
+                return Ok();
             }
+
+            throw;
         }
     }
 }
@@ -1882,6 +2184,7 @@ public class ReviewHub : Hub
 using System.Net;
 using System.Text.Json;
 using Budgetha.Application.Common.Exceptions;
+using Microsoft.EntityFrameworkCore;
 
 namespace Budgetha.API.Middleware;
 
@@ -1916,21 +2219,34 @@ public class GlobalExceptionMiddleware
             ValidationException validation => (HttpStatusCode.BadRequest, JsonSerializer.Serialize(validation.Errors)),
             ForbiddenAccessException => (HttpStatusCode.Forbidden, "You do not have permission to perform this action."),
             UnauthorizedAccessException => (HttpStatusCode.Unauthorized, "You are not authorized."),
+            InvalidOperationException invalidOperation => (HttpStatusCode.BadRequest, invalidOperation.Message),
+            DbUpdateException => (HttpStatusCode.Conflict, "The request conflicts with existing data."),
             _ => (HttpStatusCode.InternalServerError, "An unexpected error occurred.")
         };
 
-        if (statusCode == HttpStatusCode.InternalServerError)
+        if (exception is DbUpdateException)
+            _logger.LogError(exception, "Database update failed while handling {Method} {Path}. TraceId: {TraceId}",
+                context.Request.Method, context.Request.Path, context.TraceIdentifier);
+        else if (statusCode == HttpStatusCode.InternalServerError)
             _logger.LogError(exception, "Unhandled exception");
 
         context.Response.ContentType = "application/json";
         context.Response.StatusCode = (int)statusCode;
 
-        var response = new
-        {
-            StatusCode = (int)statusCode,
-            Message = message,
-            TraceId = context.TraceIdentifier
-        };
+        object response = exception is ValidationException validationException
+            ? new
+            {
+                StatusCode = (int)statusCode,
+                Message = "Validation failed.",
+                Errors = validationException.Errors,
+                TraceId = context.TraceIdentifier
+            }
+            : new
+            {
+                StatusCode = (int)statusCode,
+                Message = message,
+                TraceId = context.TraceIdentifier
+            };
 
         await context.Response.WriteAsJsonAsync(response);
     }
@@ -1993,6 +2309,35 @@ public class CurrentUserService : ICurrentUserService
 
 ``
 
+## Budgetha.API\Services\SignalRNotificationPublisher.cs
+
+``csharp
+using Budgetha.API.Hubs;
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Application.Features.Notifications.Queries.GetNotifications;
+using Microsoft.AspNetCore.SignalR;
+
+namespace Budgetha.API.Services;
+
+public sealed class SignalRNotificationPublisher : IRealtimeNotificationPublisher
+{
+    private readonly IHubContext<NotificationHub> _hubContext;
+
+    public SignalRNotificationPublisher(IHubContext<NotificationHub> hubContext)
+    {
+        _hubContext = hubContext;
+    }
+
+    public Task PublishAsync(
+        string userId,
+        NotificationDto notification,
+        CancellationToken cancellationToken = default) =>
+        _hubContext.Clients.User(userId)
+            .SendAsync("ReceiveNotification", notification, cancellationToken);
+}
+
+``
+
 ## Budgetha.Application\Budgetha.Application.csproj
 
 ``
@@ -2003,9 +2348,11 @@ public class CurrentUserService : ICurrentUserService
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="FluentValidation" Version="12.1.1" />
     <PackageReference Include="MediatR" Version="14.2.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.9" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.0" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -2149,6 +2496,8 @@ public interface IApplicationDbContext
     DbSet<Category> Categories { get; }
     DbSet<Order> Orders { get; }
     DbSet<OrderItem> OrderItems { get; }
+    DbSet<OrderFulfillment> OrderFulfillments { get; }
+    DbSet<DeliveryReport> DeliveryReports { get; }
     DbSet<Cart> Carts { get; }
     DbSet<CartItem> CartItems { get; }
     DbSet<Review> Reviews { get; }
@@ -2170,6 +2519,7 @@ public interface IApplicationDbContext
     DbSet<PromoCode> PromoCodes { get; }
     DbSet<PendingImageUpload> PendingImageUploads { get; }
     DbSet<PendingImageDeletion> PendingImageDeletions { get; }
+    DbSet<OutboxDelivery> OutboxDeliveries { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }
@@ -2227,6 +2577,23 @@ public interface IDateTimeService
 
 ``
 
+## Budgetha.Application\Common\Interfaces\IEmailSender.cs
+
+``csharp
+namespace Budgetha.Application.Common.Interfaces;
+
+public interface IEmailSender
+{
+    bool IsEnabled { get; }
+    Task SendAsync(
+        string recipient,
+        string subject,
+        string body,
+        CancellationToken cancellationToken = default);
+}
+
+``
+
 ## Budgetha.Application\Common\Interfaces\IEmailService.cs
 
 ``csharp
@@ -2234,7 +2601,12 @@ namespace Budgetha.Application.Common.Interfaces;
 
 public interface IEmailService
 {
-    Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default);
+    Task QueueEmailAsync(
+        string to,
+        string subject,
+        string body,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default);
 }
 
 ``
@@ -2258,6 +2630,7 @@ public interface IIdentityService
     Task<bool> RemoveRoleAsync(string userId, string role);
     Task<IList<string>> GetRolesAsync(string userId);
     Task<bool> IsInRoleAsync(string userId, string role);
+    Task<IList<string>> GetUserIdsInRoleAsync(string role);
     Task<AuthResult> GoogleLoginAsync(string email, string firstName, string lastName);
     Task<bool> UpdateProfileAsync(string userId, string firstName, string lastName);
     Task<bool> ChangePasswordAsync(string userId, string currentPassword, string newPassword);
@@ -2300,16 +2673,55 @@ public interface IInventoryTransaction : IAsyncDisposable
 
 ``
 
-## Budgetha.Application\Common\Interfaces\INotificationService.cs
+## Budgetha.Application\Common\Interfaces\IOrderCommunicationService.cs
 
 ``csharp
-using System.Threading.Tasks;
+using Budgetha.Domain.Entities;
 
 namespace Budgetha.Application.Common.Interfaces;
 
-public interface INotificationService
+public interface IOrderCommunicationService
 {
-    Task SendNotificationAsync(string userId, string title, string message, string type, string? relatedEntityId = null);
+    Task QueueSaleAsync(
+        Order order,
+        string buyerFirstName,
+        IEnumerable<string> sellerIds,
+        string paymentMethod,
+        CancellationToken cancellationToken);
+
+    Task QueueStatusAsync(
+        Order order,
+        string eventName,
+        IEnumerable<string> sellerIds,
+        CancellationToken cancellationToken,
+        string? eventScope = null,
+        string? eventDetail = null);
+
+    Task QueueDeliveryReportResolutionAsync(
+        Order order,
+        IEnumerable<string> sellerIds,
+        bool dismissed,
+        string note,
+        CancellationToken cancellationToken);
+}
+
+``
+
+## Budgetha.Application\Common\Interfaces\IOrderCompletionService.cs
+
+``csharp
+using Budgetha.Domain.Entities;
+
+namespace Budgetha.Application.Common.Interfaces;
+
+public interface IOrderCompletionService
+{
+    Task CompletePayPalAsync(
+        Order order,
+        Payment payment,
+        string captureId,
+        string? webhookEventId,
+        CancellationToken cancellationToken);
 }
 
 ``
@@ -2349,6 +2761,23 @@ public record PayPalWebhookResult(
     string? EventId,
     string? OrderId,
     string? CaptureId);
+
+``
+
+## Budgetha.Application\Common\Interfaces\IRealtimeNotificationPublisher.cs
+
+``csharp
+using Budgetha.Application.Features.Notifications.Queries.GetNotifications;
+
+namespace Budgetha.Application.Common.Interfaces;
+
+public interface IRealtimeNotificationPublisher
+{
+    Task PublishAsync(
+        string userId,
+        NotificationDto notification,
+        CancellationToken cancellationToken = default);
+}
 
 ``
 
@@ -2431,6 +2860,8 @@ public record ImageUploadResponse(
 
 ``csharp
 using Budgetha.Application.Common.Behaviours;
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Application.Services;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
@@ -2446,6 +2877,9 @@ public static class ApplicationServiceRegistration
             cfg.RegisterServicesFromAssembly(Assembly.GetExecutingAssembly());
             cfg.AddBehavior(typeof(IPipelineBehavior<,>), typeof(UnhandledExceptionBehaviour<,>));
         });
+        services.AddScoped<IEmailService, OutboxEmailService>();
+        services.AddScoped<IOrderCommunicationService, OrderCommunicationService>();
+        services.AddScoped<IOrderCompletionService, OrderCompletionService>();
 
         return services;
     }
@@ -2713,10 +3147,14 @@ using MediatR;
 namespace Budgetha.Application.Features.Announcements.Commands;
 
 public record CreateAnnouncementCommand(
-    string Message, 
-    string? LinkUrl, 
-    bool IsActive, 
-    DateTime? StartDate, 
+    string Message,
+    string? Subtitle,
+    string? BadgeText,
+    string? PromoCode,
+    int? DiscountPercent,
+    string? LinkUrl,
+    bool IsActive,
+    DateTime? StartDate,
     DateTime? EndDate) : IRequest<Guid>;
 
 public class CreateAnnouncementCommandHandler : IRequestHandler<CreateAnnouncementCommand, Guid>
@@ -2733,6 +3171,10 @@ public class CreateAnnouncementCommandHandler : IRequestHandler<CreateAnnounceme
         var announcement = new Announcement
         {
             Message = request.Message,
+            Subtitle = request.Subtitle,
+            BadgeText = request.BadgeText,
+            PromoCode = request.PromoCode,
+            DiscountPercent = request.DiscountPercent,
             LinkUrl = request.LinkUrl,
             IsActive = request.IsActive,
             StartDate = request.StartDate,
@@ -2799,10 +3241,14 @@ namespace Budgetha.Application.Features.Announcements.Commands;
 
 public record UpdateAnnouncementCommand(
     Guid Id,
-    string Message, 
-    string? LinkUrl, 
-    bool IsActive, 
-    DateTime? StartDate, 
+    string Message,
+    string? Subtitle,
+    string? BadgeText,
+    string? PromoCode,
+    int? DiscountPercent,
+    string? LinkUrl,
+    bool IsActive,
+    DateTime? StartDate,
     DateTime? EndDate) : IRequest<Unit>;
 
 public class UpdateAnnouncementCommandHandler : IRequestHandler<UpdateAnnouncementCommand, Unit>
@@ -2824,6 +3270,10 @@ public class UpdateAnnouncementCommandHandler : IRequestHandler<UpdateAnnounceme
         }
 
         announcement.Message = request.Message;
+        announcement.Subtitle = request.Subtitle;
+        announcement.BadgeText = request.BadgeText;
+        announcement.PromoCode = request.PromoCode;
+        announcement.DiscountPercent = request.DiscountPercent;
         announcement.LinkUrl = request.LinkUrl;
         announcement.IsActive = request.IsActive;
         announcement.StartDate = request.StartDate;
@@ -2849,6 +3299,10 @@ namespace Budgetha.Application.Features.Announcements.Queries;
 public record AnnouncementDto(
     Guid Id,
     string Message,
+    string? Subtitle,
+    string? BadgeText,
+    string? PromoCode,
+    int? DiscountPercent,
     string? LinkUrl,
     bool IsActive,
     DateTime? StartDate,
@@ -2874,13 +3328,17 @@ public class GetActiveAnnouncementQueryHandler : IRequestHandler<GetActiveAnnoun
         var now = _dateTimeService.UtcNow.UtcDateTime;
 
         var activeAnnouncement = await _context.Announcements
-            .Where(a => a.IsActive && 
-                       (!a.StartDate.HasValue || a.StartDate <= now) && 
+            .Where(a => a.IsActive &&
+                       (!a.StartDate.HasValue || a.StartDate <= now) &&
                        (!a.EndDate.HasValue || a.EndDate >= now))
             .OrderByDescending(a => a.Created)
             .Select(a => new AnnouncementDto(
                 a.Id,
                 a.Message,
+                a.Subtitle,
+                a.BadgeText,
+                a.PromoCode,
+                a.DiscountPercent,
                 a.LinkUrl,
                 a.IsActive,
                 a.StartDate,
@@ -2922,6 +3380,10 @@ public class GetAllAnnouncementsQueryHandler : IRequestHandler<GetAllAnnouncemen
             .Select(a => new AnnouncementDto(
                 a.Id,
                 a.Message,
+                a.Subtitle,
+                a.BadgeText,
+                a.PromoCode,
+                a.DiscountPercent,
                 a.LinkUrl,
                 a.IsActive,
                 a.StartDate,
@@ -3100,18 +3562,32 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Budgetha.Application.Features.Cart.Commands;
 
-public record AddToCartCommand(Guid ProductId, int Quantity, OrderItemType Type, DateOnly? RentalStartDate,
-    DateOnly? RentalEndDate, Guid? VariantId = null, string? Color = null, string? Size = null) : IRequest;
+public class AddToCartCommand : IRequest
+{
+    public Guid ProductId { get; set; }
+    public int Quantity { get; set; }
+    public OrderItemType Type { get; set; }
+    public DateOnly? RentalStartDate { get; set; }
+    public DateOnly? RentalEndDate { get; set; }
+    public Guid? VariantId { get; set; }
+    public string? Color { get; set; }
+    public string? Size { get; set; }
+}
 
 public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUserService;
+    private readonly IInventoryLockService _inventoryLockService;
 
-    public AddToCartCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    public AddToCartCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUserService,
+        IInventoryLockService inventoryLockService)
     {
         _context = context;
         _currentUserService = currentUserService;
+        _inventoryLockService = inventoryLockService;
     }
 
     public async Task Handle(AddToCartCommand request, CancellationToken cancellationToken)
@@ -3121,6 +3597,11 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
         var userId = _currentUserService.UserId;
         if (string.IsNullOrEmpty(userId))
             throw new UnauthorizedAccessException();
+
+        if (!Guid.TryParse(userId, out var userLockId))
+            throw new InvalidOperationException("The current user ID is invalid.");
+
+        await using var cartTransaction = await _inventoryLockService.BeginTransactionAsync([userLockId], cancellationToken);
 
         var cart = await _context.Carts
             .Include(c => c.Items)
@@ -3134,6 +3615,7 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
 
         var product = await _context.Products
             .Include(p => p.Variants)
+            .AsNoTracking()
             .SingleOrDefaultAsync(p => p.Id == request.ProductId, cancellationToken);
         if (product == null || !product.IsActive || product.ApprovalStatus != ApprovalStatus.Approved)
             throw new NotFoundException(nameof(Product), request.ProductId);
@@ -3147,29 +3629,49 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
             i.Type == request.Type && 
             i.RentalStartDate == request.RentalStartDate && 
             i.RentalEndDate == request.RentalEndDate &&
-            i.Color == variant?.Color &&
-            i.Size == variant?.Size);
+            i.Color == (variant?.Color ?? request.Color) &&
+            i.Size == (variant?.Size ?? request.Size));
 
         if (existingItem != null)
         {
             var mergedQuantity = checked(existingItem.Quantity + request.Quantity);
             CartRules.ValidateQuantity(mergedQuantity);
-            existingItem.Quantity = mergedQuantity;
+
+            if (request.Type == OrderItemType.Purchase)
+            {
+                if (mergedQuantity > (variant?.StockQuantity ?? product.StockQuantity))
+                    throw new InvalidOperationException("Not enough stock available.");
+            }
+            else if (request.Type == OrderItemType.Rental)
+            {
+                var totalRented = await InventoryRules.GetMaximumReservedQuantityAsync(
+                    _context, request.ProductId, variant?.Id, request.RentalStartDate!.Value,
+                    request.RentalEndDate!.Value, cancellationToken);
+                if (mergedQuantity > (variant?.StockQuantity ?? product.StockQuantity) - totalRented)
+                    throw new InvalidOperationException("Not enough rental stock available.");
+            }
+
+            await _context.CartItems
+                .Where(ci => ci.Id == existingItem.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(ci => ci.Quantity, mergedQuantity), cancellationToken);
+            await cartTransaction.CommitAsync(cancellationToken);
+            return;
         }
         else
         {
             var newItem = new CartItem
             {
+                CartId = cart.Id,
                 ProductId = request.ProductId,
                 VariantId = variant?.Id,
                 Quantity = request.Quantity,
                 Type = request.Type,
                 RentalStartDate = request.RentalStartDate,
                 RentalEndDate = request.RentalEndDate,
-                Color = variant?.Color,
-                Size = variant?.Size
+                Color = variant?.Color ?? request.Color,
+                Size = variant?.Size ?? request.Size
             };
-            cart.Items.Add(newItem);
+            _context.CartItems.Add(newItem);
         }
 
         var quantity = existingItem?.Quantity ?? request.Quantity;
@@ -3197,7 +3699,16 @@ public class AddToCartCommandHandler : IRequestHandler<AddToCartCommand>
             throw new InvalidOperationException("Invalid cart item type.");
         }
 
-        await _context.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+            await cartTransaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex)
+        {
+            var entityTypes = string.Join(", ", ex.Entries.Select(e => e.Entity.GetType().Name));
+            throw new InvalidOperationException($"DB Error ({entityTypes}): {ex.InnerException?.Message ?? ex.Message}");
+        }
     }
 }
 
@@ -3300,27 +3811,37 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Budgetha.Application.Features.Cart.Commands;
 
-public record SyncCartItemDto(
-    Guid ProductId,
-    Guid? VariantId,
-    int Quantity,
-    string? Color,
-    string? Size,
-    OrderItemType Type = OrderItemType.Purchase,
-    DateOnly? RentalStartDate = null,
-    DateOnly? RentalEndDate = null);
+public class SyncCartItemDto
+{
+    public Guid ProductId { get; set; }
+    public Guid? VariantId { get; set; }
+    public int Quantity { get; set; }
+    public string? Color { get; set; }
+    public string? Size { get; set; }
+    public OrderItemType Type { get; set; } = OrderItemType.Purchase;
+    public DateOnly? RentalStartDate { get; set; }
+    public DateOnly? RentalEndDate { get; set; }
+}
 
-public record SyncCartCommand(List<SyncCartItemDto> Items) : IRequest;
+public class SyncCartCommand : IRequest
+{
+    public List<SyncCartItemDto> Items { get; set; } = new();
+}
 
 public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUserService;
+    private readonly IInventoryLockService _inventoryLockService;
 
-    public SyncCartCommandHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    public SyncCartCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUserService,
+        IInventoryLockService inventoryLockService)
     {
         _context = context;
         _currentUserService = currentUserService;
+        _inventoryLockService = inventoryLockService;
     }
 
     public async Task Handle(SyncCartCommand request, CancellationToken cancellationToken)
@@ -3328,6 +3849,11 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
         var userId = _currentUserService.UserId;
         if (string.IsNullOrEmpty(userId))
             throw new UnauthorizedAccessException();
+
+        if (!Guid.TryParse(userId, out var userLockId))
+            throw new InvalidOperationException("The current user ID is invalid.");
+
+        await using var cartTransaction = await _inventoryLockService.BeginTransactionAsync([userLockId], cancellationToken);
 
         if (request.Items == null)
             throw new InvalidOperationException("Cart items are required.");
@@ -3347,15 +3873,17 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
 
         var syncedItems = request.Items
             .GroupBy(i => new { i.ProductId, i.VariantId, i.Type, i.RentalStartDate, i.RentalEndDate })
-            .Select(group => new SyncCartItemDto(
-                group.Key.ProductId,
-                group.Key.VariantId,
-                group.Sum(i => i.Quantity),
-                group.First().Color,
-                group.First().Size,
-                group.Key.Type,
-                group.Key.RentalStartDate,
-                group.Key.RentalEndDate))
+            .Select(group => new SyncCartItemDto
+            {
+                ProductId = group.Key.ProductId,
+                VariantId = group.Key.VariantId,
+                Quantity = group.Sum(i => i.Quantity),
+                Color = group.First().Color,
+                Size = group.First().Size,
+                Type = group.Key.Type,
+                RentalStartDate = group.Key.RentalStartDate,
+                RentalEndDate = group.Key.RentalEndDate
+            })
             .ToList();
 
         foreach (var itemDto in syncedItems)
@@ -3366,7 +3894,7 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
                 .Include(p => p.Variants)
                 .SingleOrDefaultAsync(p => p.Id == itemDto.ProductId, cancellationToken);
             if (product == null || !product.IsActive || product.ApprovalStatus != ApprovalStatus.Approved)
-                throw new InvalidOperationException($"Product {itemDto.ProductId} is not available.");
+                continue;
 
             var variant = InventoryRules.ValidateVariant(product, itemDto.VariantId, itemDto.Color, itemDto.Size);
 
@@ -3428,6 +3956,7 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
         }
 
         await _context.SaveChangesAsync(cancellationToken);
+        await cartTransaction.CommitAsync(cancellationToken);
     }
 }
 
@@ -3445,7 +3974,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Budgetha.Application.Features.Cart.Commands;
 
-public record UpdateCartItemQuantityCommand(Guid ItemId, int Quantity) : IRequest;
+public class UpdateCartItemQuantityCommand : IRequest
+{
+    public Guid ItemId { get; set; }
+    public int Quantity { get; set; }
+}
 
 public class UpdateCartItemQuantityCommandHandler : IRequestHandler<UpdateCartItemQuantityCommand>
 {
@@ -3519,6 +4052,8 @@ public record CartItemDto(
     Guid ProductId,
     Guid? VariantId,
     string ProductName,
+    string ProductSlug,
+    string Brand,
     string? ProductImage,
     string Category,
     decimal Price,
@@ -3569,25 +4104,26 @@ public class GetCartQueryHandler : IRequestHandler<GetCartQuery, CartDto>
         var cart = await _context.Carts
             .Include(c => c.Items)
             .ThenInclude(i => i.Product)
+            .ThenInclude(p => p.Images)
+            .Include(c => c.Items)
+            .ThenInclude(i => i.Product)
+            .ThenInclude(p => p.Categories)
             .Include(c => c.Items)
             .ThenInclude(i => i.Variant)
             .FirstOrDefaultAsync(c => c.UserId == userId, cancellationToken);
 
         if (cart == null)
-        {
-            // Create cart for user if not exists
-            cart = new Domain.Entities.Cart { UserId = userId };
-            _context.Carts.Add(cart);
-            await _context.SaveChangesAsync(cancellationToken);
-        }
+            return new CartDto(Guid.Empty, []);
 
         var items = cart.Items.Select(i => new CartItemDto(
             i.Id,
             i.ProductId,
             i.VariantId,
             i.Product.Name,
-            i.Product.Images.FirstOrDefault() != null ? i.Product.Images.FirstOrDefault()!.Url : null,
-            i.Product.Category != null ? i.Product.Category.Name : string.Empty,
+            i.Product.Slug,
+            i.Product.Brand,
+            i.Product.ThumbnailUrl ?? i.Product.Images.OrderBy(image => image.DisplayOrder).Select(image => image.Url).FirstOrDefault(),
+            i.Product.Categories.FirstOrDefault()?.Name ?? string.Empty,
             GetItemPrice(i),
             i.Quantity,
             i.Variant?.StockQuantity ?? i.Product.StockQuantity,
@@ -3766,6 +4302,7 @@ public class CategoryDto
 
 ``csharp
 using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -3791,7 +4328,7 @@ public class GetCategoriesQueryHandler : IRequestHandler<GetCategoriesQuery, Lis
                 Name = c.Name,
                 Slug = c.Slug,
                 Image = c.ImageUrl ?? "",
-                ProductCount = c.Products.Count
+                ProductCount = c.Products.Count(p => p.IsActive && p.ApprovalStatus == ApprovalStatus.Approved)
             })
             .AsNoTracking()
             .ToListAsync(cancellationToken);
@@ -3883,7 +4420,7 @@ public class GetNotificationsQueryHandler : IRequestHandler<GetNotificationsQuer
         return await _context.Notifications
             .Where(n => n.UserId == userId)
             .OrderByDescending(n => n.Created)
-            .Take(request.Limit)
+            .Take(Math.Clamp(request.Limit, 1, 100))
             .Select(n => new NotificationDto
             {
                 Id = n.Id.ToString(),
@@ -3977,21 +4514,25 @@ public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, boo
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUserService;
     private readonly IIdentityService _identityService;
+    private readonly IOrderCommunicationService _communications;
 
     public CancelOrderCommandHandler(
         IApplicationDbContext context,
         ICurrentUserService currentUserService,
-        IIdentityService identityService)
+        IIdentityService identityService,
+        IOrderCommunicationService communications)
     {
         _context = context;
         _currentUserService = currentUserService;
         _identityService = identityService;
+        _communications = communications;
     }
 
     public async Task<bool> Handle(CancelOrderCommand request, CancellationToken cancellationToken)
     {
         var order = await _context.Orders
             .Include(o => o.Payment)
+            .Include(o => o.User)
             .Include(o => o.Items)
             .ThenInclude(i => i.Product)
             .Include(o => o.Items)
@@ -4033,6 +4574,9 @@ public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, boo
             }
         }
 
+        var sellerIds = order.Items.Select(item => item.Product.SellerId)
+            .Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>();
+        await _communications.QueueStatusAsync(order, "cancelled", sellerIds, cancellationToken);
         await _context.SaveChangesAsync(cancellationToken);
         return true;
     }
@@ -4059,15 +4603,18 @@ public class CapturePayPalOrderCommandHandler : IRequestHandler<CapturePayPalOrd
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUserService;
     private readonly IPaymentService _paymentService;
+    private readonly IOrderCompletionService _completionService;
 
     public CapturePayPalOrderCommandHandler(
         IApplicationDbContext context,
         ICurrentUserService currentUserService,
-        IPaymentService paymentService)
+        IPaymentService paymentService,
+        IOrderCompletionService completionService)
     {
         _context = context;
         _currentUserService = currentUserService;
         _paymentService = paymentService;
+        _completionService = completionService;
     }
 
     public async Task<bool> Handle(CapturePayPalOrderCommand request, CancellationToken cancellationToken)
@@ -4079,6 +4626,8 @@ public class CapturePayPalOrderCommandHandler : IRequestHandler<CapturePayPalOrd
         var order = await _context.Orders
             .Include(o => o.Payment)
             .Include(o => o.Items)
+            .ThenInclude(item => item.Product)
+            .Include(o => o.User)
             .FirstOrDefaultAsync(o => o.Id == request.OrderId && o.UserId == userId, cancellationToken);
         if (order == null)
             throw new NotFoundException(nameof(Order), request.OrderId);
@@ -4120,17 +4669,14 @@ public class CapturePayPalOrderCommandHandler : IRequestHandler<CapturePayPalOrd
                 "PayPal capture status is being reconciled. Do not retry or cancel this order until its status is updated.");
         }
 
-        payment.Status = PaymentStatus.Completed;
-            payment.ExternalCaptureId = result.CaptureId;
-            order.Status = OrderStatus.Processing;
-            order.ReservationExpiresAt = null;
-            RemoveUnchangedOrderItemsFromCart(order);
+        await _completionService.CompletePayPalAsync(
+            order, payment, result.CaptureId, null, cancellationToken);
 
         try
         {
             await _context.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateConcurrencyException)
+        catch (DbUpdateException)
         {
             var completedByWebhook = await _context.Payments.AsNoTracking()
                 .AnyAsync(candidate => candidate.Id == payment.Id && candidate.Status == PaymentStatus.Completed &&
@@ -4141,24 +4687,6 @@ public class CapturePayPalOrderCommandHandler : IRequestHandler<CapturePayPalOrd
         }
 
         return true;
-    }
-
-    private void RemoveUnchangedOrderItemsFromCart(Order order)
-    {
-        var cartItems = _context.CartItems.Where(item => item.Cart.UserId == order.UserId).ToList();
-        foreach (var orderItem in order.Items)
-        {
-            var cartItem = cartItems.FirstOrDefault(item =>
-                item.ProductId == orderItem.ProductId && item.VariantId == orderItem.VariantId &&
-                item.Quantity == orderItem.Quantity &&
-                item.Type == orderItem.Type && item.RentalStartDate == orderItem.RentalStartDate &&
-                item.RentalEndDate == orderItem.RentalEndDate && item.Color == orderItem.Color && item.Size == orderItem.Size);
-            if (cartItem != null)
-            {
-                _context.CartItems.Remove(cartItem);
-                cartItems.Remove(cartItem);
-            }
-        }
     }
 }
 
@@ -4174,6 +4702,7 @@ using Budgetha.Domain.Entities;
 using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace Budgetha.Application.Features.Orders.Commands;
 
@@ -4188,25 +4717,25 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
 {
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUserService;
-    private readonly INotificationService _notificationService;
-    private readonly IEmailService _emailService;
+    private readonly IOrderCommunicationService _communications;
     private readonly IInventoryLockService _inventoryLockService;
     private readonly ICheckoutPricingService _pricingService;
+    private readonly IConfiguration _configuration;
 
     public CreateOrderCommandHandler(
         IApplicationDbContext context, 
         ICurrentUserService currentUserService,
-        INotificationService notificationService,
-        IEmailService emailService,
+        IOrderCommunicationService communications,
         IInventoryLockService inventoryLockService,
-        ICheckoutPricingService pricingService)
+        ICheckoutPricingService pricingService,
+        IConfiguration configuration)
     {
         _context = context;
         _currentUserService = currentUserService;
-        _notificationService = notificationService;
-        _emailService = emailService;
+        _communications = communications;
         _inventoryLockService = inventoryLockService;
         _pricingService = pricingService;
+        _configuration = configuration;
     }
 
     public async Task<Guid> Handle(CreateOrderCommand request, CancellationToken cancellationToken)
@@ -4223,8 +4752,17 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         if (shippingAddress == null)
             throw new UnauthorizedAccessException("The shipping address does not belong to the current user.");
 
-        var isPayPal = request.PaymentMethod.Equals("CreditCard", StringComparison.OrdinalIgnoreCase) ||
-                       request.PaymentMethod.Equals("PayPal", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(request.PaymentMethod))
+            throw new ValidationException(new[] { "A payment method is required." });
+
+        var isPayPal = request.PaymentMethod.Equals("PayPal", StringComparison.OrdinalIgnoreCase);
+        var isMock = request.PaymentMethod.Equals("Mock", StringComparison.OrdinalIgnoreCase);
+        var isCashOnDelivery = request.PaymentMethod.Equals("CashOnDelivery", StringComparison.OrdinalIgnoreCase);
+        var mockEnabled = bool.TryParse(_configuration["Payments:Mock:Enabled"], out var enabled) && enabled;
+        if (isMock && !mockEnabled)
+            throw new ValidationException(new[] { "Mock payment is only available in the development environment." });
+        if (!isPayPal && !isMock && !isCashOnDelivery)
+            throw new ValidationException(new[] { "Payment method must be PayPal, Mock, or CashOnDelivery." });
 
         var cart = await _context.Carts
             .Include(c => c.Items)
@@ -4307,6 +4845,7 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
             orderItems.Add(new OrderItem
             {
                 ProductId = cartItem.ProductId,
+                SellerId = cartItem.Product.SellerId,
                 VariantId = variant?.Id,
                 Quantity = cartItem.Quantity,
                 UnitPrice = itemPrice,
@@ -4325,7 +4864,7 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         var order = new Order
         {
             UserId = userId,
-            Status = OrderStatus.Pending,
+            Status = isPayPal ? OrderStatus.Pending : OrderStatus.Processing,
             Subtotal = quote.Subtotal,
             DiscountAmount = quote.DiscountAmount,
             ShippingAmount = quote.ShippingAmount,
@@ -4351,15 +4890,32 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
             ReservationExpiresAt = isPayPal ? DateTimeOffset.UtcNow.AddMinutes(30) : null
         };
 
+        foreach (var sellerGroup in orderItems.GroupBy(item => item.SellerId))
+        {
+            var fulfillment = new OrderFulfillment
+            {
+                Order = order,
+                SellerId = sellerGroup.Key,
+                Amount = sellerGroup.Sum(item => item.UnitPrice * item.Quantity - item.DiscountAmount),
+                Status = FulfillmentStatus.Processing
+            };
+            foreach (var item in sellerGroup)
+            {
+                item.Fulfillment = fulfillment;
+                fulfillment.Items.Add(item);
+            }
+            order.Fulfillments.Add(fulfillment);
+        }
+
         // 4. Create Payment if not COD
-        if (isPayPal)
+        if (isPayPal || isMock)
         {
             order.Payment = new Payment
             {
                 Amount = quote.TotalAmount,
                 Currency = quote.Currency,
-                Status = PaymentStatus.Pending,
-                Provider = PaymentProvider.PayPal
+            Status = isMock ? PaymentStatus.Completed : PaymentStatus.Pending,
+                Provider = isMock ? PaymentProvider.Mock : PaymentProvider.PayPal
             };
         }
         else
@@ -4379,6 +4935,20 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         if (!isPayPal)
             _context.CartItems.RemoveRange(cart.Items);
 
+        if (!isPayPal)
+        {
+            var sellerIds = cart.Items
+                .Select(item => item.Product.SellerId)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Cast<string>();
+            await _communications.QueueSaleAsync(
+                order,
+                user?.FirstName ?? string.Empty,
+                sellerIds,
+                isMock ? "Mock Payment" : "Cash on Delivery",
+                cancellationToken);
+        }
+
         try
         {
             await _context.SaveChangesAsync(cancellationToken);
@@ -4387,65 +4957,6 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         catch (DbUpdateConcurrencyException)
         {
             throw new InvalidOperationException("One or more products in your cart were just sold out or updated. Please try again.");
-        }
-
-        // 6. Send Notifications & Emails
-        if (user != null && !string.IsNullOrEmpty(user.Email))
-        {
-            var invoiceHtml = $@"
-            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;'>
-                <div style='background-color: #0f172a; color: white; padding: 20px; text-align: center;'>
-                    <h2 style='margin: 0;'>Order Confirmation</h2>
-                    <p style='margin: 5px 0 0 0; color: #94a3b8;'>Thank you for shopping at Budgetha!</p>
-                </div>
-                <div style='padding: 20px;'>
-                    <p>Hi {user.FirstName},</p>
-                    <p>We've received your order <strong>#{order.Id.ToString().Substring(0, 8).ToUpper()}</strong>. We will notify you once it's shipped.</p>
-                    <h3 style='border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; margin-top: 30px;'>Order Summary</h3>
-                    <table style='width: 100%; border-collapse: collapse; margin-top: 15px;'>
-                        <tbody>
-                            <tr>
-                                <td style='padding: 8px 0; color: #475569;'>Total Amount:</td>
-                                <td style='padding: 8px 0; text-align: right; font-weight: bold;'>${order.TotalAmount:F2}</td>
-                            </tr>
-                            <tr>
-                                <td style='padding: 8px 0; color: #475569;'>Payment Method:</td>
-                                <td style='padding: 8px 0; text-align: right;'>{request.PaymentMethod}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div style='background-color: #f8fafc; padding: 15px; text-align: center; font-size: 12px; color: #64748b;'>
-                    &copy; {DateTime.UtcNow.Year} Budgetha. All rights reserved.
-                </div>
-            </div>";
-
-            try
-            {
-                await _emailService.SendEmailAsync(user.Email, $"Order Confirmation #{order.Id.ToString().Substring(0, 8).ToUpper()}", invoiceHtml);
-                await _notificationService.SendNotificationAsync(userId, "Order Placed Successfully", $"Your order #{order.Id.ToString().Substring(0, 8).ToUpper()} has been received.", "Order", order.Id.ToString());
-            }
-            catch
-            {
-                // The order is committed; delivery failures must not turn success into an API error.
-            }
-        }
-
-        // Notify sellers
-        var sellerIds = cart.Items.Where(i => i.Product.SellerId != null).Select(i => i.Product.SellerId).Distinct().ToList();
-        foreach (var sellerId in sellerIds)
-        {
-            if (sellerId != null)
-            {
-                try
-                {
-                    await _notificationService.SendNotificationAsync(sellerId, "New Sale!", "One or more of your products have been sold.", "Sale", order.Id.ToString());
-                }
-                catch
-                {
-                    // Notifications are post-commit best effort.
-                }
-            }
         }
 
         return order.Id;
@@ -4513,6 +5024,274 @@ public class CreatePayPalOrderCommandHandler : IRequestHandler<CreatePayPalOrder
 
 ``
 
+## Budgetha.Application\Features\Orders\Commands\OrderFulfillmentCommands.cs
+
+``csharp
+using Budgetha.Application.Common.Exceptions;
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Orders.Commands;
+
+public record ShipOrderCommand(Guid OrderId, string? Carrier, string? TrackingNumber) : IRequest;
+public record RejectOrderCommand(Guid OrderId, string Reason) : IRequest;
+public record ConfirmOrderReceivedCommand(Guid OrderId) : IRequest;
+public record ReportOrderNotReceivedCommand(Guid OrderId, string Reason) : IRequest;
+
+internal static class FulfillmentCommandHelpers
+{
+    public static async Task<(Order Order, OrderFulfillment Fulfillment, string UserId)> LoadAsync(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser,
+        Guid orderId,
+        CancellationToken cancellationToken)
+    {
+        var userId = currentUser.UserId;
+        if (string.IsNullOrWhiteSpace(userId)) throw new UnauthorizedAccessException();
+
+        var order = await context.Orders
+            .Include(o => o.User)
+            .Include(o => o.Payment)
+            .Include(o => o.Items).ThenInclude(i => i.Product)
+            .Include(o => o.Fulfillments).ThenInclude(f => f.Items)
+            .Include(o => o.Fulfillments).ThenInclude(f => f.Items).ThenInclude(i => i.Product)
+            .Include(o => o.Fulfillments).ThenInclude(f => f.Items).ThenInclude(i => i.Variant)
+            .SingleOrDefaultAsync(o => o.Id == orderId, cancellationToken)
+            ?? throw new NotFoundException(nameof(Order), orderId);
+
+        var fulfillment = order.Fulfillments.SingleOrDefault(f => f.SellerId == userId)
+            ?? throw new ForbiddenAccessException();
+        return (order, fulfillment, userId);
+    }
+
+    public static void RecalculateOrderStatus(Order order)
+    {
+        var active = order.Fulfillments.Where(f => f.Status != FulfillmentStatus.Rejected).ToList();
+        if (active.Count == 0)
+        {
+            order.Status = OrderStatus.Failed;
+            return;
+        }
+        if (active.All(f => f.Status == FulfillmentStatus.Delivered))
+        {
+            order.Status = OrderStatus.Delivered;
+            return;
+        }
+        if (order.Fulfillments.Any(f => f.Status == FulfillmentStatus.Rejected))
+        {
+            order.Status = OrderStatus.PartiallyFulfilled;
+            return;
+        }
+        if (active.All(f => f.Status == FulfillmentStatus.Shipped || f.Status == FulfillmentStatus.Delivered))
+        {
+            order.Status = OrderStatus.Shipped;
+            return;
+        }
+        order.Status = OrderStatus.Processing;
+    }
+}
+
+public sealed class ShipOrderCommandHandler : IRequestHandler<ShipOrderCommand>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IOrderCommunicationService _communications;
+
+    public ShipOrderCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser, IOrderCommunicationService communications)
+    { _context = context; _currentUser = currentUser; _communications = communications; }
+
+    public async Task Handle(ShipOrderCommand request, CancellationToken cancellationToken)
+    {
+        var (order, fulfillment, _) = await FulfillmentCommandHelpers.LoadAsync(_context, _currentUser, request.OrderId, cancellationToken);
+        if (order.Payment?.Provider == PaymentProvider.CashOnDelivery && order.Payment.Status != PaymentStatus.Pending)
+            throw new InvalidOperationException("This cash-on-delivery order has already been collected or closed.");
+        if (fulfillment.Status != FulfillmentStatus.Processing)
+            throw new InvalidOperationException("Only processing fulfillments can be shipped.");
+
+        fulfillment.Status = FulfillmentStatus.Shipped;
+        fulfillment.Carrier = string.IsNullOrWhiteSpace(request.Carrier) ? null : request.Carrier.Trim();
+        fulfillment.TrackingNumber = string.IsNullOrWhiteSpace(request.TrackingNumber) ? null : request.TrackingNumber.Trim();
+        fulfillment.ShippedAt = DateTimeOffset.UtcNow;
+        FulfillmentCommandHelpers.RecalculateOrderStatus(order);
+        await _communications.QueueStatusAsync(order, "shipped", [fulfillment.SellerId], cancellationToken, fulfillment.Id.ToString());
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+}
+
+public sealed class RejectOrderCommandHandler : IRequestHandler<RejectOrderCommand>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IOrderCommunicationService _communications;
+
+    public RejectOrderCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser, IOrderCommunicationService communications)
+    { _context = context; _currentUser = currentUser; _communications = communications; }
+
+    public async Task Handle(RejectOrderCommand request, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length < 5)
+            throw new ValidationException(new[] { "A rejection reason of at least 5 characters is required." });
+        var (order, fulfillment, _) = await FulfillmentCommandHelpers.LoadAsync(_context, _currentUser, request.OrderId, cancellationToken);
+        if (fulfillment.Status != FulfillmentStatus.Processing)
+            throw new InvalidOperationException("Only processing fulfillments can be rejected.");
+        if (order.Payment?.Status == PaymentStatus.Completed && order.Payment.Provider != PaymentProvider.Mock)
+            throw new InvalidOperationException("A paid fulfillment requires an admin refund before rejection.");
+
+        fulfillment.Status = FulfillmentStatus.Rejected;
+        fulfillment.RejectionReason = request.Reason.Trim();
+        fulfillment.RejectedAt = DateTimeOffset.UtcNow;
+        if (fulfillment.StockReleasedAt == null)
+        {
+            foreach (var item in fulfillment.Items.Where(i => i.Type == OrderItemType.Purchase))
+            {
+                if (item.Variant != null) item.Variant.StockQuantity += item.Quantity;
+                else if (item.Product != null) item.Product.StockQuantity += item.Quantity;
+            }
+            fulfillment.StockReleasedAt = DateTimeOffset.UtcNow;
+        }
+        var rejectedSubtotal = fulfillment.Items.Sum(item => item.UnitPrice * item.Quantity);
+        var rejectedDiscount = fulfillment.Items.Sum(item => item.DiscountAmount);
+        if (order.Fulfillments.Any(f => f.Status != FulfillmentStatus.Rejected))
+        {
+            order.Subtotal -= rejectedSubtotal;
+            order.DiscountAmount -= rejectedDiscount;
+            order.TotalAmount = order.Subtotal - order.DiscountAmount + order.ShippingAmount + order.TaxAmount;
+            if (order.Payment != null && order.Payment.Provider is PaymentProvider.Mock or PaymentProvider.CashOnDelivery)
+                order.Payment.Amount = order.TotalAmount;
+        }
+        FulfillmentCommandHelpers.RecalculateOrderStatus(order);
+        if (order.Fulfillments.All(f => f.Status == FulfillmentStatus.Rejected) && order.Payment != null)
+            order.Payment.Status = order.Payment.Provider == PaymentProvider.Mock ? PaymentStatus.Refunded : PaymentStatus.Failed;
+        await _communications.QueueStatusAsync(order, "rejected", [fulfillment.SellerId], cancellationToken,
+            fulfillment.Id.ToString(), fulfillment.RejectionReason);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+}
+
+public sealed class ConfirmOrderReceivedCommandHandler : IRequestHandler<ConfirmOrderReceivedCommand>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IOrderCommunicationService _communications;
+
+    public ConfirmOrderReceivedCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser, IOrderCommunicationService communications)
+    { _context = context; _currentUser = currentUser; _communications = communications; }
+
+    public async Task Handle(ConfirmOrderReceivedCommand request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.UserId ?? throw new UnauthorizedAccessException();
+        var order = await _context.Orders.Include(o => o.Payment).Include(o => o.Fulfillments)
+            .SingleOrDefaultAsync(o => o.Id == request.OrderId && o.UserId == userId, cancellationToken)
+            ?? throw new NotFoundException(nameof(Order), request.OrderId);
+        var active = order.Fulfillments.Where(f => f.Status != FulfillmentStatus.Rejected).ToList();
+        if (active.Count == 0 || !active.All(f => f.Status == FulfillmentStatus.Shipped || f.Status == FulfillmentStatus.Delivered))
+            throw new InvalidOperationException("The order can only be confirmed after it has been shipped.");
+        if (active.All(f => f.Status == FulfillmentStatus.Delivered))
+            throw new InvalidOperationException("This order has already been confirmed as received.");
+        foreach (var fulfillment in active)
+        {
+            fulfillment.Status = FulfillmentStatus.Delivered;
+            fulfillment.DeliveredAt ??= DateTimeOffset.UtcNow;
+        }
+        if (order.Payment?.Provider == PaymentProvider.CashOnDelivery)
+            order.Payment.Status = PaymentStatus.Completed;
+        FulfillmentCommandHelpers.RecalculateOrderStatus(order);
+        await _communications.QueueStatusAsync(order, "delivered", active.Select(f => f.SellerId), cancellationToken);
+        await _communications.QueueStatusAsync(order, "received", active.Select(f => f.SellerId), cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+}
+
+public sealed class ReportOrderNotReceivedCommandHandler : IRequestHandler<ReportOrderNotReceivedCommand>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IOrderCommunicationService _communications;
+
+    public ReportOrderNotReceivedCommandHandler(IApplicationDbContext context, ICurrentUserService currentUser, IOrderCommunicationService communications)
+    { _context = context; _currentUser = currentUser; _communications = communications; }
+
+    public async Task Handle(ReportOrderNotReceivedCommand request, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length < 5)
+            throw new ValidationException(new[] { "Please explain why the order was not received." });
+        var userId = _currentUser.UserId ?? throw new UnauthorizedAccessException();
+        var order = await _context.Orders.Include(o => o.Fulfillments)
+            .SingleOrDefaultAsync(o => o.Id == request.OrderId && o.UserId == userId, cancellationToken)
+            ?? throw new NotFoundException(nameof(Order), request.OrderId);
+        if (!order.Fulfillments.Any(f => f.Status == FulfillmentStatus.Shipped || f.Status == FulfillmentStatus.Delivered))
+            throw new InvalidOperationException("A delivery report can only be submitted after shipping.");
+        var existing = await _context.DeliveryReports.AnyAsync(r => r.OrderId == order.Id && r.BuyerId == userId && r.Status == DeliveryReportStatus.Open, cancellationToken);
+        if (existing) throw new InvalidOperationException("An open delivery report already exists for this order.");
+        _context.DeliveryReports.Add(new DeliveryReport { OrderId = order.Id, BuyerId = userId, Reason = request.Reason.Trim(), WasReceived = false });
+        await _communications.QueueStatusAsync(order, "not-received", order.Fulfillments.Select(f => f.SellerId), cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+}
+
+``
+
+## Budgetha.Application\Features\Orders\Commands\ResolveDeliveryReportCommand.cs
+
+``csharp
+using Budgetha.Application.Common.Exceptions;
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Enums;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Orders.Commands;
+
+public record ResolveDeliveryReportCommand(Guid ReportId, bool Dismiss, string Note) : IRequest;
+
+public sealed class ResolveDeliveryReportCommandHandler : IRequestHandler<ResolveDeliveryReportCommand>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IIdentityService _identity;
+    private readonly IOrderCommunicationService _communications;
+
+    public ResolveDeliveryReportCommandHandler(
+        IApplicationDbContext context,
+        ICurrentUserService currentUser,
+        IIdentityService identity,
+        IOrderCommunicationService communications)
+    { _context = context; _currentUser = currentUser; _identity = identity; _communications = communications; }
+
+    public async Task Handle(ResolveDeliveryReportCommand request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.UserId ?? throw new UnauthorizedAccessException();
+        var roles = await _identity.GetRolesAsync(userId);
+        if (!roles.Contains("Admin") && !roles.Contains("SuperAdmin")) throw new ForbiddenAccessException();
+        if (string.IsNullOrWhiteSpace(request.Note) || request.Note.Trim().Length < 5)
+            throw new ValidationException(new[] { "A resolution note of at least 5 characters is required." });
+
+        var report = await _context.DeliveryReports
+            .Include(r => r.Order).ThenInclude(o => o.Fulfillments)
+            .SingleOrDefaultAsync(r => r.Id == request.ReportId, cancellationToken)
+            ?? throw new NotFoundException("DeliveryReport", request.ReportId);
+        if (report.Status != DeliveryReportStatus.Open)
+            throw new InvalidOperationException("This delivery report has already been resolved.");
+
+        report.Status = request.Dismiss ? DeliveryReportStatus.Dismissed : DeliveryReportStatus.Resolved;
+        report.AdminNote = request.Note.Trim();
+        report.ResolvedById = userId;
+        report.ResolvedAt = DateTimeOffset.UtcNow;
+        await _communications.QueueDeliveryReportResolutionAsync(
+            report.Order,
+            report.Order.Fulfillments.Select(f => f.SellerId),
+            request.Dismiss,
+            report.AdminNote,
+            cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+}
+
+``
+
 ## Budgetha.Application\Features\Orders\Commands\UpdateOrderStatusCommand.cs
 
 ``csharp
@@ -4534,21 +5313,18 @@ public class UpdateOrderStatusCommandHandler : IRequestHandler<UpdateOrderStatus
     private readonly IApplicationDbContext _context;
     private readonly ICurrentUserService _currentUserService;
     private readonly IIdentityService _identityService;
-    private readonly INotificationService _notificationService;
-    private readonly IEmailService _emailService;
+    private readonly IOrderCommunicationService _communications;
 
     public UpdateOrderStatusCommandHandler(
         IApplicationDbContext context, 
         ICurrentUserService currentUserService,
         IIdentityService identityService,
-        INotificationService notificationService,
-        IEmailService emailService)
+        IOrderCommunicationService communications)
     {
         _context = context;
         _currentUserService = currentUserService;
         _identityService = identityService;
-        _notificationService = notificationService;
-        _emailService = emailService;
+        _communications = communications;
     }
 
     public async Task<bool> Handle(UpdateOrderStatusCommand request, CancellationToken cancellationToken)
@@ -4559,6 +5335,7 @@ public class UpdateOrderStatusCommandHandler : IRequestHandler<UpdateOrderStatus
             .ThenInclude(i => i.Product)
             .Include(o => o.Items)
             .ThenInclude(i => i.Variant)
+            .Include(o => o.Payment)
             .FirstOrDefaultAsync(o => o.Id == request.OrderId, cancellationToken);
 
         if (order == null)
@@ -4585,8 +5362,13 @@ public class UpdateOrderStatusCommandHandler : IRequestHandler<UpdateOrderStatus
         };
         if (!validTransition)
             throw new InvalidOperationException($"Order status cannot transition from {order.Status} to {request.Status}.");
+        if (request.Status == OrderStatus.Failed && order.Payment?.Status == PaymentStatus.Completed)
+            throw new InvalidOperationException("A completed payment must be refunded before the order can be marked as failed.");
 
         var previousStatus = order.Status;
+        if (previousStatus == request.Status)
+            return true;
+
         order.Status = request.Status;
         if (previousStatus != OrderStatus.Failed && request.Status == OrderStatus.Failed)
         {
@@ -4598,39 +5380,14 @@ public class UpdateOrderStatusCommandHandler : IRequestHandler<UpdateOrderStatus
                     item.Product.StockQuantity += item.Quantity;
             }
         }
-        await _context.SaveChangesAsync(cancellationToken);
-
-        // Send notifications if status is Shipped
         if (request.Status == OrderStatus.Shipped)
         {
-            if (order.User != null && !string.IsNullOrEmpty(order.User.Email))
-            {
-                var emailHtml = $@"
-                <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;'>
-                    <div style='background-color: #2563eb; color: white; padding: 20px; text-align: center;'>
-                        <h2 style='margin: 0;'>Order Shipped</h2>
-                    </div>
-                    <div style='padding: 20px;'>
-                        <p>Hi {order.User.FirstName},</p>
-                        <p>Good news! Your order <strong>#{order.Id.ToString().Substring(0, 8).ToUpper()}</strong> has been shipped and is on its way to you.</p>
-                        <p>Thank you for shopping with us.</p>
-                    </div>
-                    <div style='background-color: #f8fafc; padding: 15px; text-align: center; font-size: 12px; color: #64748b;'>
-                        &copy; {DateTime.UtcNow.Year} Budgetha. All rights reserved.
-                    </div>
-                </div>";
-
-                try
-                {
-                    await _emailService.SendEmailAsync(order.User.Email, $"Order Shipped #{order.Id.ToString().Substring(0, 8).ToUpper()}", emailHtml);
-                    await _notificationService.SendNotificationAsync(order.UserId, "Order Shipped", $"Your order #{order.Id.ToString().Substring(0, 8).ToUpper()} has been shipped.", "Order", order.Id.ToString());
-                }
-                catch
-                {
-                    // Post-commit delivery is best effort.
-                }
-            }
+            var sellerIds = order.Items.Select(item => item.Product.SellerId)
+                .Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>();
+            await _communications.QueueStatusAsync(order, "shipped", sellerIds, cancellationToken);
         }
+
+        await _context.SaveChangesAsync(cancellationToken);
 
         return true;
     }
@@ -4659,6 +5416,10 @@ public class CustomerOrderDto
     public CustomerShippingAddressDto? ShippingAddress { get; set; }
     public string? PaymentProvider { get; set; }
     public string? PaymentStatus { get; set; }
+    public bool CanConfirmReceipt { get; set; }
+    public bool CanReportNotReceived { get; set; }
+    public List<CustomerFulfillmentDto> Fulfillments { get; set; } = new();
+    public List<CustomerDeliveryReportDto> DeliveryReports { get; set; } = new();
 }
 
 public class CustomerOrderItemDto
@@ -4675,6 +5436,33 @@ public class CustomerOrderItemDto
     public DateOnly? RentalEndDate { get; set; }
     public string? Color { get; set; }
     public string? Size { get; set; }
+    public Guid? FulfillmentId { get; set; }
+    public string SellerName { get; set; } = string.Empty;
+}
+
+public class CustomerFulfillmentDto
+{
+    public Guid Id { get; set; }
+    public string SellerId { get; set; } = string.Empty;
+    public string SellerName { get; set; } = string.Empty;
+    public decimal Amount { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? Carrier { get; set; }
+    public string? TrackingNumber { get; set; }
+    public DateTimeOffset? ShippedAt { get; set; }
+    public DateTimeOffset? DeliveredAt { get; set; }
+    public DateTimeOffset? RejectedAt { get; set; }
+    public string? RejectionReason { get; set; }
+}
+
+public class CustomerDeliveryReportDto
+{
+    public Guid Id { get; set; }
+    public Guid? FulfillmentId { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? Reason { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public string? AdminNote { get; set; }
 }
 
 public class CustomerShippingAddressDto
@@ -4735,13 +5523,57 @@ using System.Threading.Tasks;
 
 namespace Budgetha.Application.Features.Orders.Queries;
 
-public record AdminOrderDto(
-    Guid Id,
-    string UserName,
-    DateTime CreatedAt,
-    int Status,
-    decimal TotalAmount
-);
+public class AdminOrderDto
+{
+    public Guid Id { get; set; }
+    public string OrderNumber { get; set; } = string.Empty;
+    public string UserId { get; set; } = string.Empty;
+    public string UserName { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public decimal TotalAmount { get; set; }
+    public string Currency { get; set; } = "USD";
+    public string PaymentProvider { get; set; } = string.Empty;
+    public string PaymentStatus { get; set; } = string.Empty;
+    public string ShippingAddress { get; set; } = string.Empty;
+    public List<AdminFulfillmentDto> Fulfillments { get; set; } = new();
+    public List<AdminDeliveryReportDto> DeliveryReports { get; set; } = new();
+}
+
+public class AdminFulfillmentDto
+{
+    public Guid Id { get; set; }
+    public string SellerId { get; set; } = string.Empty;
+    public string SellerName { get; set; } = string.Empty;
+    public decimal Amount { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? Carrier { get; set; }
+    public string? TrackingNumber { get; set; }
+    public DateTimeOffset? ShippedAt { get; set; }
+    public DateTimeOffset? DeliveredAt { get; set; }
+    public string? RejectionReason { get; set; }
+    public bool CanShip { get; set; }
+    public bool CanReject { get; set; }
+    public List<AdminFulfillmentItemDto> Items { get; set; } = new();
+}
+
+public class AdminFulfillmentItemDto
+{
+    public Guid ProductId { get; set; }
+    public string ProductName { get; set; } = string.Empty;
+    public string ProductImage { get; set; } = string.Empty;
+    public int Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+}
+
+public class AdminDeliveryReportDto
+{
+    public Guid Id { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? Reason { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public string? AdminNote { get; set; }
+}
 
 public record GetAdminOrdersQuery : IRequest<List<AdminOrderDto>>;
 
@@ -4766,26 +5598,74 @@ public class GetAdminOrdersQueryHandler : IRequestHandler<GetAdminOrdersQuery, L
 
         var roles = await _identityService.GetRolesAsync(userId);
         
-        IQueryable<Domain.Entities.Order> query = _context.Orders.Include(o => o.User).Include(o => o.Items).ThenInclude(i => i.Product);
+        IQueryable<Domain.Entities.Order> query = _context.Orders
+            .Include(o => o.User)
+            .Include(o => o.Payment)
+            .Include(o => o.Items).ThenInclude(i => i.Product)
+            .Include(o => o.Items).ThenInclude(i => i.Seller)
+            .Include(o => o.Fulfillments).ThenInclude(f => f.Seller)
+            .Include(o => o.Fulfillments).ThenInclude(f => f.Items).ThenInclude(i => i.Product)
+            .Include(o => o.DeliveryReports);
 
         if (!roles.Contains("Admin") && !roles.Contains("SuperAdmin"))
         {
             // If just a seller, return only orders containing their products
-            query = query.Where(o => o.Items.Any(i => i.Product.SellerId == userId));
+            query = query.Where(o => o.Fulfillments.Any(f => f.SellerId == userId));
         }
 
         var orders = await query
             .OrderByDescending(o => o.Created)
-            .Select(o => new AdminOrderDto(
-                o.Id,
-                o.User != null ? $"{o.User.FirstName} {o.User.LastName}" : "Unknown User",
-                o.Created.DateTime,
-                (int)o.Status,
-                o.TotalAmount
-            ))
             .ToListAsync(cancellationToken);
 
-        return orders;
+        var isAdmin = roles.Contains("Admin") || roles.Contains("SuperAdmin");
+        return orders.Select(o => new AdminOrderDto
+        {
+            Id = o.Id,
+            OrderNumber = $"BGT-{o.Created.Year}-{o.Id.ToString()[..4].ToUpperInvariant()}",
+            UserId = o.UserId,
+            UserName = o.User == null ? "Unknown User" : $"{o.User.FirstName} {o.User.LastName}".Trim(),
+            CreatedAt = o.Created.DateTime,
+            Status = o.Status.ToString(),
+            TotalAmount = o.TotalAmount,
+            Currency = o.Currency,
+            PaymentProvider = o.Payment?.Provider.ToString() ?? string.Empty,
+            PaymentStatus = o.Payment?.Status.ToString() ?? string.Empty,
+            ShippingAddress = string.Join(", ", new[] { o.ShippingLine1, o.ShippingLine2, o.ShippingCity, o.ShippingState, o.ShippingPostalCode, o.ShippingCountry }.Where(x => !string.IsNullOrWhiteSpace(x))),
+            Fulfillments = o.Fulfillments
+                .Where(f => isAdmin || f.SellerId == userId)
+                .Select(f => new AdminFulfillmentDto
+                {
+                    Id = f.Id,
+                    SellerId = f.SellerId,
+                    SellerName = f.Seller == null ? "Seller" : $"{f.Seller.FirstName} {f.Seller.LastName}".Trim(),
+                    Amount = f.Amount,
+                    Status = f.Status.ToString(),
+                    Carrier = f.Carrier,
+                    TrackingNumber = f.TrackingNumber,
+                    ShippedAt = f.ShippedAt,
+                    DeliveredAt = f.DeliveredAt,
+                    RejectionReason = f.RejectionReason,
+                    CanShip = f.SellerId == userId && f.Status == Domain.Enums.FulfillmentStatus.Processing,
+                    CanReject = f.SellerId == userId && f.Status == Domain.Enums.FulfillmentStatus.Processing &&
+                                (o.Payment?.Status != PaymentStatus.Completed || o.Payment.Provider == PaymentProvider.Mock),
+                    Items = f.Items.Select(i => new AdminFulfillmentItemDto
+                    {
+                        ProductId = i.ProductId,
+                        ProductName = i.Product.Name,
+                        ProductImage = i.Product.ThumbnailUrl ?? string.Empty,
+                        Quantity = i.Quantity,
+                        UnitPrice = i.UnitPrice
+                    }).ToList()
+                }).ToList(),
+            DeliveryReports = o.DeliveryReports.Select(r => new AdminDeliveryReportDto
+            {
+                Id = r.Id,
+                Status = r.Status.ToString(),
+                Reason = r.Reason,
+                CreatedAt = r.Created,
+                AdminNote = r.AdminNote
+            }).ToList()
+        }).ToList();
     }
 }
 
@@ -4864,8 +5744,11 @@ public class GetCustomerOrdersQueryHandler : IRequestHandler<GetCustomerOrdersQu
         var orders = await _context.Orders
             .AsNoTracking()
             .Include(o => o.Items).ThenInclude(i => i.Product)
+            .Include(o => o.Items).ThenInclude(i => i.Seller)
             .Include(o => o.ShippingAddress)
             .Include(o => o.Payment)
+            .Include(o => o.Fulfillments).ThenInclude(f => f.Seller)
+            .Include(o => o.DeliveryReports)
             .Where(o => o.UserId == userId)
             .OrderByDescending(o => o.Created)
             .ToListAsync(cancellationToken);
@@ -4887,6 +5770,35 @@ public class GetCustomerOrdersQueryHandler : IRequestHandler<GetCustomerOrdersQu
         Currency = order.Currency,
         PaymentProvider = order.Payment?.Provider.ToString(),
         PaymentStatus = order.Payment?.Status.ToString(),
+        CanConfirmReceipt = order.Fulfillments.Any(f => f.Status != Domain.Enums.FulfillmentStatus.Rejected) &&
+                            order.Fulfillments.Where(f => f.Status != Domain.Enums.FulfillmentStatus.Rejected)
+                                .All(f => f.Status == Domain.Enums.FulfillmentStatus.Shipped) &&
+                            !order.DeliveryReports.Any(r => r.Status == Domain.Enums.DeliveryReportStatus.Open),
+        CanReportNotReceived = order.Fulfillments.Any(f => f.Status == Domain.Enums.FulfillmentStatus.Shipped) &&
+                               !order.DeliveryReports.Any(r => r.Status == Domain.Enums.DeliveryReportStatus.Open),
+        Fulfillments = order.Fulfillments.Select(f => new CustomerFulfillmentDto
+        {
+            Id = f.Id,
+            SellerId = f.SellerId,
+            SellerName = f.Seller == null ? "Seller" : $"{f.Seller.FirstName} {f.Seller.LastName}".Trim(),
+            Amount = f.Amount,
+            Status = f.Status.ToString(),
+            Carrier = f.Carrier,
+            TrackingNumber = f.TrackingNumber,
+            ShippedAt = f.ShippedAt,
+            DeliveredAt = f.DeliveredAt,
+            RejectedAt = f.RejectedAt,
+            RejectionReason = f.RejectionReason
+        }).ToList(),
+        DeliveryReports = order.DeliveryReports.Select(r => new CustomerDeliveryReportDto
+        {
+            Id = r.Id,
+            FulfillmentId = r.FulfillmentId,
+            Status = r.Status.ToString(),
+            Reason = r.Reason,
+            CreatedAt = r.Created,
+            AdminNote = r.AdminNote
+        }).ToList(),
         ShippingAddress = new CustomerShippingAddressDto
         {
             FullName = order.ShippingFullName,
@@ -4911,7 +5823,9 @@ public class GetCustomerOrdersQueryHandler : IRequestHandler<GetCustomerOrdersQu
             RentalStartDate = item.RentalStartDate,
             RentalEndDate = item.RentalEndDate,
             Color = item.Color,
-            Size = item.Size
+            Size = item.Size,
+            FulfillmentId = item.FulfillmentId,
+            SellerName = item.Seller == null ? "Seller" : $"{item.Seller.FirstName} {item.Seller.LastName}".Trim()
         }).ToList()
     };
 
@@ -4939,8 +5853,11 @@ public class GetCustomerOrderQueryHandler : IRequestHandler<GetCustomerOrderQuer
         var order = await _context.Orders
             .AsNoTracking()
             .Include(o => o.Items).ThenInclude(i => i.Product)
+            .Include(o => o.Items).ThenInclude(i => i.Seller)
             .Include(o => o.ShippingAddress)
             .Include(o => o.Payment)
+            .Include(o => o.Fulfillments).ThenInclude(f => f.Seller)
+            .Include(o => o.DeliveryReports)
             .SingleOrDefaultAsync(o => o.Id == request.OrderId && o.UserId == userId, cancellationToken);
 
         return order == null ? null : GetCustomerOrdersQueryHandler.ToDto(order);
@@ -4967,8 +5884,11 @@ public class GetCustomerOrderByNumberQueryHandler : IRequestHandler<GetCustomerO
         var order = await _context.Orders
             .AsNoTracking()
             .Include(o => o.Items).ThenInclude(i => i.Product)
+            .Include(o => o.Items).ThenInclude(i => i.Seller)
             .Include(o => o.ShippingAddress)
             .Include(o => o.Payment)
+            .Include(o => o.Fulfillments).ThenInclude(f => f.Seller)
+            .Include(o => o.DeliveryReports)
             .Where(o => o.UserId == userId)
             .ToListAsync(cancellationToken);
 
@@ -5247,7 +6167,7 @@ public record CreateProductCommand(
     string Description,
     decimal Price,
     int StockQuantity,
-    Guid CategoryId,
+    List<Guid> CategoryIds,
     List<ProductImageInput> Images,
     bool IsAvailableForRent,
     decimal? RentalPricePerDay,
@@ -5291,10 +6211,10 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
                 .AnyAsync(variant => requestedSkus.Contains(variant.SKU), cancellationToken))
             throw new InvalidOperationException("A variant SKU is already in use.");
 
-        var categoryExists = await _context.Categories.AnyAsync(c => c.Id == request.CategoryId, cancellationToken);
-        if (!categoryExists)
+        var categories = await _context.Categories.Where(c => request.CategoryIds.Contains(c.Id)).ToListAsync(cancellationToken);
+        if (categories.Count != request.CategoryIds.Count)
         {
-            throw new Exception($"Category with ID {request.CategoryId} not found.");
+            throw new Exception("One or more categories not found.");
         }
 
         
@@ -5318,7 +6238,7 @@ public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand,
             Description = request.Description,
             Price = request.Price,
             StockQuantity = request.StockQuantity,
-            CategoryId = request.CategoryId,
+            Categories = categories,
             ThumbnailUrl = images.FirstOrDefault()?.Url,
             ThumbnailPublicId = images.FirstOrDefault()?.PublicId,
             IsAvailableForRent = request.IsAvailableForRent,
@@ -5550,7 +6470,7 @@ public record UpdateProductCommand(
     string Description,
     decimal Price,
     int StockQuantity,
-    Guid CategoryId,
+    List<Guid> CategoryIds,
     List<ProductImageInput> Images,
     bool IsAvailableForRent,
     decimal? RentalPricePerDay,
@@ -5591,6 +6511,7 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
             throw new InvalidOperationException("A variant SKU is already in use.");
 
         var product = await _context.Products
+            .Include(p => p.Categories)
             .Include(p => p.Images)
             .Include(p => p.Colors)
             .Include(p => p.Sizes)
@@ -5652,12 +6573,18 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
             .Select(publicId => publicId!)
             .ToHashSet();
 
+        var categories = await _context.Categories.Where(c => request.CategoryIds.Contains(c.Id)).ToListAsync(cancellationToken);
+        if (categories.Count != request.CategoryIds.Count)
+        {
+            throw new Exception("One or more categories not found.");
+        }
+
         product.Name = request.Name;
         product.Slug = slug;
         product.Description = request.Description;
         product.Price = request.Price;
         product.StockQuantity = request.StockQuantity;
-        product.CategoryId = request.CategoryId;
+        product.Categories = categories;
         product.ThumbnailUrl = images.FirstOrDefault()?.Url;
         product.ThumbnailPublicId = images.FirstOrDefault()?.PublicId;
         
@@ -5753,6 +6680,7 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
 
 ``csharp
 using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
@@ -5776,7 +6704,7 @@ public class GetBrandsQueryHandler : IRequestHandler<GetBrandsQuery, List<string
     public async Task<List<string>> Handle(GetBrandsQuery request, CancellationToken cancellationToken)
     {
         var brands = await _context.Products
-            .Where(p => !string.IsNullOrEmpty(p.Brand))
+            .Where(p => p.IsActive && p.ApprovalStatus == ApprovalStatus.Approved && !string.IsNullOrEmpty(p.Brand))
             .Select(p => p.Brand)
             .Distinct()
             .OrderBy(b => b)
@@ -5813,11 +6741,11 @@ public class GetPriceBoundsQueryHandler : IRequestHandler<GetPriceBoundsQuery, P
 
     public async Task<PriceBoundsDto> Handle(GetPriceBoundsQuery request, CancellationToken cancellationToken)
     {
-        var query = _context.Products.Where(p => p.ApprovalStatus == ApprovalStatus.Approved);
+        var query = _context.Products.Where(p => p.IsActive && p.ApprovalStatus == ApprovalStatus.Approved);
 
         if (request.CategoryId.HasValue)
         {
-            query = query.Where(p => p.CategoryId == request.CategoryId.Value);
+            query = query.Where(p => p.Categories.Any(c => c.Id == request.CategoryId.Value));
         }
 
         if (!string.IsNullOrWhiteSpace(request.SearchTerm))
@@ -5864,10 +6792,11 @@ public class GetProductBySlugQueryHandler : IRequestHandler<GetProductBySlugQuer
     public async Task<ProductDto?> Handle(GetProductBySlugQuery request, CancellationToken cancellationToken)
     {
         var p = await _context.Products
-            .Include(x => x.Category)
+            .Include(x => x.Categories)
             .Include(x => x.Images)
             .Include(x => x.Reviews)
             .Include(x => x.Variants)
+            .Include(x => x.Seller)
             .Include(x => x.Colors)
             .Include(x => x.Sizes)
             .Include(x => x.Features)
@@ -5896,8 +6825,7 @@ public class GetProductBySlugQueryHandler : IRequestHandler<GetProductBySlugQuer
             Name = p.Name,
             Slug = p.Slug,
             Brand = p.Brand,
-            Category = p.Category?.Slug ?? "",
-            CategoryId = p.CategoryId,
+            Categories = p.Categories.Select(c => new CategorySummaryDto { Id = c.Id, Name = c.Name, Slug = c.Slug }).ToList(),
             Price = p.Price,
             OriginalPrice = p.OriginalPrice,
             IsAvailableForRent = p.IsAvailableForRent,
@@ -5912,6 +6840,12 @@ public class GetProductBySlugQueryHandler : IRequestHandler<GetProductBySlugQuer
             IsNew = isNew,
             IsFeatured = p.IsFeatured,
             ApprovalStatus = p.ApprovalStatus.ToString(),
+            SellerId = p.SellerId,
+            SellerName = p.Seller != null
+                ? (!string.IsNullOrWhiteSpace(p.Seller.FirstName) || !string.IsNullOrWhiteSpace(p.Seller.LastName)
+                    ? $"{p.Seller.FirstName} {p.Seller.LastName}".Trim()
+                    : p.Seller.UserName ?? "")
+                : "",
             Images = imageUrls.Distinct().ToList(),
             ImageDetails = p.Images
                 .OrderBy(image => image.DisplayOrder)
@@ -5955,17 +6889,20 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Budgetha.Application.Features.Products.Queries;
 
-public record GetProductsQuery(
-    string? Search,
-    List<string>? Categories,
-    List<string>? Brands,
-    decimal MinPrice,
-    decimal MaxPrice,
-    decimal MinRating,
-    string? Sort,
-    int Page,
-    int PageSize,
-    string? SellerId = null) : IRequest<CatalogResultDto>;
+public class GetProductsQuery : IRequest<CatalogResultDto>
+{
+    public string? Search { get; set; }
+    public List<string>? Categories { get; set; }
+    public List<string>? Brands { get; set; }
+    public decimal MinPrice { get; set; } = 0;
+    public decimal MaxPrice { get; set; } = decimal.MaxValue;
+    public decimal MinRating { get; set; } = 0;
+    public string? Sort { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public string? SellerId { get; set; }
+    public bool IncludeUnapproved { get; set; } = false;
+}
 
 public class CatalogResultDto
 {
@@ -5986,11 +6923,15 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
     public async Task<CatalogResultDto> Handle(GetProductsQuery request, CancellationToken cancellationToken)
     {
         var query = _context.Products
-            .Include(p => p.Category)
+            .Include(p => p.Categories)
+            .Include(p => p.Seller)
             .Include(p => p.Images)
             .Include(p => p.Variants)
-            .Where(p => p.IsActive && p.ApprovalStatus == ApprovalStatus.Approved)
+            .Include(p => p.Reviews)
             .AsNoTracking();
+
+        query = query.Where(p => p.IsActive &&
+            (request.IncludeUnapproved || p.ApprovalStatus == ApprovalStatus.Approved));
 
         if (!string.IsNullOrEmpty(request.SellerId))
         {
@@ -6005,7 +6946,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
 
         if (request.Categories?.Any() == true)
         {
-            query = query.Where(p => request.Categories.Contains(p.Category.Slug));
+            query = query.Where(p => p.Categories.Any(c => request.Categories.Contains(c.Slug)));
         }
 
         if (request.Brands?.Any() == true)
@@ -6043,8 +6984,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
             Name = p.Name,
             Slug = p.Slug,
             Brand = string.IsNullOrWhiteSpace(p.Brand) ? "Generic" : p.Brand,
-            Category = p.Category?.Slug ?? "",
-            CategoryId = p.CategoryId,
+            Categories = p.Categories.Select(c => new CategorySummaryDto { Id = c.Id, Name = c.Name, Slug = c.Slug }).ToList(),
             Price = p.Price,
             OriginalPrice = p.OriginalPrice, 
             IsAvailableForRent = p.IsAvailableForRent,
@@ -6059,6 +6999,12 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
             IsNew = (DateTime.UtcNow - p.Created).TotalDays <= 30,
             IsFeatured = p.IsFeatured,
             ApprovalStatus = p.ApprovalStatus.ToString(),
+            SellerId = p.SellerId,
+            SellerName = p.Seller != null
+                ? (!string.IsNullOrWhiteSpace(p.Seller.FirstName) || !string.IsNullOrWhiteSpace(p.Seller.LastName)
+                    ? $"{p.Seller.FirstName} {p.Seller.LastName}".Trim()
+                    : p.Seller.UserName ?? "")
+                : "",
             Variants = p.Variants.Where(v => v.IsActive).Select(v => new ProductVariantDto
             {
                 Id = v.Id,
@@ -6102,8 +7048,7 @@ public class ProductDto
     public string Name { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
     public string Brand { get; set; } = string.Empty; 
-    public string Category { get; set; } = string.Empty;
-    public Guid CategoryId { get; set; }
+    public List<CategorySummaryDto> Categories { get; set; } = new();
     public decimal Price { get; set; }
     public decimal? OriginalPrice { get; set; }
     public decimal Rating { get; set; }
@@ -6123,6 +7068,8 @@ public class ProductDto
     public decimal? RentalPricePerDay { get; set; }
     public List<ProductVariantDto> Variants { get; set; } = new();
     public string ApprovalStatus { get; set; } = string.Empty;
+    public string SellerId { get; set; } = string.Empty;
+    public string SellerName { get; set; } = string.Empty;
 }
 
 public class ProductImageDto
@@ -6155,6 +7102,13 @@ public class ProductColorDto
     public string Hex { get; set; } = string.Empty;
 }
 
+public class CategorySummaryDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+}
+
 ``
 
 ## Budgetha.Application\Features\Reviews\Commands\AddReviewCommand.cs
@@ -6163,6 +7117,7 @@ public class ProductColorDto
 using Budgetha.Application.Common.Exceptions;
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -6193,6 +7148,14 @@ public class AddReviewCommandHandler : IRequestHandler<AddReviewCommand, Guid>
         var product = await _context.Products.FindAsync(new object[] { request.ProductId }, cancellationToken);
         if (product == null)
             throw new NotFoundException(nameof(Product), request.ProductId);
+
+        var purchasedAndDelivered = await _context.OrderItems.AnyAsync(item =>
+            item.ProductId == request.ProductId &&
+            item.Order.UserId == userId &&
+            item.Order.Status == OrderStatus.Delivered,
+            cancellationToken);
+        if (!purchasedAndDelivered)
+            throw new InvalidOperationException("You can review this product after an order containing it has been delivered.");
 
         var existingReview = await _context.Reviews
             .FirstOrDefaultAsync(r => r.ProductId == request.ProductId && r.UserId == userId, cancellationToken);
@@ -6355,6 +7318,7 @@ public class UpdateReviewCommandHandler : IRequestHandler<UpdateReviewCommand>
 ``csharp
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -6374,6 +7338,8 @@ public record ReviewDto(
 );
 
 public record GetProductReviewsQuery(Guid ProductId) : IRequest<List<ReviewDto>>;
+public record GetReviewEligibilityQuery(Guid ProductId) : IRequest<ReviewEligibilityDto>;
+public record ReviewEligibilityDto(bool CanReview, bool HasReviewed);
 
 public class GetProductReviewsQueryHandler : IRequestHandler<GetProductReviewsQuery, List<ReviewDto>>
 {
@@ -6395,6 +7361,11 @@ public class GetProductReviewsQueryHandler : IRequestHandler<GetProductReviewsQu
             .Where(r => r.ProductId == request.ProductId)
             .OrderByDescending(r => r.Created)
             .ToListAsync(cancellationToken);
+        var verifiedUserIds = await _context.OrderItems
+            .Where(item => item.ProductId == request.ProductId && item.Order.Status == OrderStatus.Delivered)
+            .Select(item => item.Order.UserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
 
         var dtos = reviews.Select(r =>
         {
@@ -6410,13 +7381,41 @@ public class GetProductReviewsQueryHandler : IRequestHandler<GetProductReviewsQu
                 r.Created.ToString("MMMM d, yyyy"),
                 r.Rating >= 4 ? "Great Product!" : r.Rating == 3 ? "It's okay" : "Not satisfied", 
                 r.Comment,
-                true, 
+                verifiedUserIds.Contains(r.UserId),
                 0, 
                 r.UserId == currentUserId
             );
         }).ToList();
 
         return dtos;
+    }
+}
+
+public class GetReviewEligibilityQueryHandler : IRequestHandler<GetReviewEligibilityQuery, ReviewEligibilityDto>
+{
+    private readonly IApplicationDbContext _context;
+    private readonly ICurrentUserService _currentUserService;
+
+    public GetReviewEligibilityQueryHandler(IApplicationDbContext context, ICurrentUserService currentUserService)
+    {
+        _context = context;
+        _currentUserService = currentUserService;
+    }
+
+    public async Task<ReviewEligibilityDto> Handle(GetReviewEligibilityQuery request, CancellationToken cancellationToken)
+    {
+        var userId = _currentUserService.UserId;
+        if (string.IsNullOrWhiteSpace(userId)) return new ReviewEligibilityDto(false, false);
+
+        var hasReviewed = await _context.Reviews.AnyAsync(review =>
+            review.ProductId == request.ProductId && review.UserId == userId, cancellationToken);
+        var hasDeliveredOrder = await _context.OrderItems.AnyAsync(item =>
+            item.ProductId == request.ProductId &&
+            item.Order.UserId == userId &&
+            item.Order.Status == Budgetha.Domain.Enums.OrderStatus.Delivered,
+            cancellationToken);
+
+        return new ReviewEligibilityDto(hasDeliveredOrder && !hasReviewed, hasReviewed);
     }
 }
 
@@ -6465,7 +7464,9 @@ public class ApproveSellerRequestCommandHandler : IRequestHandler<ApproveSellerR
             verification.ReviewedBy = _currentUserService.UserId;
         }
         
-        await _identityService.AssignRoleAsync(sellerRequest.UserId, "Seller");
+        var hasSellerRole = await _identityService.IsInRoleAsync(sellerRequest.UserId, "Seller");
+        if (!hasSellerRole && !await _identityService.AssignRoleAsync(sellerRequest.UserId, "Seller"))
+            throw new InvalidOperationException("The seller role could not be assigned.");
 
         await _context.SaveChangesAsync(cancellationToken);
         return true;
@@ -6573,15 +7574,33 @@ public class SubmitSellerRequestCommandHandler : IRequestHandler<SubmitSellerReq
         };
         _context.SellerRequests.Add(sellerRequest);
 
-        var verification = new SellerVerification
+        var verification = await _context.SellerVerifications
+            .SingleOrDefaultAsync(candidate => candidate.UserId == userId, cancellationToken);
+        if (verification?.Status == Budgetha.Domain.Enums.VerificationStatus.Approved)
+            throw new InvalidOperationException("This account is already an approved seller.");
+
+        if (verification is null)
         {
-            UserId = userId,
-            BusinessName = string.IsNullOrWhiteSpace(request.BusinessName) ? "Unknown" : request.BusinessName,
-            BusinessDescription = request.BusinessDescription,
-            DocumentUrl = request.DocumentUrl,
-            Status = Budgetha.Domain.Enums.VerificationStatus.Pending
-        };
-        _context.SellerVerifications.Add(verification);
+            verification = new SellerVerification { UserId = userId };
+            _context.SellerVerifications.Add(verification);
+        }
+
+        var documentUrl = string.IsNullOrWhiteSpace(request.DocumentUrl) ? null : request.DocumentUrl.Trim();
+        if (documentUrl is not null && !string.Equals(documentUrl, verification.DocumentUrl, StringComparison.Ordinal))
+        {
+            var pendingDocument = await _context.PendingImageUploads.SingleOrDefaultAsync(upload =>
+                upload.UserId == userId && upload.Url == documentUrl, cancellationToken);
+            if (pendingDocument is null)
+                throw new UnauthorizedAccessException("The verification document was not uploaded by the current user.");
+            _context.PendingImageUploads.Remove(pendingDocument);
+        }
+
+        verification.BusinessName = string.IsNullOrWhiteSpace(request.BusinessName) ? "Unknown" : request.BusinessName.Trim();
+        verification.BusinessDescription = request.BusinessDescription?.Trim() ?? string.Empty;
+        verification.DocumentUrl = documentUrl;
+        verification.Status = Budgetha.Domain.Enums.VerificationStatus.Pending;
+        verification.ReviewedBy = null;
+        verification.RejectionReason = null;
 
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -6652,6 +7671,94 @@ public class GetSellerRequestsQueryHandler : IRequestHandler<GetSellerRequestsQu
             .ToListAsync(cancellationToken);
 
         return result;
+    }
+}
+
+``
+
+## Budgetha.Application\Features\Sellers\Queries\GetSellerProfileQuery.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Enums;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Features.Sellers.Queries;
+
+public record GetSellerProfileQuery(string SellerId) : IRequest<SellerProfileDto?>;
+
+public sealed class SellerProfileDto
+{
+    public string Id { get; init; } = string.Empty;
+    public string DisplayName { get; init; } = string.Empty;
+    public string? AvatarUrl { get; init; }
+    public string? BusinessName { get; init; }
+    public string? BusinessDescription { get; init; }
+    public DateTimeOffset MemberSince { get; init; }
+    public int ActiveProductCount { get; init; }
+    public int ReviewCount { get; init; }
+    public decimal AverageRating { get; init; }
+}
+
+public sealed class GetSellerProfileQueryHandler : IRequestHandler<GetSellerProfileQuery, SellerProfileDto?>
+{
+    private readonly IApplicationDbContext _context;
+
+    public GetSellerProfileQueryHandler(IApplicationDbContext context)
+    {
+        _context = context;
+    }
+
+    public async Task<SellerProfileDto?> Handle(GetSellerProfileQuery request, CancellationToken cancellationToken)
+    {
+        var seller = await _context.Users
+            .AsNoTracking()
+            .Where(user => user.Id == request.SellerId &&
+                           user.Products.Any(product => product.IsActive && product.ApprovalStatus == ApprovalStatus.Approved))
+            .Select(user => new
+            {
+                user.Id,
+                user.FirstName,
+                user.LastName,
+                user.UserName,
+                user.AvatarUrl,
+                user.Created,
+                Verification = user.SellerVerification,
+                Products = user.Products.Where(product => product.IsActive && product.ApprovalStatus == ApprovalStatus.Approved)
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (seller is null) return null;
+
+        var reviewRatings = await _context.Reviews
+            .AsNoTracking()
+            .Where(review => review.Product.SellerId == seller.Id &&
+                             review.Product.IsActive &&
+                             review.Product.ApprovalStatus == ApprovalStatus.Approved)
+            .Select(review => review.Rating)
+            .ToListAsync(cancellationToken);
+
+        var displayName = $"{seller.FirstName} {seller.LastName}".Trim();
+        if (string.IsNullOrWhiteSpace(displayName))
+            displayName = seller.UserName ?? "Seller";
+
+        return new SellerProfileDto
+        {
+            Id = seller.Id,
+            DisplayName = displayName,
+            AvatarUrl = seller.AvatarUrl,
+            BusinessName = seller.Verification?.Status == VerificationStatus.Approved
+                ? seller.Verification.BusinessName
+                : null,
+            BusinessDescription = seller.Verification?.Status == VerificationStatus.Approved
+                ? seller.Verification.BusinessDescription
+                : null,
+            MemberSince = seller.Created,
+            ActiveProductCount = seller.Products.Count(),
+            ReviewCount = reviewRatings.Count,
+            AverageRating = reviewRatings.Count == 0 ? 0 : Math.Round((decimal)reviewRatings.Average(), 1)
+        };
     }
 }
 
@@ -7020,7 +8127,7 @@ public class GetWishlistQueryHandler : IRequestHandler<GetWishlistQuery, List<Wi
                 w.ProductId,
                 w.Product.Name,
                 w.Product.Images.FirstOrDefault() != null ? w.Product.Images.FirstOrDefault()!.Url : null,
-                w.Product.Category != null ? w.Product.Category.Name : string.Empty,
+                w.Product.Categories.FirstOrDefault() != null ? w.Product.Categories.FirstOrDefault()!.Name : string.Empty,
                 w.Product.Price,
                 w.Product.StockQuantity,
                 w.Product.StockQuantity > 0
@@ -7048,6 +8155,316 @@ public record WishlistItemDto(
     int Stock,
     bool InStock
 );
+
+``
+
+## Budgetha.Application\Services\OrderCommunicationService.cs
+
+``csharp
+using System.Globalization;
+using System.Net;
+using System.Security.Cryptography;
+using System.Text;
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
+
+namespace Budgetha.Application.Services;
+
+public sealed class OrderCommunicationService : IOrderCommunicationService
+{
+    private readonly IApplicationDbContext _context;
+    private readonly IEmailService _emailService;
+    private readonly IIdentityService _identityService;
+
+    public OrderCommunicationService(IApplicationDbContext context, IEmailService emailService, IIdentityService identityService)
+    {
+        _context = context;
+        _emailService = emailService;
+        _identityService = identityService;
+    }
+
+    public async Task QueueSaleAsync(
+        Order order,
+        string buyerFirstName,
+        IEnumerable<string> sellerIds,
+        string paymentMethod,
+        CancellationToken cancellationToken)
+    {
+        var number = ShortOrderNumber(order.Id);
+        var eventKey = $"order:{order.Id}:sale-completed";
+
+        QueueNotification(
+            order.UserId,
+            "Order Placed Successfully",
+            $"Your order #{number} has been received.",
+            "Order",
+            order.Id,
+            $"{eventKey}:buyer-notification");
+
+        var buyerEmail = order.ContactEmail ?? order.User?.Email;
+        if (!string.IsNullOrWhiteSpace(buyerEmail))
+        {
+            var safeName = WebUtility.HtmlEncode(buyerFirstName);
+            var safeMethod = WebUtility.HtmlEncode(paymentMethod);
+            var total = order.TotalAmount.ToString("F2", CultureInfo.InvariantCulture);
+            var body = $"<h2>Order Confirmation</h2><p>Hi {safeName},</p>" +
+                       $"<p>We've received your order <strong>#{number}</strong>. We will notify you once it's shipped.</p>" +
+                       $"<p>Total: {total} {WebUtility.HtmlEncode(order.Currency)}<br>Payment method: {safeMethod}</p>";
+            await _emailService.QueueEmailAsync(
+                buyerEmail,
+                $"Order Confirmation #{number}",
+                body,
+                $"{eventKey}:buyer-email",
+                cancellationToken);
+        }
+
+        foreach (var sellerId in sellerIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct())
+        {
+            QueueNotification(
+                sellerId,
+                "New Sale!",
+                "One or more of your products have been sold.",
+                "Sale",
+                order.Id,
+                $"{eventKey}:seller:{StableId(sellerId)}");
+        }
+    }
+
+    public async Task QueueStatusAsync(
+        Order order,
+        string eventName,
+        IEnumerable<string> sellerIds,
+        CancellationToken cancellationToken,
+        string? eventScope = null,
+        string? eventDetail = null)
+    {
+        var normalizedEvent = eventName.Trim().ToLowerInvariant();
+        var number = ShortOrderNumber(order.Id);
+        var eventKey = $"order:{order.Id}:{normalizedEvent}{(string.IsNullOrWhiteSpace(eventScope) ? string.Empty : $":{eventScope}")}";
+        var (title, message) = normalizedEvent switch
+        {
+            "shipped" => ("Order Shipped", $"Your order #{number} has been shipped."),
+            "cancelled" => ("Order Cancelled", $"Your order #{number} has been cancelled."),
+            "expired" => ("Order Expired", $"Your unpaid order #{number} expired and its stock reservation was released."),
+            "delivered" => ("Order Delivered", $"Your order #{number} has been delivered. Please confirm receipt."),
+            "rejected" => ("Order Rejected", $"A seller rejected part of order #{number}. Reason: {eventDetail ?? "Seller was unable to fulfill the item."}"),
+            "received" => ("Delivery Confirmed", $"Receipt of order #{number} was confirmed."),
+            "not-received" => ("Delivery Report Submitted", $"A delivery issue was reported for order #{number}. Our team will review it."),
+            _ => throw new ArgumentOutOfRangeException(nameof(eventName), eventName, "Unsupported order communication event.")
+        };
+
+        QueueNotification(order.UserId, title, message, "Order", order.Id, $"{eventKey}:buyer-notification");
+
+        var buyerEmail = order.ContactEmail ?? order.User?.Email;
+        if (!string.IsNullOrWhiteSpace(buyerEmail))
+        {
+            await _emailService.QueueEmailAsync(
+                buyerEmail,
+                $"{title} #{number}",
+                $"<h2>{title}</h2><p>{message}</p>",
+                $"{eventKey}:buyer-email",
+                cancellationToken);
+        }
+
+        foreach (var sellerId in sellerIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct())
+        {
+            QueueNotification(
+                sellerId,
+                title,
+                $"Order #{number} has been {normalizedEvent}.",
+                "Order",
+                order.Id,
+                $"{eventKey}:seller:{StableId(sellerId)}");
+        }
+
+        foreach (var adminId in (await _identityService.GetUserIdsInRoleAsync("Admin"))
+            .Concat(await _identityService.GetUserIdsInRoleAsync("SuperAdmin"))
+            .Distinct())
+        {
+            QueueNotification(adminId, title, $"Order #{number}: {message}", "Order", order.Id,
+                $"{eventKey}:admin:{StableId(adminId)}");
+        }
+    }
+
+    public async Task QueueDeliveryReportResolutionAsync(
+        Order order,
+        IEnumerable<string> sellerIds,
+        bool dismissed,
+        string note,
+        CancellationToken cancellationToken)
+    {
+        var number = ShortOrderNumber(order.Id);
+        var eventName = dismissed ? "dismissed" : "resolved";
+        var eventKey = $"order:{order.Id}:delivery-report:{eventName}";
+        var title = dismissed ? "Delivery report closed" : "Delivery report resolved";
+        var message = dismissed
+            ? $"Your delivery report for order #{number} was closed by Budgetha support. Note: {note}"
+            : $"Your delivery report for order #{number} was resolved by Budgetha support. Note: {note}";
+
+        QueueNotification(order.UserId, title, message, "Order", order.Id, $"{eventKey}:buyer");
+        foreach (var sellerId in sellerIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct())
+            QueueNotification(sellerId, title, $"Order #{number}: {message}", "Order", order.Id,
+                $"{eventKey}:seller:{StableId(sellerId)}");
+
+        foreach (var adminId in (await _identityService.GetUserIdsInRoleAsync("Admin"))
+            .Concat(await _identityService.GetUserIdsInRoleAsync("SuperAdmin"))
+            .Distinct())
+        {
+            QueueNotification(adminId, title, $"Order #{number}: {message}", "Order", order.Id,
+                $"{eventKey}:admin:{StableId(adminId)}");
+        }
+        await Task.CompletedTask;
+    }
+
+    private void QueueNotification(
+        string userId,
+        string title,
+        string message,
+        string type,
+        Guid orderId,
+        string idempotencyKey)
+    {
+        var notification = new Notification
+        {
+            UserId = userId,
+            Title = title,
+            Message = message,
+            Type = type,
+            RelatedEntityId = orderId.ToString(),
+            IdempotencyKey = idempotencyKey
+        };
+        _context.Notifications.Add(notification);
+        _context.OutboxDeliveries.Add(new OutboxDelivery
+        {
+            Type = OutboxDeliveryType.RealtimeNotification,
+            Recipient = userId,
+            Notification = notification,
+            IdempotencyKey = $"{idempotencyKey}:realtime"
+        });
+    }
+
+    private static string ShortOrderNumber(Guid id) => id.ToString()[..8].ToUpperInvariant();
+
+    private static string StableId(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+}
+
+``
+
+## Budgetha.Application\Services\OrderCompletionService.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
+using Microsoft.EntityFrameworkCore;
+
+namespace Budgetha.Application.Services;
+
+public sealed class OrderCompletionService : IOrderCompletionService
+{
+    private readonly IApplicationDbContext _context;
+    private readonly IOrderCommunicationService _communications;
+
+    public OrderCompletionService(IApplicationDbContext context, IOrderCommunicationService communications)
+    {
+        _context = context;
+        _communications = communications;
+    }
+
+    public async Task CompletePayPalAsync(
+        Order order,
+        Payment payment,
+        string captureId,
+        string? webhookEventId,
+        CancellationToken cancellationToken)
+    {
+        if (payment.Status == PaymentStatus.Completed)
+            return;
+        if (payment.Provider != PaymentProvider.PayPal || order.Status != OrderStatus.Pending)
+            throw new InvalidOperationException("Only a pending PayPal order can be completed.");
+
+        payment.Status = PaymentStatus.Completed;
+        payment.ExternalCaptureId = captureId;
+        if (!string.IsNullOrWhiteSpace(webhookEventId))
+            payment.LastWebhookEventId = webhookEventId;
+        order.Status = OrderStatus.Processing;
+        order.ReservationExpiresAt = null;
+
+        await RemoveUnchangedOrderItemsFromCartAsync(order, cancellationToken);
+        var sellerIds = order.Items
+            .Select(item => item.Product?.SellerId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Cast<string>();
+        await _communications.QueueSaleAsync(
+            order,
+            order.User?.FirstName ?? string.Empty,
+            sellerIds,
+            "PayPal",
+            cancellationToken);
+    }
+
+    private async Task RemoveUnchangedOrderItemsFromCartAsync(Order order, CancellationToken cancellationToken)
+    {
+        var cartItems = await _context.CartItems
+            .Where(item => item.Cart.UserId == order.UserId)
+            .ToListAsync(cancellationToken);
+        foreach (var orderItem in order.Items)
+        {
+            var cartItem = cartItems.FirstOrDefault(item =>
+                item.ProductId == orderItem.ProductId && item.VariantId == orderItem.VariantId &&
+                item.Quantity == orderItem.Quantity && item.Type == orderItem.Type &&
+                item.RentalStartDate == orderItem.RentalStartDate && item.RentalEndDate == orderItem.RentalEndDate &&
+                item.Color == orderItem.Color && item.Size == orderItem.Size);
+            if (cartItem == null)
+                continue;
+
+            _context.CartItems.Remove(cartItem);
+            cartItems.Remove(cartItem);
+        }
+    }
+}
+
+``
+
+## Budgetha.Application\Services\OutboxEmailService.cs
+
+``csharp
+using Budgetha.Application.Common.Interfaces;
+using Budgetha.Domain.Entities;
+using Budgetha.Domain.Enums;
+
+namespace Budgetha.Application.Services;
+
+public sealed class OutboxEmailService : IEmailService
+{
+    private readonly IApplicationDbContext _context;
+
+    public OutboxEmailService(IApplicationDbContext context)
+    {
+        _context = context;
+    }
+
+    public Task QueueEmailAsync(
+        string to,
+        string subject,
+        string body,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        _context.OutboxDeliveries.Add(new OutboxDelivery
+        {
+            Type = OutboxDeliveryType.Email,
+            Recipient = to,
+            Subject = subject,
+            Body = body,
+            IdempotencyKey = idempotencyKey
+        });
+
+        return Task.CompletedTask;
+    }
+}
 
 ``
 
@@ -7169,6 +8586,10 @@ namespace Budgetha.Domain.Entities;
 public class Announcement : BaseAuditableEntity
 {
     public string Message { get; set; } = string.Empty;
+    public string? Subtitle { get; set; }
+    public string? BadgeText { get; set; }
+    public string? PromoCode { get; set; }
+    public int? DiscountPercent { get; set; }
     public string? LinkUrl { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime? StartDate { get; set; }
@@ -7197,6 +8618,8 @@ public class ApplicationUser : IdentityUser
 
     public ICollection<Product> Products { get; set; } = new List<Product>();
     public ICollection<Order> Orders { get; set; } = new List<Order>();
+    public ICollection<OrderFulfillment> Fulfillments { get; set; } = new List<OrderFulfillment>();
+    public ICollection<DeliveryReport> DeliveryReports { get; set; } = new List<DeliveryReport>();
     public ICollection<Review> Reviews { get; set; } = new List<Review>();
     public ICollection<Address> Addresses { get; set; } = new List<Address>();
     public Cart? Cart { get; set; }
@@ -7275,6 +8698,32 @@ public class Category : BaseAuditableEntity
 
 ``
 
+## Budgetha.Domain\Entities\DeliveryReport.cs
+
+``csharp
+using Budgetha.Domain.Common;
+using Budgetha.Domain.Enums;
+
+namespace Budgetha.Domain.Entities;
+
+public class DeliveryReport : BaseAuditableEntity
+{
+    public Guid OrderId { get; set; }
+    public Order Order { get; set; } = null!;
+    public Guid? FulfillmentId { get; set; }
+    public OrderFulfillment? Fulfillment { get; set; }
+    public string BuyerId { get; set; } = string.Empty;
+    public ApplicationUser Buyer { get; set; } = null!;
+    public bool WasReceived { get; set; }
+    public string? Reason { get; set; }
+    public DeliveryReportStatus Status { get; set; } = DeliveryReportStatus.Open;
+    public string? AdminNote { get; set; }
+    public string? ResolvedById { get; set; }
+    public DateTimeOffset? ResolvedAt { get; set; }
+}
+
+``
+
 ## Budgetha.Domain\Entities\Notification.cs
 
 ``csharp
@@ -7290,6 +8739,7 @@ public class Notification : BaseAuditableEntity
     public string Type { get; set; } = string.Empty; // e.g. "Order", "System", "Sale"
     public bool IsRead { get; set; }
     public string? RelatedEntityId { get; set; } // e.g. OrderId or ProductId
+    public string IdempotencyKey { get; set; } = string.Empty;
 
     public virtual ApplicationUser? User { get; set; }
 }
@@ -7338,10 +8788,47 @@ public class Order : BaseAuditableEntity
     public string ContactPhone { get; set; } = string.Empty;
 
     public ICollection<OrderItem> Items { get; set; } = new List<OrderItem>();
+    public ICollection<OrderFulfillment> Fulfillments { get; set; } = new List<OrderFulfillment>();
+    public ICollection<DeliveryReport> DeliveryReports { get; set; } = new List<DeliveryReport>();
     public Payment? Payment { get; set; }
 
     [System.ComponentModel.DataAnnotations.ConcurrencyCheck]
     public byte[] RowVersion { get; set; } = Array.Empty<byte>();
+}
+
+``
+
+## Budgetha.Domain\Entities\OrderFulfillment.cs
+
+``csharp
+using Budgetha.Domain.Common;
+using Budgetha.Domain.Enums;
+
+namespace Budgetha.Domain.Entities;
+
+public class OrderFulfillment : BaseEntity
+{
+    public Guid OrderId { get; set; }
+    public Order Order { get; set; } = null!;
+
+    public string SellerId { get; set; } = string.Empty;
+    public ApplicationUser Seller { get; set; } = null!;
+
+    public decimal Amount { get; set; }
+    public FulfillmentStatus Status { get; set; } = FulfillmentStatus.Processing;
+    public string? Carrier { get; set; }
+    public string? TrackingNumber { get; set; }
+    public DateTimeOffset? ShippedAt { get; set; }
+    public DateTimeOffset? DeliveredAt { get; set; }
+    public DateTimeOffset? RejectedAt { get; set; }
+    public string? RejectionReason { get; set; }
+    public DateTimeOffset? StockReleasedAt { get; set; }
+
+    [System.ComponentModel.DataAnnotations.ConcurrencyCheck]
+    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
+
+    public ICollection<OrderItem> Items { get; set; } = new List<OrderItem>();
+    public ICollection<DeliveryReport> DeliveryReports { get; set; } = new List<DeliveryReport>();
 }
 
 ``
@@ -7359,6 +8846,12 @@ public class OrderItem : BaseEntity
     public Guid OrderId { get; set; }
     public Order Order { get; set; } = null!;
 
+    public Guid? FulfillmentId { get; set; }
+    public OrderFulfillment? Fulfillment { get; set; }
+
+    public string SellerId { get; set; } = string.Empty;
+    public ApplicationUser Seller { get; set; } = null!;
+
     public Guid ProductId { get; set; }
     public Product Product { get; set; } = null!;
 
@@ -7373,6 +8866,33 @@ public class OrderItem : BaseEntity
     public DateOnly? RentalEndDate { get; set; }
     public string? Color { get; set; }
     public string? Size { get; set; }
+}
+
+``
+
+## Budgetha.Domain\Entities\OutboxDelivery.cs
+
+``csharp
+using Budgetha.Domain.Common;
+using Budgetha.Domain.Enums;
+
+namespace Budgetha.Domain.Entities;
+
+public class OutboxDelivery : BaseEntity
+{
+    public OutboxDeliveryType Type { get; set; }
+    public OutboxDeliveryStatus Status { get; set; } = OutboxDeliveryStatus.Pending;
+    public string Recipient { get; set; } = string.Empty;
+    public string? Subject { get; set; }
+    public string? Body { get; set; }
+    public Guid? NotificationId { get; set; }
+    public Notification? Notification { get; set; }
+    public int Attempts { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? NextAttemptAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? CompletedAt { get; set; }
+    public string? LastError { get; set; }
+    public string IdempotencyKey { get; set; } = string.Empty;
 }
 
 ``
@@ -7465,8 +8985,7 @@ public class Product : BaseAuditableEntity
     public bool IsFeatured { get; set; }
     public ApprovalStatus ApprovalStatus { get; set; } = ApprovalStatus.Approved;
 
-    public Guid CategoryId { get; set; }
-    public Category Category { get; set; } = null!;
+    public ICollection<Category> Categories { get; set; } = new List<Category>();
 
     public string SellerId { get; set; } = string.Empty;
     public ApplicationUser Seller { get; set; } = null!;
@@ -7747,6 +9266,35 @@ public enum ApprovalStatus
 
 ``
 
+## Budgetha.Domain\Enums\DeliveryReportStatus.cs
+
+``csharp
+namespace Budgetha.Domain.Enums;
+
+public enum DeliveryReportStatus
+{
+    Open,
+    Resolved,
+    Dismissed
+}
+
+``
+
+## Budgetha.Domain\Enums\FulfillmentStatus.cs
+
+``csharp
+namespace Budgetha.Domain.Enums;
+
+public enum FulfillmentStatus
+{
+    Processing,
+    Shipped,
+    Delivered,
+    Rejected
+}
+
+``
+
 ## Budgetha.Domain\Enums\OrderItemType.cs
 
 ``csharp
@@ -7773,7 +9321,37 @@ public enum OrderStatus
     Delivered,
     Cancelled,
     Refunded,
-    Failed
+    Failed,
+    PartiallyFulfilled
+}
+
+``
+
+## Budgetha.Domain\Enums\OutboxDeliveryStatus.cs
+
+``csharp
+namespace Budgetha.Domain.Enums;
+
+public enum OutboxDeliveryStatus
+{
+    Pending,
+    Processing,
+    Failed,
+    Completed,
+    DeadLettered
+}
+
+``
+
+## Budgetha.Domain\Enums\OutboxDeliveryType.cs
+
+``csharp
+namespace Budgetha.Domain.Enums;
+
+public enum OutboxDeliveryType
+{
+    Email,
+    RealtimeNotification
 }
 
 ``
@@ -7787,6 +9365,7 @@ public enum PaymentProvider
 {
     Stripe,
     PayPal,
+    Mock,
     CashOnDelivery
 }
 
@@ -8020,6 +9599,12 @@ public class IdentityService : IIdentityService
         return await _userManager.IsInRoleAsync(user, role);
     }
 
+    public async Task<IList<string>> GetUserIdsInRoleAsync(string role)
+    {
+        var users = await _userManager.GetUsersInRoleAsync(role);
+        return users.Select(user => user.Id).ToList();
+    }
+
     public async Task<AuthResult> GoogleLoginAsync(string email, string firstName, string lastName)
     {
         var user = await _userManager.FindByEmailAsync(email);
@@ -8079,7 +9664,19 @@ public class IdentityService : IIdentityService
 
     public async Task<AuthResult> RefreshTokenAsync(string token, string refreshToken)
     {
-        var principal = _tokenService.GetPrincipalFromExpiredToken(token);
+        System.Security.Claims.ClaimsPrincipal? principal;
+        try
+        {
+            principal = _tokenService.GetPrincipalFromExpiredToken(token);
+        }
+        catch (Microsoft.IdentityModel.Tokens.SecurityTokenException)
+        {
+            return AuthResult.Failure("Invalid token.");
+        }
+        catch (ArgumentException)
+        {
+            return AuthResult.Failure("Invalid token.");
+        }
         if (principal == null)
             return AuthResult.Failure("Invalid token.");
 
@@ -8088,7 +9685,10 @@ public class IdentityService : IIdentityService
             return AuthResult.Failure("Invalid token.");
 
         var user = await _userManager.FindByEmailAsync(email);
-        if (user == null || user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
+        var securityStamp = principal.FindFirst("security_stamp")?.Value;
+        if (user == null || user.LockoutEnd > DateTimeOffset.UtcNow ||
+            !string.Equals(user.SecurityStamp ?? string.Empty, securityStamp ?? string.Empty, StringComparison.Ordinal) ||
+            user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
             return AuthResult.Failure("Invalid refresh token.");
 
         var (newToken, newExpiration) = await _tokenService.GenerateTokenAsync(user);
@@ -8164,6 +9764,7 @@ public class TokenService
             new(ClaimTypes.Email, user.Email!),
             new(ClaimTypes.GivenName, user.FirstName),
             new(ClaimTypes.Surname, user.LastName),
+            new("security_stamp", user.SecurityStamp ?? string.Empty),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
         };
 
@@ -8187,8 +9788,10 @@ public class TokenService
     {
         var tokenValidationParameters = new TokenValidationParameters
         {
-            ValidateAudience = false,
-            ValidateIssuer = false,
+            ValidateAudience = true,
+            ValidAudience = _jwtSettings.Audience,
+            ValidateIssuer = true,
+            ValidIssuer = _jwtSettings.Issuer,
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.Secret)),
             ValidateLifetime = false 
@@ -8220,7 +9823,9 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using System.Security.Claims;
 
 namespace Budgetha.Infrastructure.DependencyInjection;
 
@@ -8289,6 +9894,24 @@ public static class InfrastructureServiceRegistration
                             context.Token = accessToken;
 
                         return Task.CompletedTask;
+                    },
+                    OnTokenValidated = async context =>
+                    {
+                        var userId = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+                        var tokenSecurityStamp = context.Principal?.FindFirstValue("security_stamp");
+                        if (string.IsNullOrWhiteSpace(userId))
+                        {
+                            context.Fail("Invalid user token.");
+                            return;
+                        }
+
+                        var userManager = context.HttpContext.RequestServices.GetRequiredService<UserManager<ApplicationUser>>();
+                        var user = await userManager.FindByIdAsync(userId);
+                        if (user is null || (user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTimeOffset.UtcNow) ||
+                            !string.Equals(user.SecurityStamp ?? string.Empty, tokenSecurityStamp ?? string.Empty, StringComparison.Ordinal))
+                        {
+                            context.Fail("The account session is no longer valid.");
+                        }
                     }
                 };
             });
@@ -8300,14 +9923,19 @@ public static class InfrastructureServiceRegistration
         services.AddScoped<IInventoryLockService, PostgresInventoryLockService>();
         services.Configure<CheckoutPricingOptions>(configuration.GetSection(CheckoutPricingOptions.SectionName));
         services.AddScoped<ICheckoutPricingService, CheckoutPricingService>();
-        services.AddScoped<IEmailService, SmtpEmailService>();
-        services.AddScoped<INotificationService, NotificationService>();
+        services.AddSingleton<IValidateOptions<EmailSettings>, EmailSettingsValidator>();
+        services.AddOptions<EmailSettings>()
+            .Bind(configuration.GetSection(EmailSettings.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddScoped<IEmailSender, SmtpEmailSender>();
 
         services.Configure<CloudinarySettings>(configuration.GetSection(CloudinarySettings.SectionName));
         services.AddScoped<IImageService, ImageService>();
 
         services.AddHttpClient<IPaymentService, PaymentService>();
         services.AddHostedService<ExpiredPayPalReservationService>();
+        services.AddHostedService<OutboxDeliveryWorker>();
         services.AddHostedService<PendingImageCleanupService>();
         services.AddHostedService<PendingImageDeletionService>();
 
@@ -8348,6 +9976,8 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+    public DbSet<OrderFulfillment> OrderFulfillments => Set<OrderFulfillment>();
+    public DbSet<DeliveryReport> DeliveryReports => Set<DeliveryReport>();
     public DbSet<Cart> Carts => Set<Cart>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
     public DbSet<Review> Reviews => Set<Review>();
@@ -8368,6 +9998,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<PromoCode> PromoCodes => Set<PromoCode>();
     public DbSet<PendingImageUpload> PendingImageUploads => Set<PendingImageUpload>();
     public DbSet<PendingImageDeletion> PendingImageDeletions => Set<PendingImageDeletion>();
+    public DbSet<OutboxDelivery> OutboxDeliveries => Set<OutboxDelivery>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -8400,6 +10031,12 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
         }
 
         foreach (var entry in ChangeTracker.Entries<Payment>()
+                     .Where(entry => entry.State is EntityState.Added or EntityState.Modified))
+        {
+            entry.Entity.RowVersion = Guid.NewGuid().ToByteArray();
+        }
+
+        foreach (var entry in ChangeTracker.Entries<OrderFulfillment>()
                      .Where(entry => entry.State is EntityState.Added or EntityState.Modified))
         {
             entry.Entity.RowVersion = Guid.NewGuid().ToByteArray();
@@ -8523,9 +10160,9 @@ public static class ApplicationDbInitializer
 
         var products = new List<Product>
         {
-            new Product { Name = "Wireless Noise-Cancelling Headphones", Slug = "wireless-headphones", Description = "Premium over-ear headphones.", Price = 299.99m, StockQuantity = 50, CategoryId = electronics.Id, SellerId = sellerId, ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved },
-            new Product { Name = "Minimalist Mechanical Keyboard", Slug = "mechanical-keyboard", Description = "Sleek keyboard.", Price = 149.99m, StockQuantity = 20, CategoryId = electronics.Id, SellerId = sellerId, ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved },
-            new Product { Name = "Cotton Blend T-Shirt", Slug = "cotton-tshirt", Description = "Comfortable everyday tee.", Price = 24.99m, StockQuantity = 100, CategoryId = clothing.Id, SellerId = sellerId, ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved }
+            new Product { Name = "Wireless Noise-Cancelling Headphones", Slug = "wireless-headphones", Description = "Premium over-ear headphones.", Price = 299.99m, StockQuantity = 50, Categories = new List<Category> { electronics }, SellerId = sellerId, ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved },
+            new Product { Name = "Minimalist Mechanical Keyboard", Slug = "mechanical-keyboard", Description = "Sleek keyboard.", Price = 149.99m, StockQuantity = 20, Categories = new List<Category> { electronics }, SellerId = sellerId, ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved },
+            new Product { Name = "Cotton Blend T-Shirt", Slug = "cotton-tshirt", Description = "Comfortable everyday tee.", Price = 24.99m, StockQuantity = 100, Categories = new List<Category> { clothing }, SellerId = sellerId, ApprovalStatus = Budgetha.Domain.Enums.ApprovalStatus.Approved }
         };
 
         context.Products.AddRange(products);
@@ -8625,6 +10262,11 @@ public class CartItemConfiguration : IEntityTypeConfiguration<CartItem>
     public void Configure(EntityTypeBuilder<CartItem> builder)
     {
         builder.Property(ci => ci.Type).HasConversion<string>().HasMaxLength(50);
+        builder.ToTable(table =>
+        {
+            table.HasCheckConstraint("CK_CartItems_Quantity_Positive", "\"Quantity\" > 0");
+            table.HasCheckConstraint("CK_CartItems_RentalDates", "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+        });
 
         builder.HasOne(ci => ci.Cart)
             .WithMany(c => c.Items)
@@ -8669,6 +10311,54 @@ public class CategoryConfiguration : IEntityTypeConfiguration<Category>
             .WithMany(c => c.Children)
             .HasForeignKey(c => c.ParentId)
             .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Configurations\DeliveryReportConfiguration.cs
+
+``csharp
+using Budgetha.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace Budgetha.Infrastructure.Persistence.Configurations;
+
+public class DeliveryReportConfiguration : IEntityTypeConfiguration<DeliveryReport>
+{
+    public void Configure(EntityTypeBuilder<DeliveryReport> builder)
+    {
+        builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(50);
+        builder.Property(x => x.Reason).HasMaxLength(2000);
+        builder.Property(x => x.AdminNote).HasMaxLength(2000);
+        builder.Property(x => x.ResolvedById).HasMaxLength(450);
+        builder.HasIndex(x => new { x.OrderId, x.BuyerId, x.Status });
+        builder.HasOne(x => x.Order).WithMany(x => x.DeliveryReports).HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(x => x.Fulfillment).WithMany(x => x.DeliveryReports).HasForeignKey(x => x.FulfillmentId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasOne(x => x.Buyer).WithMany(x => x.DeliveryReports).HasForeignKey(x => x.BuyerId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Configurations\NotificationConfiguration.cs
+
+``csharp
+using Budgetha.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace Budgetha.Infrastructure.Persistence.Configurations;
+
+public sealed class NotificationConfiguration : IEntityTypeConfiguration<Notification>
+{
+    public void Configure(EntityTypeBuilder<Notification> builder)
+    {
+        builder.Property(notification => notification.IdempotencyKey).HasMaxLength(300).IsRequired();
+        builder.HasIndex(notification => notification.IdempotencyKey).IsUnique();
+        builder.HasIndex(notification => new { notification.UserId, notification.Created });
+        builder.HasIndex(notification => new { notification.UserId, notification.IsRead });
     }
 }
 
@@ -8727,6 +10417,35 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
 
 ``
 
+## Budgetha.Infrastructure\Persistence\Configurations\OrderFulfillmentConfiguration.cs
+
+``csharp
+using Budgetha.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace Budgetha.Infrastructure.Persistence.Configurations;
+
+public class OrderFulfillmentConfiguration : IEntityTypeConfiguration<OrderFulfillment>
+{
+    public void Configure(EntityTypeBuilder<OrderFulfillment> builder)
+    {
+        builder.Property(x => x.Amount).HasPrecision(18, 2);
+        builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(50);
+        builder.Property(x => x.SellerId).HasMaxLength(450).IsRequired();
+        builder.Property(x => x.Carrier).HasMaxLength(100);
+        builder.Property(x => x.TrackingNumber).HasMaxLength(200);
+        builder.Property(x => x.RejectionReason).HasMaxLength(1000);
+        builder.Property(x => x.RowVersion).IsConcurrencyToken().ValueGeneratedNever();
+        builder.HasIndex(x => new { x.OrderId, x.SellerId }).IsUnique();
+        builder.HasIndex(x => new { x.SellerId, x.Status });
+        builder.HasOne(x => x.Order).WithMany(x => x.Fulfillments).HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(x => x.Seller).WithMany(x => x.Fulfillments).HasForeignKey(x => x.SellerId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+``
+
 ## Budgetha.Infrastructure\Persistence\Configurations\OrderItemConfiguration.cs
 
 ``csharp
@@ -8743,6 +10462,13 @@ public class OrderItemConfiguration : IEntityTypeConfiguration<OrderItem>
         builder.Property(oi => oi.UnitPrice).HasPrecision(18, 2);
         builder.Property(oi => oi.DiscountAmount).HasPrecision(18, 2);
         builder.Property(oi => oi.Type).HasConversion<string>().HasMaxLength(50);
+        builder.Property(oi => oi.SellerId).HasMaxLength(450).IsRequired();
+        builder.ToTable(table =>
+        {
+            table.HasCheckConstraint("CK_OrderItems_Quantity_Positive", "\"Quantity\" > 0");
+            table.HasCheckConstraint("CK_OrderItems_Prices_NonNegative", "\"UnitPrice\" >= 0 AND \"DiscountAmount\" >= 0");
+            table.HasCheckConstraint("CK_OrderItems_RentalDates", "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+        });
 
         builder.HasOne(oi => oi.Order)
             .WithMany(o => o.Items)
@@ -8758,6 +10484,47 @@ public class OrderItemConfiguration : IEntityTypeConfiguration<OrderItem>
             .WithMany(v => v.OrderItems)
             .HasForeignKey(oi => oi.VariantId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(oi => oi.Fulfillment)
+            .WithMany(f => f.Items)
+            .HasForeignKey(oi => oi.FulfillmentId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne(oi => oi.Seller)
+            .WithMany()
+            .HasForeignKey(oi => oi.SellerId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Configurations\OutboxDeliveryConfiguration.cs
+
+``csharp
+using Budgetha.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace Budgetha.Infrastructure.Persistence.Configurations;
+
+public sealed class OutboxDeliveryConfiguration : IEntityTypeConfiguration<OutboxDelivery>
+{
+    public void Configure(EntityTypeBuilder<OutboxDelivery> builder)
+    {
+        builder.Property(delivery => delivery.Type).HasConversion<string>().HasMaxLength(50);
+        builder.Property(delivery => delivery.Status).HasConversion<string>().HasMaxLength(50);
+        builder.Property(delivery => delivery.Recipient).HasMaxLength(450).IsRequired();
+        builder.Property(delivery => delivery.Subject).HasMaxLength(300);
+        builder.Property(delivery => delivery.LastError).HasMaxLength(2000);
+        builder.Property(delivery => delivery.IdempotencyKey).HasMaxLength(350).IsRequired();
+        builder.HasIndex(delivery => delivery.IdempotencyKey).IsUnique();
+        builder.HasIndex(delivery => new { delivery.Status, delivery.NextAttemptAt });
+        builder.HasIndex(delivery => delivery.CompletedAt);
+        builder.HasOne(delivery => delivery.Notification)
+            .WithMany()
+            .HasForeignKey(delivery => delivery.NotificationId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }
 
@@ -8784,6 +10551,7 @@ public class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         builder.Property(p => p.ExternalCaptureId).HasMaxLength(250);
         builder.Property(p => p.LastWebhookEventId).HasMaxLength(250);
         builder.Property(p => p.RowVersion).IsConcurrencyToken().ValueGeneratedNever();
+        builder.ToTable(table => table.HasCheckConstraint("CK_Payments_Amount_Positive", "\"Amount\" > 0"));
 
         builder.HasIndex(p => p.OrderId).IsUnique();
         builder.HasIndex(p => p.ExternalTransactionId).IsUnique();
@@ -8876,10 +10644,9 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
             t.HasCheckConstraint("CK_Products_Slug_NotEmpty", "length(trim(\"Slug\")) > 0");
         });
 
-        builder.HasOne(p => p.Category)
+        builder.HasMany(p => p.Categories)
             .WithMany(c => c.Products)
-            .HasForeignKey(p => p.CategoryId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .UsingEntity(j => j.ToTable("ProductCategories"));
 
         builder.HasOne(p => p.Seller)
             .WithMany(u => u.Products)
@@ -8933,7 +10700,7 @@ public class ProductVariantConfiguration : IEntityTypeConfiguration<ProductVaria
         builder.Property(v => v.Size).HasMaxLength(100);
         builder.Property(v => v.Price).HasPrecision(18, 2);
         builder.Property(v => v.RentalPricePerDay).HasPrecision(18, 2);
-        builder.Property(v => v.RowVersion).IsConcurrencyToken();
+        builder.Property(v => v.RowVersion).IsConcurrencyToken().ValueGeneratedNever();
 
         builder.HasIndex(v => v.SKU).IsUnique();
         builder.HasIndex(v => new { v.ProductId, v.Color, v.Size })
@@ -27996,7 +29763,136 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
 ``
 
-## Budgetha.Infrastructure\Persistence\Migrations\ApplicationDbContextModelSnapshot.cs
+## Budgetha.Infrastructure\Persistence\Migrations\20260801000346_AddReliableCommunicationOutbox.cs
+
+``csharp
+using System;
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations
+{
+    /// <inheritdoc />
+    public partial class AddReliableCommunicationOutbox : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropIndex(
+                name: "IX_Notifications_UserId",
+                table: "Notifications");
+
+            migrationBuilder.AddColumn<string>(
+                name: "IdempotencyKey",
+                table: "Notifications",
+                type: "character varying(300)",
+                maxLength: 300,
+                nullable: false,
+                defaultValue: "");
+
+            migrationBuilder.Sql("UPDATE \"Notifications\" SET \"IdempotencyKey\" = 'legacy-notification:' || \"Id\"::text WHERE \"IdempotencyKey\" = '';");
+
+            migrationBuilder.CreateTable(
+                name: "OutboxDeliveries",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    Type = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
+                    Status = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
+                    Recipient = table.Column<string>(type: "character varying(450)", maxLength: 450, nullable: false),
+                    Subject = table.Column<string>(type: "character varying(300)", maxLength: 300, nullable: true),
+                    Body = table.Column<string>(type: "text", nullable: true),
+                    NotificationId = table.Column<Guid>(type: "uuid", nullable: true),
+                    Attempts = table.Column<int>(type: "integer", nullable: false),
+                    CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    NextAttemptAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    CompletedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    LastError = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
+                    IdempotencyKey = table.Column<string>(type: "character varying(350)", maxLength: 350, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_OutboxDeliveries", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_OutboxDeliveries_Notifications_NotificationId",
+                        column: x => x.NotificationId,
+                        principalTable: "Notifications",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Notifications_IdempotencyKey",
+                table: "Notifications",
+                column: "IdempotencyKey",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Notifications_UserId_Created",
+                table: "Notifications",
+                columns: new[] { "UserId", "Created" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Notifications_UserId_IsRead",
+                table: "Notifications",
+                columns: new[] { "UserId", "IsRead" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OutboxDeliveries_CompletedAt",
+                table: "OutboxDeliveries",
+                column: "CompletedAt");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OutboxDeliveries_IdempotencyKey",
+                table: "OutboxDeliveries",
+                column: "IdempotencyKey",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OutboxDeliveries_NotificationId",
+                table: "OutboxDeliveries",
+                column: "NotificationId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OutboxDeliveries_Status_NextAttemptAt",
+                table: "OutboxDeliveries",
+                columns: new[] { "Status", "NextAttemptAt" });
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropTable(
+                name: "OutboxDeliveries");
+
+            migrationBuilder.DropIndex(
+                name: "IX_Notifications_IdempotencyKey",
+                table: "Notifications");
+
+            migrationBuilder.DropIndex(
+                name: "IX_Notifications_UserId_Created",
+                table: "Notifications");
+
+            migrationBuilder.DropIndex(
+                name: "IX_Notifications_UserId_IsRead",
+                table: "Notifications");
+
+            migrationBuilder.DropColumn(
+                name: "IdempotencyKey",
+                table: "Notifications");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Notifications_UserId",
+                table: "Notifications",
+                column: "UserId");
+        }
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Migrations\20260801000346_AddReliableCommunicationOutbox.Designer.cs
 
 ``csharp
 // <auto-generated />
@@ -28004,6 +29900,7 @@ using System;
 using Budgetha.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -28012,9 +29909,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Budgetha.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260801000346_AddReliableCommunicationOutbox")]
+    partial class AddReliableCommunicationOutbox
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -28333,6 +30232,11 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.Property<string>("CreatedBy")
                         .HasColumnType("text");
 
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
                     b.Property<bool>("IsRead")
                         .HasColumnType("boolean");
 
@@ -28363,7 +30267,12 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "Created");
+
+                    b.HasIndex("UserId", "IsRead");
 
                     b.ToTable("Notifications");
                 });
@@ -28560,6 +30469,72 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.HasIndex("VariantId");
 
                     b.ToTable("OrderItems");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OutboxDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Body")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(350)
+                        .HasColumnType("character varying(350)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("NotificationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompletedAt");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("NotificationId");
+
+                    b.HasIndex("Status", "NextAttemptAt");
+
+                    b.ToTable("OutboxDeliveries");
                 });
 
             modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
@@ -29521,6 +31496,16 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.Navigation("Variant");
                 });
 
+            modelBuilder.Entity("Budgetha.Domain.Entities.OutboxDelivery", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Notification", "Notification")
+                        .WithMany()
+                        .HasForeignKey("NotificationId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Notification");
+                });
+
             modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
                 {
                     b.HasOne("Budgetha.Domain.Entities.Order", "Order")
@@ -29818,6 +31803,13028 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
 ``
 
+## Budgetha.Infrastructure\Persistence\Migrations\20260801103310_AddColorAndSizeToOrderAndCartItems.cs
+
+``csharp
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations
+{
+    /// <inheritdoc />
+    public partial class AddColorAndSizeToOrderAndCartItems : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+
+        }
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Migrations\20260801103310_AddColorAndSizeToOrderAndCartItems.Designer.cs
+
+``csharp
+// <auto-generated />
+using System;
+using Budgetha.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations
+{
+    [DbContext(typeof(ApplicationDbContext))]
+    [Migration("20260801103310_AddColorAndSizeToOrderAndCartItems")]
+    partial class AddColorAndSizeToOrderAndCartItems
+    {
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        {
+#pragma warning disable 612, 618
+            modelBuilder
+                .HasAnnotation("ProductVersion", "9.0.9")
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Address", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("City")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Country")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Line1")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Line2")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PostalCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Addresses");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Announcement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("EndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LinkUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("StartDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Announcements");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ApplicationUser", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<int>("AccessFailedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AvatarUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<bool>("EmailConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("LockoutEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LockoutEnd")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("NormalizedEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("NormalizedUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("PhoneNumberConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("RefreshToken")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("RefreshTokenExpiryTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SecurityStamp")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("UserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedEmail")
+                        .HasDatabaseName("EmailIndex");
+
+                    b.HasIndex("NormalizedUserName")
+                        .IsUnique()
+                        .HasDatabaseName("UserNameIndex");
+
+                    b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("Carts");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.CartItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CartId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("RentalEndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("RentalStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CartId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("VariantId");
+
+                    b.ToTable("CartItems");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParentId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Categories");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RelatedEntityId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "Created");
+
+                    b.HasIndex("UserId", "IsRead");
+
+                    b.ToTable("Notifications");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContactEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ContactPhone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("PromoCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PromoScope")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PromoSellerId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset?>("ReservationExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid?>("ShippingAddressId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ShippingAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("ShippingCity")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ShippingCountry")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ShippingFullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ShippingLine1")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ShippingLine2")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ShippingPhone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ShippingPostalCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ShippingState")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReservationExpiresAt");
+
+                    b.HasIndex("ShippingAddressId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Orders");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("RentalEndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("RentalStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("VariantId");
+
+                    b.ToTable("OrderItems");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OutboxDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Body")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(350)
+                        .HasColumnType("character varying(350)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("NotificationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompletedAt");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("NotificationId");
+
+                    b.HasIndex("Status", "NextAttemptAt");
+
+                    b.ToTable("OutboxDeliveries");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("ExternalCaptureId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<string>("ExternalTransactionId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LastWebhookEventId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalCaptureId")
+                        .IsUnique();
+
+                    b.HasIndex("ExternalTransactionId")
+                        .IsUnique();
+
+                    b.HasIndex("LastWebhookEventId")
+                        .IsUnique();
+
+                    b.HasIndex("OrderId")
+                        .IsUnique();
+
+                    b.ToTable("Payments");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PendingImageDeletion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("QueuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("QueuedAt");
+
+                    b.ToTable("PendingImageDeletions");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PendingImageUpload", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("UploadedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("UploadedAt");
+
+                    b.ToTable("PendingImageUploads");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ApprovalStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("AverageRating")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("Brand")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsAvailableForRent")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsFeatured")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal?>("OriginalPrice")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("RentalPricePerDay")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("ReviewCount")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<int>("StockQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ThumbnailPublicId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ThumbnailUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovalStatus");
+
+                    b.HasIndex("CategoryId");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("SellerId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Products", t =>
+                        {
+                            t.HasCheckConstraint("CK_Products_OriginalPrice_Positive", "\"OriginalPrice\" IS NULL OR \"OriginalPrice\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Price_Positive", "\"Price\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Slug_NotEmpty", "length(trim(\"Slug\")) > 0");
+
+                            t.HasCheckConstraint("CK_Products_Stock_NonNegative", "\"StockQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Hex")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductColors");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductFeatures");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AltText")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PublicId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductImages");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSizes");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSpecs");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("RentalPricePerDay")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SKU")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Size")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("StockQuantity")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SKU")
+                        .IsUnique();
+
+                    b.HasIndex("ProductId", "IsActive");
+
+                    b.HasIndex("ProductId", "Color", "Size")
+                        .IsUnique()
+                        .HasFilter("\"IsActive\"");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("ProductId", "Color", "Size"), false);
+
+                    b.ToTable("ProductVariants", t =>
+                        {
+                            t.HasCheckConstraint("CK_ProductVariants_Price_Positive", "\"Price\" IS NULL OR \"Price\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_SKU_NotEmpty", "length(trim(\"SKU\")) > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_Stock_NonNegative", "\"StockQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PromoCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("DiscountPercentage")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("MaxDiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("SellerId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("SellerId");
+
+                    b.ToTable("PromoCodes");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("ProductId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("Reviews", t =>
+                        {
+                            t.HasCheckConstraint("CK_Reviews_Rating_Range", "\"Rating\" >= 1 AND \"Rating\" <= 5");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SellerRequests");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerVerification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BusinessDescription")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("BusinessName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DocumentUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ReviewedBy")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("SellerVerifications");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("SupportTickets");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.TicketMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("SenderId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TicketId");
+
+                    b.ToTable("TicketMessages");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Wishlist", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("UserId", "ProductId")
+                        .IsUnique();
+
+                    b.ToTable("Wishlists");
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("NormalizedName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasDatabaseName("RoleNameIndex");
+
+                    b.ToTable("AspNetRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RoleId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetRoleClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderKey")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderDisplayName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("LoginProvider", "ProviderKey");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserLogins", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RoleId")
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId", "RoleId");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetUserRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId", "LoginProvider", "Name");
+
+                    b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Address", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Addresses")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithOne("Cart")
+                        .HasForeignKey("Budgetha.Domain.Entities.Cart", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.CartItem", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Cart", "Cart")
+                        .WithMany("Items")
+                        .HasForeignKey("CartId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("CartItems")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ProductVariant", "Variant")
+                        .WithMany("CartItems")
+                        .HasForeignKey("VariantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Cart");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Category", "Parent")
+                        .WithMany("Children")
+                        .HasForeignKey("ParentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Parent");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Address", "ShippingAddress")
+                        .WithMany()
+                        .HasForeignKey("ShippingAddressId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Orders")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ShippingAddress");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("Items")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("OrderItems")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ProductVariant", "Variant")
+                        .WithMany("OrderItems")
+                        .HasForeignKey("VariantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Order");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OutboxDelivery", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Notification", "Notification")
+                        .WithMany()
+                        .HasForeignKey("NotificationId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Notification");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithOne("Payment")
+                        .HasForeignKey("Budgetha.Domain.Entities.Payment", "OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Category", "Category")
+                        .WithMany("Products")
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany("Products")
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Category");
+
+                    b.Navigation("Seller");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Colors")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Features")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Images")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Sizes")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Specs")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Variants")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Reviews")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Reviews")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerVerification", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithOne("SellerVerification")
+                        .HasForeignKey("Budgetha.Domain.Entities.SellerVerification", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("SupportTickets")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.TicketMessage", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.SupportTicket", "Ticket")
+                        .WithMany("Messages")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ticket");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Wishlist", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Wishlists")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Wishlists")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ApplicationUser", b =>
+                {
+                    b.Navigation("Addresses");
+
+                    b.Navigation("Cart");
+
+                    b.Navigation("Orders");
+
+                    b.Navigation("Products");
+
+                    b.Navigation("Reviews");
+
+                    b.Navigation("SellerVerification");
+
+                    b.Navigation("SupportTickets");
+
+                    b.Navigation("Wishlists");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.Navigation("Children");
+
+                    b.Navigation("Products");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.Navigation("Items");
+
+                    b.Navigation("Payment");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.Navigation("CartItems");
+
+                    b.Navigation("Colors");
+
+                    b.Navigation("Features");
+
+                    b.Navigation("Images");
+
+                    b.Navigation("OrderItems");
+
+                    b.Navigation("Reviews");
+
+                    b.Navigation("Sizes");
+
+                    b.Navigation("Specs");
+
+                    b.Navigation("Variants");
+
+                    b.Navigation("Wishlists");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.Navigation("CartItems");
+
+                    b.Navigation("OrderItems");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.Navigation("Messages");
+                });
+#pragma warning restore 612, 618
+        }
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Migrations\20260801110000_AddOrderItemColorAndSizeColumns.cs
+
+``csharp
+using Budgetha.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations;
+
+[DbContext(typeof(ApplicationDbContext))]
+[Migration("20260801110000_AddOrderItemColorAndSizeColumns")]
+public partial class AddOrderItemColorAndSizeColumns : Migration
+{
+    protected override void Up(MigrationBuilder migrationBuilder)
+    {
+        migrationBuilder.AddColumn<string>(
+            name: "Color",
+            table: "OrderItems",
+            type: "text",
+            nullable: true);
+
+        migrationBuilder.AddColumn<string>(
+            name: "Size",
+            table: "OrderItems",
+            type: "text",
+            nullable: true);
+    }
+
+    protected override void Down(MigrationBuilder migrationBuilder)
+    {
+        migrationBuilder.DropColumn(
+            name: "Color",
+            table: "OrderItems");
+
+        migrationBuilder.DropColumn(
+            name: "Size",
+            table: "OrderItems");
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Migrations\20260801120000_FixCartItemColorAndSize.cs
+
+``csharp
+using Budgetha.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations;
+
+[DbContext(typeof(ApplicationDbContext))]
+[Migration("20260801120000_FixCartItemColorAndSize")]
+public partial class FixCartItemColorAndSize : Migration
+{
+    protected override void Up(MigrationBuilder migrationBuilder)
+    {
+        migrationBuilder.Sql("ALTER TABLE \"CartItems\" ADD COLUMN IF NOT EXISTS \"Color\" text;");
+        migrationBuilder.Sql("ALTER TABLE \"CartItems\" ADD COLUMN IF NOT EXISTS \"Size\" text;");
+    }
+
+    protected override void Down(MigrationBuilder migrationBuilder)
+    {
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Migrations\20260801151353_AddCartOrderPaymentIntegrityConstraints.cs
+
+``csharp
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations
+{
+    /// <inheritdoc />
+    public partial class AddCartOrderPaymentIntegrityConstraints : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_Payments_Amount_Positive",
+                table: "Payments",
+                sql: "\"Amount\" > 0");
+
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_OrderItems_Prices_NonNegative",
+                table: "OrderItems",
+                sql: "\"UnitPrice\" >= 0 AND \"DiscountAmount\" >= 0");
+
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_OrderItems_Quantity_Positive",
+                table: "OrderItems",
+                sql: "\"Quantity\" > 0");
+
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_OrderItems_RentalDates",
+                table: "OrderItems",
+                sql: "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_CartItems_Quantity_Positive",
+                table: "CartItems",
+                sql: "\"Quantity\" > 0");
+
+            migrationBuilder.AddCheckConstraint(
+                name: "CK_CartItems_RentalDates",
+                table: "CartItems",
+                sql: "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_Payments_Amount_Positive",
+                table: "Payments");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_OrderItems_Prices_NonNegative",
+                table: "OrderItems");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_OrderItems_Quantity_Positive",
+                table: "OrderItems");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_OrderItems_RentalDates",
+                table: "OrderItems");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_CartItems_Quantity_Positive",
+                table: "CartItems");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_CartItems_RentalDates",
+                table: "CartItems");
+        }
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Migrations\20260801151353_AddCartOrderPaymentIntegrityConstraints.Designer.cs
+
+``csharp
+// <auto-generated />
+using System;
+using Budgetha.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations
+{
+    [DbContext(typeof(ApplicationDbContext))]
+    [Migration("20260801151353_AddCartOrderPaymentIntegrityConstraints")]
+    partial class AddCartOrderPaymentIntegrityConstraints
+    {
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        {
+#pragma warning disable 612, 618
+            modelBuilder
+                .HasAnnotation("ProductVersion", "9.0.9")
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Address", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("City")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Country")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Line1")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Line2")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PostalCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Addresses");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Announcement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("EndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LinkUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("StartDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Announcements");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ApplicationUser", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<int>("AccessFailedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AvatarUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<bool>("EmailConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("LockoutEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LockoutEnd")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("NormalizedEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("NormalizedUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("PhoneNumberConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("RefreshToken")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("RefreshTokenExpiryTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SecurityStamp")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("UserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedEmail")
+                        .HasDatabaseName("EmailIndex");
+
+                    b.HasIndex("NormalizedUserName")
+                        .IsUnique()
+                        .HasDatabaseName("UserNameIndex");
+
+                    b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("Carts");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.CartItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CartId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("RentalEndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("RentalStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CartId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("VariantId");
+
+                    b.ToTable("CartItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_CartItems_Quantity_Positive", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_CartItems_RentalDates", "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParentId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Categories");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RelatedEntityId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "Created");
+
+                    b.HasIndex("UserId", "IsRead");
+
+                    b.ToTable("Notifications");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContactEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ContactPhone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("PromoCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PromoScope")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PromoSellerId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset?>("ReservationExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid?>("ShippingAddressId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ShippingAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("ShippingCity")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ShippingCountry")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ShippingFullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ShippingLine1")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ShippingLine2")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ShippingPhone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ShippingPostalCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ShippingState")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReservationExpiresAt");
+
+                    b.HasIndex("ShippingAddressId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Orders");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("RentalEndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("RentalStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("VariantId");
+
+                    b.ToTable("OrderItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_OrderItems_Prices_NonNegative", "\"UnitPrice\" >= 0 AND \"DiscountAmount\" >= 0");
+
+                            t.HasCheckConstraint("CK_OrderItems_Quantity_Positive", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_OrderItems_RentalDates", "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OutboxDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Body")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(350)
+                        .HasColumnType("character varying(350)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("NotificationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompletedAt");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("NotificationId");
+
+                    b.HasIndex("Status", "NextAttemptAt");
+
+                    b.ToTable("OutboxDeliveries");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("ExternalCaptureId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<string>("ExternalTransactionId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LastWebhookEventId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalCaptureId")
+                        .IsUnique();
+
+                    b.HasIndex("ExternalTransactionId")
+                        .IsUnique();
+
+                    b.HasIndex("LastWebhookEventId")
+                        .IsUnique();
+
+                    b.HasIndex("OrderId")
+                        .IsUnique();
+
+                    b.ToTable("Payments", t =>
+                        {
+                            t.HasCheckConstraint("CK_Payments_Amount_Positive", "\"Amount\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PendingImageDeletion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("QueuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("QueuedAt");
+
+                    b.ToTable("PendingImageDeletions");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PendingImageUpload", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("UploadedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("UploadedAt");
+
+                    b.ToTable("PendingImageUploads");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ApprovalStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("AverageRating")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("Brand")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsAvailableForRent")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsFeatured")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal?>("OriginalPrice")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("RentalPricePerDay")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("ReviewCount")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<int>("StockQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ThumbnailPublicId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ThumbnailUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovalStatus");
+
+                    b.HasIndex("CategoryId");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("SellerId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Products", t =>
+                        {
+                            t.HasCheckConstraint("CK_Products_OriginalPrice_Positive", "\"OriginalPrice\" IS NULL OR \"OriginalPrice\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Price_Positive", "\"Price\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Slug_NotEmpty", "length(trim(\"Slug\")) > 0");
+
+                            t.HasCheckConstraint("CK_Products_Stock_NonNegative", "\"StockQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Hex")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductColors");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductFeatures");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AltText")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PublicId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductImages");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSizes");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSpecs");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("RentalPricePerDay")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SKU")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Size")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("StockQuantity")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SKU")
+                        .IsUnique();
+
+                    b.HasIndex("ProductId", "IsActive");
+
+                    b.HasIndex("ProductId", "Color", "Size")
+                        .IsUnique()
+                        .HasFilter("\"IsActive\"");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("ProductId", "Color", "Size"), false);
+
+                    b.ToTable("ProductVariants", t =>
+                        {
+                            t.HasCheckConstraint("CK_ProductVariants_Price_Positive", "\"Price\" IS NULL OR \"Price\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_SKU_NotEmpty", "length(trim(\"SKU\")) > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_Stock_NonNegative", "\"StockQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PromoCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("DiscountPercentage")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("MaxDiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("SellerId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("SellerId");
+
+                    b.ToTable("PromoCodes");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("ProductId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("Reviews", t =>
+                        {
+                            t.HasCheckConstraint("CK_Reviews_Rating_Range", "\"Rating\" >= 1 AND \"Rating\" <= 5");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SellerRequests");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerVerification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BusinessDescription")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("BusinessName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DocumentUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ReviewedBy")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("SellerVerifications");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("SupportTickets");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.TicketMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("SenderId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TicketId");
+
+                    b.ToTable("TicketMessages");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Wishlist", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("UserId", "ProductId")
+                        .IsUnique();
+
+                    b.ToTable("Wishlists");
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("NormalizedName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasDatabaseName("RoleNameIndex");
+
+                    b.ToTable("AspNetRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RoleId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetRoleClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderKey")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderDisplayName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("LoginProvider", "ProviderKey");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserLogins", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RoleId")
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId", "RoleId");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetUserRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId", "LoginProvider", "Name");
+
+                    b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Address", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Addresses")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithOne("Cart")
+                        .HasForeignKey("Budgetha.Domain.Entities.Cart", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.CartItem", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Cart", "Cart")
+                        .WithMany("Items")
+                        .HasForeignKey("CartId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("CartItems")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ProductVariant", "Variant")
+                        .WithMany("CartItems")
+                        .HasForeignKey("VariantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Cart");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Category", "Parent")
+                        .WithMany("Children")
+                        .HasForeignKey("ParentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Parent");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Address", "ShippingAddress")
+                        .WithMany()
+                        .HasForeignKey("ShippingAddressId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Orders")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ShippingAddress");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("Items")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("OrderItems")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ProductVariant", "Variant")
+                        .WithMany("OrderItems")
+                        .HasForeignKey("VariantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Order");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OutboxDelivery", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Notification", "Notification")
+                        .WithMany()
+                        .HasForeignKey("NotificationId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Notification");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithOne("Payment")
+                        .HasForeignKey("Budgetha.Domain.Entities.Payment", "OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Category", "Category")
+                        .WithMany("Products")
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany("Products")
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Category");
+
+                    b.Navigation("Seller");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Colors")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Features")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Images")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Sizes")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Specs")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Variants")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Reviews")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Reviews")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerVerification", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithOne("SellerVerification")
+                        .HasForeignKey("Budgetha.Domain.Entities.SellerVerification", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("SupportTickets")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.TicketMessage", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.SupportTicket", "Ticket")
+                        .WithMany("Messages")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ticket");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Wishlist", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Wishlists")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Wishlists")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ApplicationUser", b =>
+                {
+                    b.Navigation("Addresses");
+
+                    b.Navigation("Cart");
+
+                    b.Navigation("Orders");
+
+                    b.Navigation("Products");
+
+                    b.Navigation("Reviews");
+
+                    b.Navigation("SellerVerification");
+
+                    b.Navigation("SupportTickets");
+
+                    b.Navigation("Wishlists");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.Navigation("Children");
+
+                    b.Navigation("Products");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.Navigation("Items");
+
+                    b.Navigation("Payment");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.Navigation("CartItems");
+
+                    b.Navigation("Colors");
+
+                    b.Navigation("Features");
+
+                    b.Navigation("Images");
+
+                    b.Navigation("OrderItems");
+
+                    b.Navigation("Reviews");
+
+                    b.Navigation("Sizes");
+
+                    b.Navigation("Specs");
+
+                    b.Navigation("Variants");
+
+                    b.Navigation("Wishlists");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.Navigation("CartItems");
+
+                    b.Navigation("OrderItems");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.Navigation("Messages");
+                });
+#pragma warning restore 612, 618
+        }
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Migrations\20260801191755_AddSellerFulfillmentAndDeliveryReports.cs
+
+``csharp
+using System;
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations
+{
+    /// <inheritdoc />
+    public partial class AddSellerFulfillmentAndDeliveryReports : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.AddColumn<Guid>(
+                name: "FulfillmentId",
+                table: "OrderItems",
+                type: "uuid",
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
+                name: "SellerId",
+                table: "OrderItems",
+                type: "character varying(450)",
+                maxLength: 450,
+                nullable: false,
+                defaultValue: "");
+
+            migrationBuilder.Sql("""
+                UPDATE "OrderItems" AS item
+                SET "SellerId" = product."SellerId"
+                FROM "Products" AS product
+                WHERE product."Id" = item."ProductId";
+                """);
+
+            migrationBuilder.CreateTable(
+                name: "OrderFulfillments",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    OrderId = table.Column<Guid>(type: "uuid", nullable: false),
+                    SellerId = table.Column<string>(type: "character varying(450)", maxLength: 450, nullable: false),
+                    Amount = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
+                    Status = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
+                    Carrier = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
+                    TrackingNumber = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+                    ShippedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    DeliveredAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    RejectedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    RejectionReason = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true),
+                    StockReleasedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    RowVersion = table.Column<byte[]>(type: "bytea", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_OrderFulfillments", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_OrderFulfillments_AspNetUsers_SellerId",
+                        column: x => x.SellerId,
+                        principalTable: "AspNetUsers",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_OrderFulfillments_Orders_OrderId",
+                        column: x => x.OrderId,
+                        principalTable: "Orders",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.Sql("""
+                INSERT INTO "OrderFulfillments" ("Id", "OrderId", "SellerId", "Amount", "Status", "RowVersion")
+                SELECT (
+                    substr(md5(order_data."OrderId"::text || order_data."SellerId"), 1, 8) || '-' ||
+                    substr(md5(order_data."OrderId"::text || order_data."SellerId"), 9, 4) || '-' ||
+                    substr(md5(order_data."OrderId"::text || order_data."SellerId"), 13, 4) || '-' ||
+                    substr(md5(order_data."OrderId"::text || order_data."SellerId"), 17, 4) || '-' ||
+                    substr(md5(order_data."OrderId"::text || order_data."SellerId"), 21, 12)
+                )::uuid,
+                order_data."OrderId",
+                order_data."SellerId",
+                order_data."Amount",
+                CASE order_data."OrderStatus"
+                    WHEN 'Shipped' THEN 'Shipped'
+                    WHEN 'Delivered' THEN 'Delivered'
+                    WHEN 'Cancelled' THEN 'Rejected'
+                    WHEN 'Failed' THEN 'Rejected'
+                    ELSE 'Processing'
+                END,
+                decode(md5(order_data."OrderId"::text || order_data."SellerId"), 'hex')
+                FROM (
+                    SELECT item."OrderId", item."SellerId",
+                           SUM(item."UnitPrice" * item."Quantity" - item."DiscountAmount") AS "Amount",
+                           MAX(order_row."Status") AS "OrderStatus"
+                    FROM "OrderItems" item
+                    INNER JOIN "Orders" order_row ON order_row."Id" = item."OrderId"
+                    GROUP BY item."OrderId", item."SellerId"
+                ) AS order_data;
+                """);
+
+            migrationBuilder.Sql("""
+                UPDATE "OrderItems" AS item
+                SET "FulfillmentId" = fulfillment."Id"
+                FROM "OrderFulfillments" AS fulfillment
+                WHERE fulfillment."OrderId" = item."OrderId"
+                  AND fulfillment."SellerId" = item."SellerId";
+                """);
+
+            migrationBuilder.CreateTable(
+                name: "DeliveryReports",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    OrderId = table.Column<Guid>(type: "uuid", nullable: false),
+                    FulfillmentId = table.Column<Guid>(type: "uuid", nullable: true),
+                    BuyerId = table.Column<string>(type: "text", nullable: false),
+                    WasReceived = table.Column<bool>(type: "boolean", nullable: false),
+                    Reason = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
+                    Status = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
+                    AdminNote = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
+                    ResolvedById = table.Column<string>(type: "character varying(450)", maxLength: 450, nullable: true),
+                    ResolvedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    Created = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    CreatedBy = table.Column<string>(type: "text", nullable: true),
+                    LastModified = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    LastModifiedBy = table.Column<string>(type: "text", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_DeliveryReports", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_DeliveryReports_AspNetUsers_BuyerId",
+                        column: x => x.BuyerId,
+                        principalTable: "AspNetUsers",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_DeliveryReports_OrderFulfillments_FulfillmentId",
+                        column: x => x.FulfillmentId,
+                        principalTable: "OrderFulfillments",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.SetNull);
+                    table.ForeignKey(
+                        name: "FK_DeliveryReports_Orders_OrderId",
+                        column: x => x.OrderId,
+                        principalTable: "Orders",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OrderItems_FulfillmentId",
+                table: "OrderItems",
+                column: "FulfillmentId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OrderItems_SellerId",
+                table: "OrderItems",
+                column: "SellerId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DeliveryReports_BuyerId",
+                table: "DeliveryReports",
+                column: "BuyerId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DeliveryReports_FulfillmentId",
+                table: "DeliveryReports",
+                column: "FulfillmentId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DeliveryReports_OrderId_BuyerId_Status",
+                table: "DeliveryReports",
+                columns: new[] { "OrderId", "BuyerId", "Status" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OrderFulfillments_OrderId_SellerId",
+                table: "OrderFulfillments",
+                columns: new[] { "OrderId", "SellerId" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OrderFulfillments_SellerId_Status",
+                table: "OrderFulfillments",
+                columns: new[] { "SellerId", "Status" });
+
+            migrationBuilder.AddForeignKey(
+                name: "FK_OrderItems_AspNetUsers_SellerId",
+                table: "OrderItems",
+                column: "SellerId",
+                principalTable: "AspNetUsers",
+                principalColumn: "Id",
+                onDelete: ReferentialAction.Restrict);
+
+            migrationBuilder.AddForeignKey(
+                name: "FK_OrderItems_OrderFulfillments_FulfillmentId",
+                table: "OrderItems",
+                column: "FulfillmentId",
+                principalTable: "OrderFulfillments",
+                principalColumn: "Id",
+                onDelete: ReferentialAction.SetNull);
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropForeignKey(
+                name: "FK_OrderItems_AspNetUsers_SellerId",
+                table: "OrderItems");
+
+            migrationBuilder.DropForeignKey(
+                name: "FK_OrderItems_OrderFulfillments_FulfillmentId",
+                table: "OrderItems");
+
+            migrationBuilder.DropTable(
+                name: "DeliveryReports");
+
+            migrationBuilder.DropTable(
+                name: "OrderFulfillments");
+
+            migrationBuilder.DropIndex(
+                name: "IX_OrderItems_FulfillmentId",
+                table: "OrderItems");
+
+            migrationBuilder.DropIndex(
+                name: "IX_OrderItems_SellerId",
+                table: "OrderItems");
+
+            migrationBuilder.DropColumn(
+                name: "FulfillmentId",
+                table: "OrderItems");
+
+            migrationBuilder.DropColumn(
+                name: "SellerId",
+                table: "OrderItems");
+        }
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Migrations\20260801191755_AddSellerFulfillmentAndDeliveryReports.Designer.cs
+
+``csharp
+// <auto-generated />
+using System;
+using Budgetha.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations
+{
+    [DbContext(typeof(ApplicationDbContext))]
+    [Migration("20260801191755_AddSellerFulfillmentAndDeliveryReports")]
+    partial class AddSellerFulfillmentAndDeliveryReports
+    {
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        {
+#pragma warning disable 612, 618
+            modelBuilder
+                .HasAnnotation("ProductVersion", "9.0.9")
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Address", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("City")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Country")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Line1")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Line2")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PostalCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Addresses");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Announcement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("EndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LinkUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("StartDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Announcements");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ApplicationUser", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<int>("AccessFailedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AvatarUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<bool>("EmailConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("LockoutEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LockoutEnd")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("NormalizedEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("NormalizedUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("PhoneNumberConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("RefreshToken")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("RefreshTokenExpiryTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SecurityStamp")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("UserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedEmail")
+                        .HasDatabaseName("EmailIndex");
+
+                    b.HasIndex("NormalizedUserName")
+                        .IsUnique()
+                        .HasDatabaseName("UserNameIndex");
+
+                    b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("Carts");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.CartItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CartId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("RentalEndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("RentalStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CartId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("VariantId");
+
+                    b.ToTable("CartItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_CartItems_Quantity_Positive", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_CartItems_RentalDates", "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParentId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Categories");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.DeliveryReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AdminNote")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("BuyerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("FulfillmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ResolvedById")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<bool>("WasReceived")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BuyerId");
+
+                    b.HasIndex("FulfillmentId");
+
+                    b.HasIndex("OrderId", "BuyerId", "Status");
+
+                    b.ToTable("DeliveryReports");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RelatedEntityId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "Created");
+
+                    b.HasIndex("UserId", "IsRead");
+
+                    b.ToTable("Notifications");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContactEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ContactPhone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("PromoCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PromoScope")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PromoSellerId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset?>("ReservationExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid?>("ShippingAddressId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ShippingAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("ShippingCity")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ShippingCountry")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ShippingFullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ShippingLine1")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ShippingLine2")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ShippingPhone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ShippingPostalCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ShippingState")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReservationExpiresAt");
+
+                    b.HasIndex("ShippingAddressId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Orders");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderFulfillment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Carrier")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("RejectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset?>("ShippedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset?>("StockReleasedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TrackingNumber")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId", "SellerId")
+                        .IsUnique();
+
+                    b.HasIndex("SellerId", "Status");
+
+                    b.ToTable("OrderFulfillments");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("FulfillmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("RentalEndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("RentalStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FulfillmentId");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("SellerId");
+
+                    b.HasIndex("VariantId");
+
+                    b.ToTable("OrderItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_OrderItems_Prices_NonNegative", "\"UnitPrice\" >= 0 AND \"DiscountAmount\" >= 0");
+
+                            t.HasCheckConstraint("CK_OrderItems_Quantity_Positive", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_OrderItems_RentalDates", "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OutboxDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Body")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(350)
+                        .HasColumnType("character varying(350)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("NotificationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompletedAt");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("NotificationId");
+
+                    b.HasIndex("Status", "NextAttemptAt");
+
+                    b.ToTable("OutboxDeliveries");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("ExternalCaptureId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<string>("ExternalTransactionId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LastWebhookEventId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalCaptureId")
+                        .IsUnique();
+
+                    b.HasIndex("ExternalTransactionId")
+                        .IsUnique();
+
+                    b.HasIndex("LastWebhookEventId")
+                        .IsUnique();
+
+                    b.HasIndex("OrderId")
+                        .IsUnique();
+
+                    b.ToTable("Payments", t =>
+                        {
+                            t.HasCheckConstraint("CK_Payments_Amount_Positive", "\"Amount\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PendingImageDeletion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("QueuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("QueuedAt");
+
+                    b.ToTable("PendingImageDeletions");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PendingImageUpload", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("UploadedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("UploadedAt");
+
+                    b.ToTable("PendingImageUploads");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ApprovalStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("AverageRating")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("Brand")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsAvailableForRent")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsFeatured")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal?>("OriginalPrice")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("RentalPricePerDay")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("ReviewCount")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<int>("StockQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ThumbnailPublicId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ThumbnailUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovalStatus");
+
+                    b.HasIndex("CategoryId");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("SellerId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Products", t =>
+                        {
+                            t.HasCheckConstraint("CK_Products_OriginalPrice_Positive", "\"OriginalPrice\" IS NULL OR \"OriginalPrice\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Price_Positive", "\"Price\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Slug_NotEmpty", "length(trim(\"Slug\")) > 0");
+
+                            t.HasCheckConstraint("CK_Products_Stock_NonNegative", "\"StockQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Hex")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductColors");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductFeatures");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AltText")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PublicId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductImages");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSizes");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSpecs");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("RentalPricePerDay")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SKU")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Size")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("StockQuantity")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SKU")
+                        .IsUnique();
+
+                    b.HasIndex("ProductId", "IsActive");
+
+                    b.HasIndex("ProductId", "Color", "Size")
+                        .IsUnique()
+                        .HasFilter("\"IsActive\"");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("ProductId", "Color", "Size"), false);
+
+                    b.ToTable("ProductVariants", t =>
+                        {
+                            t.HasCheckConstraint("CK_ProductVariants_Price_Positive", "\"Price\" IS NULL OR \"Price\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_SKU_NotEmpty", "length(trim(\"SKU\")) > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_Stock_NonNegative", "\"StockQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PromoCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("DiscountPercentage")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("MaxDiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("SellerId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("SellerId");
+
+                    b.ToTable("PromoCodes");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("ProductId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("Reviews", t =>
+                        {
+                            t.HasCheckConstraint("CK_Reviews_Rating_Range", "\"Rating\" >= 1 AND \"Rating\" <= 5");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SellerRequests");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerVerification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BusinessDescription")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("BusinessName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DocumentUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ReviewedBy")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("SellerVerifications");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("SupportTickets");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.TicketMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("SenderId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TicketId");
+
+                    b.ToTable("TicketMessages");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Wishlist", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("UserId", "ProductId")
+                        .IsUnique();
+
+                    b.ToTable("Wishlists");
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("NormalizedName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasDatabaseName("RoleNameIndex");
+
+                    b.ToTable("AspNetRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RoleId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetRoleClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderKey")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderDisplayName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("LoginProvider", "ProviderKey");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserLogins", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RoleId")
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId", "RoleId");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetUserRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId", "LoginProvider", "Name");
+
+                    b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Address", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Addresses")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithOne("Cart")
+                        .HasForeignKey("Budgetha.Domain.Entities.Cart", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.CartItem", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Cart", "Cart")
+                        .WithMany("Items")
+                        .HasForeignKey("CartId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("CartItems")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ProductVariant", "Variant")
+                        .WithMany("CartItems")
+                        .HasForeignKey("VariantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Cart");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Category", "Parent")
+                        .WithMany("Children")
+                        .HasForeignKey("ParentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Parent");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.DeliveryReport", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Buyer")
+                        .WithMany("DeliveryReports")
+                        .HasForeignKey("BuyerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.OrderFulfillment", "Fulfillment")
+                        .WithMany("DeliveryReports")
+                        .HasForeignKey("FulfillmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("DeliveryReports")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Buyer");
+
+                    b.Navigation("Fulfillment");
+
+                    b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Address", "ShippingAddress")
+                        .WithMany()
+                        .HasForeignKey("ShippingAddressId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Orders")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ShippingAddress");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderFulfillment", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("Fulfillments")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany("Fulfillments")
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+
+                    b.Navigation("Seller");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.OrderFulfillment", "Fulfillment")
+                        .WithMany("Items")
+                        .HasForeignKey("FulfillmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("Items")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("OrderItems")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany()
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ProductVariant", "Variant")
+                        .WithMany("OrderItems")
+                        .HasForeignKey("VariantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Fulfillment");
+
+                    b.Navigation("Order");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Seller");
+
+                    b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OutboxDelivery", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Notification", "Notification")
+                        .WithMany()
+                        .HasForeignKey("NotificationId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Notification");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithOne("Payment")
+                        .HasForeignKey("Budgetha.Domain.Entities.Payment", "OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Category", "Category")
+                        .WithMany("Products")
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany("Products")
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Category");
+
+                    b.Navigation("Seller");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Colors")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Features")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Images")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Sizes")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Specs")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Variants")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Reviews")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Reviews")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerVerification", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithOne("SellerVerification")
+                        .HasForeignKey("Budgetha.Domain.Entities.SellerVerification", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("SupportTickets")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.TicketMessage", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.SupportTicket", "Ticket")
+                        .WithMany("Messages")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ticket");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Wishlist", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Wishlists")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Wishlists")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ApplicationUser", b =>
+                {
+                    b.Navigation("Addresses");
+
+                    b.Navigation("Cart");
+
+                    b.Navigation("DeliveryReports");
+
+                    b.Navigation("Fulfillments");
+
+                    b.Navigation("Orders");
+
+                    b.Navigation("Products");
+
+                    b.Navigation("Reviews");
+
+                    b.Navigation("SellerVerification");
+
+                    b.Navigation("SupportTickets");
+
+                    b.Navigation("Wishlists");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.Navigation("Children");
+
+                    b.Navigation("Products");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.Navigation("DeliveryReports");
+
+                    b.Navigation("Fulfillments");
+
+                    b.Navigation("Items");
+
+                    b.Navigation("Payment");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderFulfillment", b =>
+                {
+                    b.Navigation("DeliveryReports");
+
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.Navigation("CartItems");
+
+                    b.Navigation("Colors");
+
+                    b.Navigation("Features");
+
+                    b.Navigation("Images");
+
+                    b.Navigation("OrderItems");
+
+                    b.Navigation("Reviews");
+
+                    b.Navigation("Sizes");
+
+                    b.Navigation("Specs");
+
+                    b.Navigation("Variants");
+
+                    b.Navigation("Wishlists");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.Navigation("CartItems");
+
+                    b.Navigation("OrderItems");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.Navigation("Messages");
+                });
+#pragma warning restore 612, 618
+        }
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Migrations\20260802004713_AddAnnouncementPromoFields.cs
+
+``csharp
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations
+{
+    /// <inheritdoc />
+    public partial class AddAnnouncementPromoFields : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.AddColumn<string>(
+                name: "BadgeText",
+                table: "Announcements",
+                type: "text",
+                nullable: true);
+
+            migrationBuilder.AddColumn<int>(
+                name: "DiscountPercent",
+                table: "Announcements",
+                type: "integer",
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
+                name: "PromoCode",
+                table: "Announcements",
+                type: "text",
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
+                name: "Subtitle",
+                table: "Announcements",
+                type: "text",
+                nullable: true);
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropColumn(
+                name: "BadgeText",
+                table: "Announcements");
+
+            migrationBuilder.DropColumn(
+                name: "DiscountPercent",
+                table: "Announcements");
+
+            migrationBuilder.DropColumn(
+                name: "PromoCode",
+                table: "Announcements");
+
+            migrationBuilder.DropColumn(
+                name: "Subtitle",
+                table: "Announcements");
+        }
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Migrations\20260802004713_AddAnnouncementPromoFields.Designer.cs
+
+``csharp
+// <auto-generated />
+using System;
+using Budgetha.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations
+{
+    [DbContext(typeof(ApplicationDbContext))]
+    [Migration("20260802004713_AddAnnouncementPromoFields")]
+    partial class AddAnnouncementPromoFields
+    {
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        {
+#pragma warning disable 612, 618
+            modelBuilder
+                .HasAnnotation("ProductVersion", "9.0.9")
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Address", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("City")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Country")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Line1")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Line2")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PostalCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Addresses");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Announcement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BadgeText")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("DiscountPercent")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("EndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LinkUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PromoCode")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("StartDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Subtitle")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Announcements");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ApplicationUser", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<int>("AccessFailedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AvatarUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<bool>("EmailConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("LockoutEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LockoutEnd")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("NormalizedEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("NormalizedUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("PhoneNumberConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("RefreshToken")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("RefreshTokenExpiryTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SecurityStamp")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("UserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedEmail")
+                        .HasDatabaseName("EmailIndex");
+
+                    b.HasIndex("NormalizedUserName")
+                        .IsUnique()
+                        .HasDatabaseName("UserNameIndex");
+
+                    b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("Carts");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.CartItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CartId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("RentalEndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("RentalStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CartId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("VariantId");
+
+                    b.ToTable("CartItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_CartItems_Quantity_Positive", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_CartItems_RentalDates", "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParentId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Categories");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.DeliveryReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AdminNote")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("BuyerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("FulfillmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ResolvedById")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<bool>("WasReceived")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BuyerId");
+
+                    b.HasIndex("FulfillmentId");
+
+                    b.HasIndex("OrderId", "BuyerId", "Status");
+
+                    b.ToTable("DeliveryReports");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RelatedEntityId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "Created");
+
+                    b.HasIndex("UserId", "IsRead");
+
+                    b.ToTable("Notifications");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContactEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ContactPhone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("PromoCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PromoScope")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PromoSellerId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset?>("ReservationExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid?>("ShippingAddressId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ShippingAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("ShippingCity")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ShippingCountry")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ShippingFullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ShippingLine1")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ShippingLine2")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ShippingPhone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ShippingPostalCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ShippingState")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReservationExpiresAt");
+
+                    b.HasIndex("ShippingAddressId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Orders");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderFulfillment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Carrier")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("RejectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset?>("ShippedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset?>("StockReleasedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TrackingNumber")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId", "SellerId")
+                        .IsUnique();
+
+                    b.HasIndex("SellerId", "Status");
+
+                    b.ToTable("OrderFulfillments");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("FulfillmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("RentalEndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("RentalStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FulfillmentId");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("SellerId");
+
+                    b.HasIndex("VariantId");
+
+                    b.ToTable("OrderItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_OrderItems_Prices_NonNegative", "\"UnitPrice\" >= 0 AND \"DiscountAmount\" >= 0");
+
+                            t.HasCheckConstraint("CK_OrderItems_Quantity_Positive", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_OrderItems_RentalDates", "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OutboxDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Body")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(350)
+                        .HasColumnType("character varying(350)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("NotificationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompletedAt");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("NotificationId");
+
+                    b.HasIndex("Status", "NextAttemptAt");
+
+                    b.ToTable("OutboxDeliveries");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("ExternalCaptureId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<string>("ExternalTransactionId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LastWebhookEventId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalCaptureId")
+                        .IsUnique();
+
+                    b.HasIndex("ExternalTransactionId")
+                        .IsUnique();
+
+                    b.HasIndex("LastWebhookEventId")
+                        .IsUnique();
+
+                    b.HasIndex("OrderId")
+                        .IsUnique();
+
+                    b.ToTable("Payments", t =>
+                        {
+                            t.HasCheckConstraint("CK_Payments_Amount_Positive", "\"Amount\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PendingImageDeletion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("QueuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("QueuedAt");
+
+                    b.ToTable("PendingImageDeletions");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PendingImageUpload", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("UploadedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("UploadedAt");
+
+                    b.ToTable("PendingImageUploads");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ApprovalStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("AverageRating")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("Brand")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsAvailableForRent")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsFeatured")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal?>("OriginalPrice")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("RentalPricePerDay")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("ReviewCount")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<int>("StockQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ThumbnailPublicId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ThumbnailUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovalStatus");
+
+                    b.HasIndex("CategoryId");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("SellerId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Products", t =>
+                        {
+                            t.HasCheckConstraint("CK_Products_OriginalPrice_Positive", "\"OriginalPrice\" IS NULL OR \"OriginalPrice\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Price_Positive", "\"Price\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Slug_NotEmpty", "length(trim(\"Slug\")) > 0");
+
+                            t.HasCheckConstraint("CK_Products_Stock_NonNegative", "\"StockQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Hex")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductColors");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductFeatures");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AltText")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PublicId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductImages");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSizes");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSpecs");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("RentalPricePerDay")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SKU")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Size")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("StockQuantity")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SKU")
+                        .IsUnique();
+
+                    b.HasIndex("ProductId", "IsActive");
+
+                    b.HasIndex("ProductId", "Color", "Size")
+                        .IsUnique()
+                        .HasFilter("\"IsActive\"");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("ProductId", "Color", "Size"), false);
+
+                    b.ToTable("ProductVariants", t =>
+                        {
+                            t.HasCheckConstraint("CK_ProductVariants_Price_Positive", "\"Price\" IS NULL OR \"Price\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_SKU_NotEmpty", "length(trim(\"SKU\")) > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_Stock_NonNegative", "\"StockQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PromoCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("DiscountPercentage")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("MaxDiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("SellerId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("SellerId");
+
+                    b.ToTable("PromoCodes");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("ProductId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("Reviews", t =>
+                        {
+                            t.HasCheckConstraint("CK_Reviews_Rating_Range", "\"Rating\" >= 1 AND \"Rating\" <= 5");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SellerRequests");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerVerification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BusinessDescription")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("BusinessName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DocumentUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ReviewedBy")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("SellerVerifications");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("SupportTickets");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.TicketMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("SenderId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TicketId");
+
+                    b.ToTable("TicketMessages");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Wishlist", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("UserId", "ProductId")
+                        .IsUnique();
+
+                    b.ToTable("Wishlists");
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("NormalizedName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasDatabaseName("RoleNameIndex");
+
+                    b.ToTable("AspNetRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RoleId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetRoleClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderKey")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderDisplayName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("LoginProvider", "ProviderKey");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserLogins", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RoleId")
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId", "RoleId");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetUserRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId", "LoginProvider", "Name");
+
+                    b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Address", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Addresses")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithOne("Cart")
+                        .HasForeignKey("Budgetha.Domain.Entities.Cart", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.CartItem", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Cart", "Cart")
+                        .WithMany("Items")
+                        .HasForeignKey("CartId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("CartItems")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ProductVariant", "Variant")
+                        .WithMany("CartItems")
+                        .HasForeignKey("VariantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Cart");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Category", "Parent")
+                        .WithMany("Children")
+                        .HasForeignKey("ParentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Parent");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.DeliveryReport", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Buyer")
+                        .WithMany("DeliveryReports")
+                        .HasForeignKey("BuyerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.OrderFulfillment", "Fulfillment")
+                        .WithMany("DeliveryReports")
+                        .HasForeignKey("FulfillmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("DeliveryReports")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Buyer");
+
+                    b.Navigation("Fulfillment");
+
+                    b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Address", "ShippingAddress")
+                        .WithMany()
+                        .HasForeignKey("ShippingAddressId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Orders")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ShippingAddress");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderFulfillment", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("Fulfillments")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany("Fulfillments")
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+
+                    b.Navigation("Seller");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.OrderFulfillment", "Fulfillment")
+                        .WithMany("Items")
+                        .HasForeignKey("FulfillmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("Items")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("OrderItems")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany()
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ProductVariant", "Variant")
+                        .WithMany("OrderItems")
+                        .HasForeignKey("VariantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Fulfillment");
+
+                    b.Navigation("Order");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Seller");
+
+                    b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OutboxDelivery", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Notification", "Notification")
+                        .WithMany()
+                        .HasForeignKey("NotificationId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Notification");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithOne("Payment")
+                        .HasForeignKey("Budgetha.Domain.Entities.Payment", "OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Category", "Category")
+                        .WithMany("Products")
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany("Products")
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Category");
+
+                    b.Navigation("Seller");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Colors")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Features")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Images")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Sizes")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Specs")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Variants")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Reviews")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Reviews")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerVerification", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithOne("SellerVerification")
+                        .HasForeignKey("Budgetha.Domain.Entities.SellerVerification", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("SupportTickets")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.TicketMessage", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.SupportTicket", "Ticket")
+                        .WithMany("Messages")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ticket");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Wishlist", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Wishlists")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Wishlists")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ApplicationUser", b =>
+                {
+                    b.Navigation("Addresses");
+
+                    b.Navigation("Cart");
+
+                    b.Navigation("DeliveryReports");
+
+                    b.Navigation("Fulfillments");
+
+                    b.Navigation("Orders");
+
+                    b.Navigation("Products");
+
+                    b.Navigation("Reviews");
+
+                    b.Navigation("SellerVerification");
+
+                    b.Navigation("SupportTickets");
+
+                    b.Navigation("Wishlists");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.Navigation("Children");
+
+                    b.Navigation("Products");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.Navigation("DeliveryReports");
+
+                    b.Navigation("Fulfillments");
+
+                    b.Navigation("Items");
+
+                    b.Navigation("Payment");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderFulfillment", b =>
+                {
+                    b.Navigation("DeliveryReports");
+
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.Navigation("CartItems");
+
+                    b.Navigation("Colors");
+
+                    b.Navigation("Features");
+
+                    b.Navigation("Images");
+
+                    b.Navigation("OrderItems");
+
+                    b.Navigation("Reviews");
+
+                    b.Navigation("Sizes");
+
+                    b.Navigation("Specs");
+
+                    b.Navigation("Variants");
+
+                    b.Navigation("Wishlists");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.Navigation("CartItems");
+
+                    b.Navigation("OrderItems");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.Navigation("Messages");
+                });
+#pragma warning restore 612, 618
+        }
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Migrations\20260802005820_ProductManyCategories.cs
+
+``csharp
+using System;
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations
+{
+    /// <inheritdoc />
+    public partial class ProductManyCategories : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropForeignKey(
+                name: "FK_Products_Categories_CategoryId",
+                table: "Products");
+
+            migrationBuilder.DropIndex(
+                name: "IX_Products_CategoryId",
+                table: "Products");
+
+            migrationBuilder.DropColumn(
+                name: "CategoryId",
+                table: "Products");
+
+            migrationBuilder.CreateTable(
+                name: "ProductCategories",
+                columns: table => new
+                {
+                    CategoriesId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ProductsId = table.Column<Guid>(type: "uuid", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ProductCategories", x => new { x.CategoriesId, x.ProductsId });
+                    table.ForeignKey(
+                        name: "FK_ProductCategories_Categories_CategoriesId",
+                        column: x => x.CategoriesId,
+                        principalTable: "Categories",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_ProductCategories_Products_ProductsId",
+                        column: x => x.ProductsId,
+                        principalTable: "Products",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ProductCategories_ProductsId",
+                table: "ProductCategories",
+                column: "ProductsId");
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropTable(
+                name: "ProductCategories");
+
+            migrationBuilder.AddColumn<Guid>(
+                name: "CategoryId",
+                table: "Products",
+                type: "uuid",
+                nullable: false,
+                defaultValue: new Guid("00000000-0000-0000-0000-000000000000"));
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Products_CategoryId",
+                table: "Products",
+                column: "CategoryId");
+
+            migrationBuilder.AddForeignKey(
+                name: "FK_Products_Categories_CategoryId",
+                table: "Products",
+                column: "CategoryId",
+                principalTable: "Categories",
+                principalColumn: "Id",
+                onDelete: ReferentialAction.Restrict);
+        }
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Migrations\20260802005820_ProductManyCategories.Designer.cs
+
+``csharp
+// <auto-generated />
+using System;
+using Budgetha.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations
+{
+    [DbContext(typeof(ApplicationDbContext))]
+    [Migration("20260802005820_ProductManyCategories")]
+    partial class ProductManyCategories
+    {
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+        {
+#pragma warning disable 612, 618
+            modelBuilder
+                .HasAnnotation("ProductVersion", "9.0.9")
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Address", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("City")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Country")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Line1")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Line2")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PostalCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Addresses");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Announcement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BadgeText")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("DiscountPercent")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("EndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LinkUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PromoCode")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("StartDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Subtitle")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Announcements");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ApplicationUser", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<int>("AccessFailedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AvatarUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<bool>("EmailConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("LockoutEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LockoutEnd")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("NormalizedEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("NormalizedUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("PhoneNumberConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("RefreshToken")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("RefreshTokenExpiryTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SecurityStamp")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("UserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedEmail")
+                        .HasDatabaseName("EmailIndex");
+
+                    b.HasIndex("NormalizedUserName")
+                        .IsUnique()
+                        .HasDatabaseName("UserNameIndex");
+
+                    b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("Carts");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.CartItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CartId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("RentalEndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("RentalStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CartId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("VariantId");
+
+                    b.ToTable("CartItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_CartItems_Quantity_Positive", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_CartItems_RentalDates", "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParentId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Categories");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.DeliveryReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AdminNote")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("BuyerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("FulfillmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ResolvedById")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<bool>("WasReceived")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BuyerId");
+
+                    b.HasIndex("FulfillmentId");
+
+                    b.HasIndex("OrderId", "BuyerId", "Status");
+
+                    b.ToTable("DeliveryReports");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RelatedEntityId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "Created");
+
+                    b.HasIndex("UserId", "IsRead");
+
+                    b.ToTable("Notifications");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContactEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ContactPhone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("PromoCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PromoScope")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PromoSellerId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset?>("ReservationExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid?>("ShippingAddressId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ShippingAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("ShippingCity")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ShippingCountry")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ShippingFullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ShippingLine1")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ShippingLine2")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ShippingPhone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ShippingPostalCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ShippingState")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReservationExpiresAt");
+
+                    b.HasIndex("ShippingAddressId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Orders");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderFulfillment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Carrier")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("RejectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset?>("ShippedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset?>("StockReleasedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TrackingNumber")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId", "SellerId")
+                        .IsUnique();
+
+                    b.HasIndex("SellerId", "Status");
+
+                    b.ToTable("OrderFulfillments");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("FulfillmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("RentalEndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("RentalStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FulfillmentId");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("SellerId");
+
+                    b.HasIndex("VariantId");
+
+                    b.ToTable("OrderItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_OrderItems_Prices_NonNegative", "\"UnitPrice\" >= 0 AND \"DiscountAmount\" >= 0");
+
+                            t.HasCheckConstraint("CK_OrderItems_Quantity_Positive", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_OrderItems_RentalDates", "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OutboxDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Body")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(350)
+                        .HasColumnType("character varying(350)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("NotificationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompletedAt");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("NotificationId");
+
+                    b.HasIndex("Status", "NextAttemptAt");
+
+                    b.ToTable("OutboxDeliveries");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("ExternalCaptureId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<string>("ExternalTransactionId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LastWebhookEventId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalCaptureId")
+                        .IsUnique();
+
+                    b.HasIndex("ExternalTransactionId")
+                        .IsUnique();
+
+                    b.HasIndex("LastWebhookEventId")
+                        .IsUnique();
+
+                    b.HasIndex("OrderId")
+                        .IsUnique();
+
+                    b.ToTable("Payments", t =>
+                        {
+                            t.HasCheckConstraint("CK_Payments_Amount_Positive", "\"Amount\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PendingImageDeletion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("QueuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("QueuedAt");
+
+                    b.ToTable("PendingImageDeletions");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PendingImageUpload", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("UploadedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("UploadedAt");
+
+                    b.ToTable("PendingImageUploads");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ApprovalStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("AverageRating")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("Brand")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsAvailableForRent")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsFeatured")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal?>("OriginalPrice")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("RentalPricePerDay")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("ReviewCount")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<int>("StockQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ThumbnailPublicId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ThumbnailUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovalStatus");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("SellerId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Products", t =>
+                        {
+                            t.HasCheckConstraint("CK_Products_OriginalPrice_Positive", "\"OriginalPrice\" IS NULL OR \"OriginalPrice\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Price_Positive", "\"Price\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Slug_NotEmpty", "length(trim(\"Slug\")) > 0");
+
+                            t.HasCheckConstraint("CK_Products_Stock_NonNegative", "\"StockQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Hex")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductColors");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductFeatures");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AltText")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PublicId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductImages");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSizes");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSpecs");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("RentalPricePerDay")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SKU")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Size")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("StockQuantity")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SKU")
+                        .IsUnique();
+
+                    b.HasIndex("ProductId", "IsActive");
+
+                    b.HasIndex("ProductId", "Color", "Size")
+                        .IsUnique()
+                        .HasFilter("\"IsActive\"");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("ProductId", "Color", "Size"), false);
+
+                    b.ToTable("ProductVariants", t =>
+                        {
+                            t.HasCheckConstraint("CK_ProductVariants_Price_Positive", "\"Price\" IS NULL OR \"Price\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_SKU_NotEmpty", "length(trim(\"SKU\")) > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_Stock_NonNegative", "\"StockQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PromoCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("DiscountPercentage")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("MaxDiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("SellerId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("SellerId");
+
+                    b.ToTable("PromoCodes");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("ProductId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("Reviews", t =>
+                        {
+                            t.HasCheckConstraint("CK_Reviews_Rating_Range", "\"Rating\" >= 1 AND \"Rating\" <= 5");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SellerRequests");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerVerification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BusinessDescription")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("BusinessName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DocumentUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ReviewedBy")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("SellerVerifications");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("SupportTickets");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.TicketMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("SenderId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TicketId");
+
+                    b.ToTable("TicketMessages");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Wishlist", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("UserId", "ProductId")
+                        .IsUnique();
+
+                    b.ToTable("Wishlists");
+                });
+
+            modelBuilder.Entity("CategoryProduct", b =>
+                {
+                    b.Property<Guid>("CategoriesId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductsId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("CategoriesId", "ProductsId");
+
+                    b.HasIndex("ProductsId");
+
+                    b.ToTable("ProductCategories", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("NormalizedName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasDatabaseName("RoleNameIndex");
+
+                    b.ToTable("AspNetRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RoleId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetRoleClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderKey")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderDisplayName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("LoginProvider", "ProviderKey");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserLogins", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RoleId")
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId", "RoleId");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetUserRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId", "LoginProvider", "Name");
+
+                    b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Address", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Addresses")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithOne("Cart")
+                        .HasForeignKey("Budgetha.Domain.Entities.Cart", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.CartItem", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Cart", "Cart")
+                        .WithMany("Items")
+                        .HasForeignKey("CartId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("CartItems")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ProductVariant", "Variant")
+                        .WithMany("CartItems")
+                        .HasForeignKey("VariantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Cart");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Category", "Parent")
+                        .WithMany("Children")
+                        .HasForeignKey("ParentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Parent");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.DeliveryReport", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Buyer")
+                        .WithMany("DeliveryReports")
+                        .HasForeignKey("BuyerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.OrderFulfillment", "Fulfillment")
+                        .WithMany("DeliveryReports")
+                        .HasForeignKey("FulfillmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("DeliveryReports")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Buyer");
+
+                    b.Navigation("Fulfillment");
+
+                    b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Address", "ShippingAddress")
+                        .WithMany()
+                        .HasForeignKey("ShippingAddressId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Orders")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ShippingAddress");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderFulfillment", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("Fulfillments")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany("Fulfillments")
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+
+                    b.Navigation("Seller");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.OrderFulfillment", "Fulfillment")
+                        .WithMany("Items")
+                        .HasForeignKey("FulfillmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("Items")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("OrderItems")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany()
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ProductVariant", "Variant")
+                        .WithMany("OrderItems")
+                        .HasForeignKey("VariantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Fulfillment");
+
+                    b.Navigation("Order");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Seller");
+
+                    b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OutboxDelivery", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Notification", "Notification")
+                        .WithMany()
+                        .HasForeignKey("NotificationId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Notification");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithOne("Payment")
+                        .HasForeignKey("Budgetha.Domain.Entities.Payment", "OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany("Products")
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Seller");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Colors")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Features")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Images")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Sizes")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Specs")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Variants")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Reviews")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Reviews")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerVerification", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithOne("SellerVerification")
+                        .HasForeignKey("Budgetha.Domain.Entities.SellerVerification", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("SupportTickets")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.TicketMessage", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.SupportTicket", "Ticket")
+                        .WithMany("Messages")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ticket");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Wishlist", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Wishlists")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Wishlists")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("CategoryProduct", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Category", null)
+                        .WithMany()
+                        .HasForeignKey("CategoriesId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductsId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ApplicationUser", b =>
+                {
+                    b.Navigation("Addresses");
+
+                    b.Navigation("Cart");
+
+                    b.Navigation("DeliveryReports");
+
+                    b.Navigation("Fulfillments");
+
+                    b.Navigation("Orders");
+
+                    b.Navigation("Products");
+
+                    b.Navigation("Reviews");
+
+                    b.Navigation("SellerVerification");
+
+                    b.Navigation("SupportTickets");
+
+                    b.Navigation("Wishlists");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.Navigation("Children");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.Navigation("DeliveryReports");
+
+                    b.Navigation("Fulfillments");
+
+                    b.Navigation("Items");
+
+                    b.Navigation("Payment");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderFulfillment", b =>
+                {
+                    b.Navigation("DeliveryReports");
+
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.Navigation("CartItems");
+
+                    b.Navigation("Colors");
+
+                    b.Navigation("Features");
+
+                    b.Navigation("Images");
+
+                    b.Navigation("OrderItems");
+
+                    b.Navigation("Reviews");
+
+                    b.Navigation("Sizes");
+
+                    b.Navigation("Specs");
+
+                    b.Navigation("Variants");
+
+                    b.Navigation("Wishlists");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.Navigation("CartItems");
+
+                    b.Navigation("OrderItems");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.Navigation("Messages");
+                });
+#pragma warning restore 612, 618
+        }
+    }
+}
+
+``
+
+## Budgetha.Infrastructure\Persistence\Migrations\ApplicationDbContextModelSnapshot.cs
+
+``csharp
+// <auto-generated />
+using System;
+using Budgetha.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+
+#nullable disable
+
+namespace Budgetha.Infrastructure.Persistence.Migrations
+{
+    [DbContext(typeof(ApplicationDbContext))]
+    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    {
+        protected override void BuildModel(ModelBuilder modelBuilder)
+        {
+#pragma warning disable 612, 618
+            modelBuilder
+                .HasAnnotation("ProductVersion", "9.0.9")
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Address", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("City")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Country")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Line1")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Line2")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PostalCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Addresses");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Announcement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BadgeText")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("DiscountPercent")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("EndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LinkUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PromoCode")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("StartDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Subtitle")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Announcements");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ApplicationUser", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<int>("AccessFailedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AvatarUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<bool>("EmailConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("LockoutEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LockoutEnd")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("NormalizedEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("NormalizedUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("PhoneNumberConfirmed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("RefreshToken")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("RefreshTokenExpiryTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SecurityStamp")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("UserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedEmail")
+                        .HasDatabaseName("EmailIndex");
+
+                    b.HasIndex("NormalizedUserName")
+                        .IsUnique()
+                        .HasDatabaseName("UserNameIndex");
+
+                    b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("Carts");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.CartItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CartId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("RentalEndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("RentalStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CartId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("VariantId");
+
+                    b.ToTable("CartItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_CartItems_Quantity_Positive", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_CartItems_RentalDates", "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParentId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Categories");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.DeliveryReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AdminNote")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("BuyerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("FulfillmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ResolvedById")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<bool>("WasReceived")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BuyerId");
+
+                    b.HasIndex("FulfillmentId");
+
+                    b.HasIndex("OrderId", "BuyerId", "Status");
+
+                    b.ToTable("DeliveryReports");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RelatedEntityId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "Created");
+
+                    b.HasIndex("UserId", "IsRead");
+
+                    b.ToTable("Notifications");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContactEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ContactPhone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("PromoCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PromoScope")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PromoSellerId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset?>("ReservationExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid?>("ShippingAddressId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ShippingAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("ShippingCity")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ShippingCountry")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ShippingFullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ShippingLine1")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ShippingLine2")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ShippingPhone")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ShippingPostalCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ShippingState")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReservationExpiresAt");
+
+                    b.HasIndex("ShippingAddressId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Orders");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderFulfillment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Carrier")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("RejectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset?>("ShippedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset?>("StockReleasedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TrackingNumber")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId", "SellerId")
+                        .IsUnique();
+
+                    b.HasIndex("SellerId", "Status");
+
+                    b.ToTable("OrderFulfillments");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("FulfillmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("RentalEndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("RentalStartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Size")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FulfillmentId");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("SellerId");
+
+                    b.HasIndex("VariantId");
+
+                    b.ToTable("OrderItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_OrderItems_Prices_NonNegative", "\"UnitPrice\" >= 0 AND \"DiscountAmount\" >= 0");
+
+                            t.HasCheckConstraint("CK_OrderItems_Quantity_Positive", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_OrderItems_RentalDates", "\"Type\" <> 'Rental' OR (\"RentalStartDate\" IS NOT NULL AND \"RentalEndDate\" IS NOT NULL AND \"RentalEndDate\" > \"RentalStartDate\")");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OutboxDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Body")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(350)
+                        .HasColumnType("character varying(350)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("NotificationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompletedAt");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("NotificationId");
+
+                    b.HasIndex("Status", "NextAttemptAt");
+
+                    b.ToTable("OutboxDeliveries");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("ExternalCaptureId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<string>("ExternalTransactionId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LastWebhookEventId")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalCaptureId")
+                        .IsUnique();
+
+                    b.HasIndex("ExternalTransactionId")
+                        .IsUnique();
+
+                    b.HasIndex("LastWebhookEventId")
+                        .IsUnique();
+
+                    b.HasIndex("OrderId")
+                        .IsUnique();
+
+                    b.ToTable("Payments", t =>
+                        {
+                            t.HasCheckConstraint("CK_Payments_Amount_Positive", "\"Amount\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PendingImageDeletion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("QueuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("QueuedAt");
+
+                    b.ToTable("PendingImageDeletions");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PendingImageUpload", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<DateTimeOffset>("UploadedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("UploadedAt");
+
+                    b.ToTable("PendingImageUploads");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ApprovalStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("AverageRating")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("Brand")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsAvailableForRent")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsFeatured")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal?>("OriginalPrice")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("RentalPricePerDay")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("ReviewCount")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)");
+
+                    b.Property<int>("StockQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ThumbnailPublicId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ThumbnailUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovalStatus");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("SellerId");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Products", t =>
+                        {
+                            t.HasCheckConstraint("CK_Products_OriginalPrice_Positive", "\"OriginalPrice\" IS NULL OR \"OriginalPrice\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Price_Positive", "\"Price\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+                            t.HasCheckConstraint("CK_Products_Slug_NotEmpty", "length(trim(\"Slug\")) > 0");
+
+                            t.HasCheckConstraint("CK_Products_Stock_NonNegative", "\"StockQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Hex")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductColors");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductFeatures");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AltText")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PublicId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductImages");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSizes");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("ProductSpecs");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("RentalPricePerDay")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SKU")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Size")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("StockQuantity")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SKU")
+                        .IsUnique();
+
+                    b.HasIndex("ProductId", "IsActive");
+
+                    b.HasIndex("ProductId", "Color", "Size")
+                        .IsUnique()
+                        .HasFilter("\"IsActive\"");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("ProductId", "Color", "Size"), false);
+
+                    b.ToTable("ProductVariants", t =>
+                        {
+                            t.HasCheckConstraint("CK_ProductVariants_Price_Positive", "\"Price\" IS NULL OR \"Price\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_RentalPrice_Positive", "\"RentalPricePerDay\" IS NULL OR \"RentalPricePerDay\" > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_SKU_NotEmpty", "length(trim(\"SKU\")) > 0");
+
+                            t.HasCheckConstraint("CK_ProductVariants_Stock_NonNegative", "\"StockQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.PromoCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("DiscountPercentage")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal?>("MaxDiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("SellerId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("SellerId");
+
+                    b.ToTable("PromoCodes");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("ProductId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("Reviews", t =>
+                        {
+                            t.HasCheckConstraint("CK_Reviews_Rating_Range", "\"Rating\" >= 1 AND \"Rating\" <= 5");
+                        });
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SellerRequests");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerVerification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BusinessDescription")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("BusinessName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DocumentUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ReviewedBy")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("SellerVerifications");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LastModified")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("SupportTickets");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.TicketMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("SenderId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTimeOffset>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TicketId");
+
+                    b.ToTable("TicketMessages");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Wishlist", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("UserId", "ProductId")
+                        .IsUnique();
+
+                    b.ToTable("Wishlists");
+                });
+
+            modelBuilder.Entity("CategoryProduct", b =>
+                {
+                    b.Property<Guid>("CategoriesId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductsId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("CategoriesId", "ProductsId");
+
+                    b.HasIndex("ProductsId");
+
+                    b.ToTable("ProductCategories", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("NormalizedName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasDatabaseName("RoleNameIndex");
+
+                    b.ToTable("AspNetRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RoleId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetRoleClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserClaims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderKey")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProviderDisplayName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("LoginProvider", "ProviderKey");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AspNetUserLogins", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RoleId")
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId", "RoleId");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("AspNetUserRoles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId", "LoginProvider", "Name");
+
+                    b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Address", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Addresses")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithOne("Cart")
+                        .HasForeignKey("Budgetha.Domain.Entities.Cart", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.CartItem", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Cart", "Cart")
+                        .WithMany("Items")
+                        .HasForeignKey("CartId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("CartItems")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ProductVariant", "Variant")
+                        .WithMany("CartItems")
+                        .HasForeignKey("VariantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Cart");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Category", "Parent")
+                        .WithMany("Children")
+                        .HasForeignKey("ParentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Parent");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.DeliveryReport", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Buyer")
+                        .WithMany("DeliveryReports")
+                        .HasForeignKey("BuyerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.OrderFulfillment", "Fulfillment")
+                        .WithMany("DeliveryReports")
+                        .HasForeignKey("FulfillmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("DeliveryReports")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Buyer");
+
+                    b.Navigation("Fulfillment");
+
+                    b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Notification", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Address", "ShippingAddress")
+                        .WithMany()
+                        .HasForeignKey("ShippingAddressId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Orders")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ShippingAddress");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderFulfillment", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("Fulfillments")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany("Fulfillments")
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+
+                    b.Navigation("Seller");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderItem", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.OrderFulfillment", "Fulfillment")
+                        .WithMany("Items")
+                        .HasForeignKey("FulfillmentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithMany("Items")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("OrderItems")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany()
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ProductVariant", "Variant")
+                        .WithMany("OrderItems")
+                        .HasForeignKey("VariantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Fulfillment");
+
+                    b.Navigation("Order");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Seller");
+
+                    b.Navigation("Variant");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OutboxDelivery", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Notification", "Notification")
+                        .WithMany()
+                        .HasForeignKey("NotificationId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Notification");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Payment", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Order", "Order")
+                        .WithOne("Payment")
+                        .HasForeignKey("Budgetha.Domain.Entities.Payment", "OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Seller")
+                        .WithMany("Products")
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Seller");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductColor", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Colors")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductFeature", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Features")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductImage", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Images")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSize", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Sizes")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductSpec", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Specs")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Variants")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Review", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Reviews")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Reviews")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SellerVerification", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithOne("SellerVerification")
+                        .HasForeignKey("Budgetha.Domain.Entities.SellerVerification", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("SupportTickets")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.TicketMessage", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.SupportTicket", "Ticket")
+                        .WithMany("Messages")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ticket");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Wishlist", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Product", "Product")
+                        .WithMany("Wishlists")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
+                        .WithMany("Wishlists")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("CategoryProduct", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.Category", null)
+                        .WithMany()
+                        .HasForeignKey("CategoriesId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductsId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.HasOne("Budgetha.Domain.Entities.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ApplicationUser", b =>
+                {
+                    b.Navigation("Addresses");
+
+                    b.Navigation("Cart");
+
+                    b.Navigation("DeliveryReports");
+
+                    b.Navigation("Fulfillments");
+
+                    b.Navigation("Orders");
+
+                    b.Navigation("Products");
+
+                    b.Navigation("Reviews");
+
+                    b.Navigation("SellerVerification");
+
+                    b.Navigation("SupportTickets");
+
+                    b.Navigation("Wishlists");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Cart", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Category", b =>
+                {
+                    b.Navigation("Children");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Order", b =>
+                {
+                    b.Navigation("DeliveryReports");
+
+                    b.Navigation("Fulfillments");
+
+                    b.Navigation("Items");
+
+                    b.Navigation("Payment");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.OrderFulfillment", b =>
+                {
+                    b.Navigation("DeliveryReports");
+
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.Product", b =>
+                {
+                    b.Navigation("CartItems");
+
+                    b.Navigation("Colors");
+
+                    b.Navigation("Features");
+
+                    b.Navigation("Images");
+
+                    b.Navigation("OrderItems");
+
+                    b.Navigation("Reviews");
+
+                    b.Navigation("Sizes");
+
+                    b.Navigation("Specs");
+
+                    b.Navigation("Variants");
+
+                    b.Navigation("Wishlists");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.ProductVariant", b =>
+                {
+                    b.Navigation("CartItems");
+
+                    b.Navigation("OrderItems");
+                });
+
+            modelBuilder.Entity("Budgetha.Domain.Entities.SupportTicket", b =>
+                {
+                    b.Navigation("Messages");
+                });
+#pragma warning restore 612, 618
+        }
+    }
+}
+
+``
+
 ## Budgetha.Infrastructure\Services\AdminService.cs
 
 ``csharp
@@ -29949,14 +44956,13 @@ public class AdminService : IAdminService
     {
         var totalUsers = await _userManager.Users.CountAsync();
         var totalProducts = await _context.Products.CountAsync();
-        var pendingProducts = await _context.Products.CountAsync(p => p.ApprovalStatus == Budgetha.Domain.Enums.ApprovalStatus.Pending);
         var totalOrders = await _context.Orders.CountAsync();
 
         return new AdminStatsDto
         {
             TotalUsers = totalUsers,
             TotalProducts = totalProducts,
-            PendingProducts = pendingProducts,
+            PendingProducts = 0, // Feature removed
             TotalOrders = totalOrders
         };
     }
@@ -30006,7 +45012,7 @@ public class AdminService : IAdminService
                 Price = p.Price,
                 OriginalPrice = p.Price,
                 Stock = p.StockQuantity,
-                Category = p.Category != null ? p.Category.Name : "Uncategorized",
+                Categories = p.Categories.Select(c => new CategorySummaryDto { Id = c.Id, Name = c.Name, Slug = c.Slug }).ToList(),
                 Images = p.ThumbnailUrl != null ? new List<string> { p.ThumbnailUrl } : new List<string>(),
                 Rating = p.Reviews.Any() ? (decimal)p.Reviews.Average(r => r.Rating) : 0m,
                 ReviewCount = p.Reviews.Count(),
@@ -30326,6 +45332,68 @@ public class DateTimeService : IDateTimeService
 
 ``
 
+## Budgetha.Infrastructure\Services\EmailSettings.cs
+
+``csharp
+using System.ComponentModel.DataAnnotations;
+
+namespace Budgetha.Infrastructure.Services;
+
+public sealed class EmailSettings
+{
+    public const string SectionName = "EmailSettings";
+
+    public bool Enabled { get; set; }
+    public string Host { get; set; } = string.Empty;
+
+    [Range(1, 65535)]
+    public int Port { get; set; } = 25;
+
+    public bool EnableSsl { get; set; }
+    public string? Username { get; set; }
+    public string? Password { get; set; }
+    public string FromEmail { get; set; } = string.Empty;
+
+    [Range(1, 300)]
+    public int TimeoutSeconds { get; set; } = 30;
+}
+
+``
+
+## Budgetha.Infrastructure\Services\EmailSettingsValidator.cs
+
+``csharp
+using Microsoft.Extensions.Options;
+
+namespace Budgetha.Infrastructure.Services;
+
+public sealed class EmailSettingsValidator : IValidateOptions<EmailSettings>
+{
+    public ValidateOptionsResult Validate(string? name, EmailSettings settings)
+    {
+        if (!settings.Enabled)
+            return ValidateOptionsResult.Success;
+
+        var errors = new List<string>();
+        if (string.IsNullOrWhiteSpace(settings.Host))
+            errors.Add("EmailSettings:Host is required when email is enabled.");
+        if (settings.Port is < 1 or > 65535)
+            errors.Add("EmailSettings:Port must be between 1 and 65535.");
+        if (!System.Net.Mail.MailAddress.TryCreate(settings.FromEmail, out _))
+            errors.Add("EmailSettings:FromEmail must be a valid email address.");
+        if (settings.TimeoutSeconds is < 1 or > 300)
+            errors.Add("EmailSettings:TimeoutSeconds must be between 1 and 300.");
+        if (string.IsNullOrWhiteSpace(settings.Username) != string.IsNullOrWhiteSpace(settings.Password))
+            errors.Add("EmailSettings:Username and Password must either both be set or both be empty.");
+
+        return errors.Count == 0
+            ? ValidateOptionsResult.Success
+            : ValidateOptionsResult.Fail(errors);
+    }
+}
+
+``
+
 ## Budgetha.Infrastructure\Services\ExpiredPayPalReservationService.cs
 
 ``csharp
@@ -30378,6 +45446,7 @@ public sealed class ExpiredPayPalReservationService : BackgroundService
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var orders = await context.Orders
             .Include(order => order.Payment)
+            .Include(order => order.User)
             .Include(order => order.Items)
             .ThenInclude(item => item.Product)
             .Include(order => order.Items)
@@ -30404,12 +45473,17 @@ public sealed class ExpiredPayPalReservationService : BackgroundService
 
             try
             {
+                var communications = scope.ServiceProvider.GetRequiredService<IOrderCommunicationService>();
+                var sellerIds = order.Items.Select(item => item.Product.SellerId)
+                    .Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>();
+                await communications.QueueStatusAsync(order, "expired", sellerIds, cancellationToken);
                 await context.SaveChangesAsync(cancellationToken);
             }
             catch (DbUpdateConcurrencyException)
             {
                 // Capture or cancellation won the race; their row-version prevents double release.
                 context.ChangeTracker.Clear();
+                break;
             }
         }
     }
@@ -30467,93 +45541,179 @@ public class ImageService : IImageService
 
 ``
 
-## Budgetha.Infrastructure\Services\NotificationService.cs
+## Budgetha.Infrastructure\Services\OutboxDeliveryWorker.cs
 
 ``csharp
 using Budgetha.Application.Common.Interfaces;
+using Budgetha.Application.Features.Notifications.Queries.GetNotifications;
 using Budgetha.Domain.Entities;
-using Microsoft.AspNetCore.SignalR;
+using Budgetha.Domain.Enums;
+using Budgetha.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using System;
-using System.Threading.Tasks;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Budgetha.Infrastructure.Services;
 
-public class NotificationService : INotificationService
+public sealed class OutboxDeliveryWorker : BackgroundService
 {
-    private readonly IServiceProvider _serviceProvider;
+    private const int MaxAttempts = 8;
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ILogger<OutboxDeliveryWorker> _logger;
+    private DateTimeOffset _nextCleanupAt = DateTimeOffset.MinValue;
 
-    public NotificationService(IServiceProvider serviceProvider)
+    public OutboxDeliveryWorker(IServiceScopeFactory scopeFactory, ILogger<OutboxDeliveryWorker> logger)
     {
-        _serviceProvider = serviceProvider;
+        _scopeFactory = scopeFactory;
+        _logger = logger;
     }
 
-    public async Task SendNotificationAsync(string userId, string title, string message, string type, string? relatedEntityId = null)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var scope = _serviceProvider.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+        await ProcessAvailableAsync(stoppingToken);
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        while (await timer.WaitForNextTickAsync(stoppingToken))
+            await ProcessAvailableAsync(stoppingToken);
+    }
 
-        // 1. Save to database
-        var notification = new Notification
-        {
-            UserId = userId,
-            Title = title,
-            Message = message,
-            Type = type,
-            IsRead = false,
-            RelatedEntityId = relatedEntityId
-        };
-
-        context.Notifications.Add(notification);
-        await context.SaveChangesAsync(default);
-
-        // 2. Broadcast via SignalR dynamically (using Reflection to get IHubContext since Budgetha.Infrastructure doesn't reference Budgetha.API directly)
+    private async Task ProcessAvailableAsync(CancellationToken cancellationToken)
+    {
         try
         {
-            var hubContextType = Type.GetType("Microsoft.AspNetCore.SignalR.IHubContext`1, Microsoft.AspNetCore.SignalR.Core");
-            var myHubType = Type.GetType("Budgetha.API.Hubs.NotificationHub, Budgetha.API");
-            
-            if (hubContextType != null && myHubType != null)
+            for (var processed = 0; processed < 50; processed++)
             {
-                var genericHubContextType = hubContextType.MakeGenericType(myHubType);
-                var hubContext = scope.ServiceProvider.GetService(genericHubContextType);
+                var id = await ClaimNextAsync(cancellationToken);
+                if (id == null)
+                    break;
+                await DeliverAsync(id.Value, cancellationToken);
+            }
 
-                if (hubContext != null)
-                {
-                    var clientsProperty = genericHubContextType.GetProperty("Clients");
-                    var clients = clientsProperty?.GetValue(hubContext);
-                    
-                    var userMethod = clients?.GetType().GetMethod("User", new[] { typeof(string) });
-                    var userProxy = userMethod?.Invoke(clients, new object[] { userId });
-
-                    var sendMethod = userProxy?.GetType().GetMethod("SendCoreAsync", new[] { typeof(string), typeof(object[]), typeof(System.Threading.CancellationToken) });
-                    
-                    if (sendMethod?.Invoke(userProxy, new object[]
-                        {
-                            "ReceiveNotification",
-                            new object[] { new
-                            {
-                                id = notification.Id.ToString(),
-                                title = notification.Title,
-                                message = notification.Message,
-                                type = notification.Type,
-                                isRead = notification.IsRead,
-                                relatedEntityId = notification.RelatedEntityId,
-                                createdAt = notification.Created
-                            } },
-                            default(System.Threading.CancellationToken)
-                        }) is Task task)
-                    {
-                        await task;
-                    }
-                }
+            if (DateTimeOffset.UtcNow >= _nextCleanupAt)
+            {
+                await CleanupAsync(cancellationToken);
+                _nextCleanupAt = DateTimeOffset.UtcNow.AddDays(1);
             }
         }
-        catch
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Ignore SignalR reflection errors, the notification is already saved to DB.
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Outbox processing cycle failed.");
         }
     }
+
+    private async Task<Guid?> ClaimNextAsync(CancellationToken cancellationToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var now = DateTimeOffset.UtcNow;
+        var candidateId = await context.OutboxDeliveries
+            .Where(delivery =>
+                ((delivery.Status == OutboxDeliveryStatus.Pending || delivery.Status == OutboxDeliveryStatus.Failed) &&
+                 delivery.NextAttemptAt <= now) ||
+                (delivery.Status == OutboxDeliveryStatus.Processing && delivery.NextAttemptAt <= now))
+            .OrderBy(delivery => delivery.CreatedAt)
+            .Select(delivery => (Guid?)delivery.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (candidateId == null)
+            return null;
+
+        var claimed = await context.OutboxDeliveries
+            .Where(delivery => delivery.Id == candidateId &&
+                (((delivery.Status == OutboxDeliveryStatus.Pending || delivery.Status == OutboxDeliveryStatus.Failed) &&
+                  delivery.NextAttemptAt <= now) ||
+                 (delivery.Status == OutboxDeliveryStatus.Processing && delivery.NextAttemptAt <= now)))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(delivery => delivery.Status, OutboxDeliveryStatus.Processing)
+                .SetProperty(delivery => delivery.Attempts, delivery => delivery.Attempts + 1)
+                .SetProperty(delivery => delivery.NextAttemptAt, now.AddMinutes(5)), cancellationToken);
+        return claimed == 1 ? candidateId : null;
+    }
+
+    private async Task DeliverAsync(Guid id, CancellationToken cancellationToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var delivery = await context.OutboxDeliveries
+            .Include(item => item.Notification)
+            .SingleAsync(item => item.Id == id, cancellationToken);
+
+        try
+        {
+            switch (delivery.Type)
+            {
+                case OutboxDeliveryType.Email:
+                    var sender = scope.ServiceProvider.GetRequiredService<IEmailSender>();
+                    await sender.SendAsync(
+                        delivery.Recipient,
+                        delivery.Subject ?? string.Empty,
+                        delivery.Body ?? string.Empty,
+                        cancellationToken);
+                    break;
+                case OutboxDeliveryType.RealtimeNotification:
+                    var notification = delivery.Notification
+                        ?? throw new InvalidOperationException("Realtime delivery has no notification.");
+                    var publisher = scope.ServiceProvider.GetRequiredService<IRealtimeNotificationPublisher>();
+                    await publisher.PublishAsync(delivery.Recipient, new NotificationDto
+                    {
+                        Id = notification.Id.ToString(),
+                        Title = notification.Title,
+                        Message = notification.Message,
+                        Type = notification.Type,
+                        IsRead = notification.IsRead,
+                        RelatedEntityId = notification.RelatedEntityId,
+                        CreatedAt = notification.Created
+                    }, cancellationToken);
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unsupported outbox delivery type {delivery.Type}.");
+            }
+
+            delivery.Status = OutboxDeliveryStatus.Completed;
+            delivery.CompletedAt = DateTimeOffset.UtcNow;
+            delivery.NextAttemptAt = null;
+            delivery.LastError = null;
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            delivery.Status = delivery.Attempts >= MaxAttempts
+                ? OutboxDeliveryStatus.DeadLettered
+                : OutboxDeliveryStatus.Failed;
+            delivery.NextAttemptAt = delivery.Status == OutboxDeliveryStatus.Failed
+                ? DateTimeOffset.UtcNow.Add(GetRetryDelay(delivery.Attempts))
+                : null;
+            delivery.LastError = Truncate(exception.GetBaseException().Message, 2000);
+            _logger.LogWarning(
+                "Outbox delivery {DeliveryId} ({DeliveryType}) failed on attempt {Attempt}; details are retained in the outbox.",
+                delivery.Id,
+                delivery.Type,
+                delivery.Attempts);
+        }
+
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task CleanupAsync(CancellationToken cancellationToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var now = DateTimeOffset.UtcNow;
+        await context.OutboxDeliveries
+            .Where(delivery => delivery.Status == OutboxDeliveryStatus.Completed &&
+                               delivery.CompletedAt < now.AddDays(-30))
+            .ExecuteDeleteAsync(cancellationToken);
+        await context.Notifications
+            .Where(notification => notification.IsRead && notification.Created < now.AddDays(-180))
+            .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    private static TimeSpan GetRetryDelay(int attempts) =>
+        TimeSpan.FromSeconds(Math.Min(3600, 15 * Math.Pow(2, Math.Max(0, attempts - 1))));
+
+    private static string Truncate(string value, int length) =>
+        value.Length <= length ? value : value[..length];
 }
 
 ``
@@ -30953,66 +46113,55 @@ public sealed class PostgresInventoryLockService : IInventoryLockService
 
 ``
 
-## Budgetha.Infrastructure\Services\SmtpEmailService.cs
+## Budgetha.Infrastructure\Services\SmtpEmailSender.cs
 
 ``csharp
 using System.Net;
 using System.Net.Mail;
 using Budgetha.Application.Common.Interfaces;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Budgetha.Infrastructure.Services;
 
-public class SmtpEmailService : IEmailService
+public sealed class SmtpEmailSender : IEmailSender
 {
-    private readonly IConfiguration _configuration;
-    private readonly ILogger<SmtpEmailService> _logger;
+    private readonly EmailSettings _settings;
 
-    public SmtpEmailService(IConfiguration configuration, ILogger<SmtpEmailService> logger)
+    public SmtpEmailSender(IOptions<EmailSettings> options)
     {
-        _configuration = configuration;
-        _logger = logger;
+        _settings = options.Value;
     }
 
-    public async Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default)
+    public bool IsEnabled => _settings.Enabled;
+
+    public async Task SendAsync(
+        string recipient,
+        string subject,
+        string body,
+        CancellationToken cancellationToken = default)
     {
-        try
+        if (!IsEnabled)
+            return;
+
+        using var client = new SmtpClient(_settings.Host, _settings.Port)
         {
-            var host = _configuration["EmailSettings:Host"] ?? "localhost";
-            var port = int.TryParse(_configuration["EmailSettings:Port"], out var p) ? p : 25;
-            var enableSsl = bool.TryParse(_configuration["EmailSettings:EnableSsl"], out var ssl) && ssl;
-            var username = _configuration["EmailSettings:Username"];
-            var password = _configuration["EmailSettings:Password"];
-            var from = _configuration["EmailSettings:FromEmail"] ?? "noreply@budgetha.com";
+            EnableSsl = _settings.EnableSsl,
+            Timeout = checked(_settings.TimeoutSeconds * 1000)
+        };
+        if (!string.IsNullOrWhiteSpace(_settings.Username))
+            client.Credentials = new NetworkCredential(_settings.Username, _settings.Password);
 
-            using var client = new SmtpClient(host, port);
-            
-            if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
-            {
-                client.Credentials = new NetworkCredential(username, password);
-            }
-            
-            client.EnableSsl = enableSsl;
-
-            using var mailMessage = new MailMessage
-            {
-                From = new MailAddress(from),
-                Subject = subject,
-                Body = body,
-                IsBodyHtml = true
-            };
-            
-            mailMessage.To.Add(to);
-
-            await client.SendMailAsync(mailMessage, cancellationToken);
-            _logger.LogInformation("Email sent successfully to {To}", to);
-        }
-        catch (Exception ex)
+        using var message = new MailMessage
         {
-            _logger.LogError(ex, "Failed to send email to {To}", to);
-            throw;
-        }
+            From = new MailAddress(_settings.FromEmail),
+            Subject = subject,
+            Body = body,
+            IsBodyHtml = true
+        };
+        message.To.Add(recipient);
+
+        await client.SendMailAsync(message, cancellationToken)
+            .WaitAsync(TimeSpan.FromSeconds(_settings.TimeoutSeconds), cancellationToken);
     }
 }
 

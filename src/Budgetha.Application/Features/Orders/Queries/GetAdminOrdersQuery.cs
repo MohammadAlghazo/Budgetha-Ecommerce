@@ -113,7 +113,9 @@ public class GetAdminOrdersQueryHandler : IRequestHandler<GetAdminOrdersQuery, L
             UserName = o.User == null ? "Unknown User" : $"{o.User.FirstName} {o.User.LastName}".Trim(),
             CreatedAt = o.Created.DateTime,
             Status = o.Status.ToString(),
-            TotalAmount = o.TotalAmount,
+            TotalAmount = isAdmin
+                ? o.TotalAmount
+                : o.Fulfillments.Where(f => f.SellerId == userId).Sum(f => f.Amount),
             Currency = o.Currency,
             PaymentProvider = o.Payment?.Provider.ToString() ?? string.Empty,
             PaymentStatus = o.Payment?.Status.ToString() ?? string.Empty,
@@ -135,7 +137,9 @@ public class GetAdminOrdersQueryHandler : IRequestHandler<GetAdminOrdersQuery, L
                     CanShip = f.SellerId == userId && f.Status == Domain.Enums.FulfillmentStatus.Processing,
                     CanReject = f.SellerId == userId && f.Status == Domain.Enums.FulfillmentStatus.Processing &&
                                 (o.Payment?.Status != PaymentStatus.Completed || o.Payment.Provider == PaymentProvider.Mock),
-                    Items = f.Items.Select(i => new AdminFulfillmentItemDto
+                    Items = f.Items
+                    .Where(i => isAdmin || i.SellerId == userId)
+                    .Select(i => new AdminFulfillmentItemDto
                     {
                         ProductId = i.ProductId,
                         ProductName = i.Product.Name,
@@ -144,7 +148,10 @@ public class GetAdminOrdersQueryHandler : IRequestHandler<GetAdminOrdersQuery, L
                         UnitPrice = i.UnitPrice
                     }).ToList()
                 }).ToList(),
-            DeliveryReports = o.DeliveryReports.Select(r => new AdminDeliveryReportDto
+            DeliveryReports = o.DeliveryReports
+            .Where(r => isAdmin || (r.FulfillmentId.HasValue &&
+                o.Fulfillments.Any(f => f.Id == r.FulfillmentId.Value && f.SellerId == userId)))
+            .Select(r => new AdminDeliveryReportDto
             {
                 Id = r.Id,
                 Status = r.Status.ToString(),

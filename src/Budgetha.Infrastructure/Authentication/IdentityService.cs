@@ -2,7 +2,11 @@ using Budgetha.Application.Common.Interfaces;
 using Budgetha.Application.Common.Models;
 using Budgetha.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using System.Security.Cryptography;
+using System.Text;
+using Budgetha.Infrastructure.Persistence;
 
 namespace Budgetha.Infrastructure.Authentication;
 
@@ -12,18 +16,21 @@ public class IdentityService : IIdentityService
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly TokenService _tokenService;
     private readonly IMemoryCache _cache;
+    private readonly ApplicationDbContext _context;
     private const string UsersCacheKey = "Admin_AllUsersCache";
 
     public IdentityService(
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager,
         TokenService tokenService,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        ApplicationDbContext context)
     {
         _userManager = userManager;
         _signInManager = signInManager;
         _tokenService = tokenService;
         _cache = cache;
+        _context = context;
     }
 
     public async Task<AuthResult> RegisterAsync(string email, string password, string firstName, string lastName)
@@ -49,10 +56,7 @@ public class IdentityService : IIdentityService
         var (token, expiration) = await _tokenService.GenerateTokenAsync(user);
         var roles = await _userManager.GetRolesAsync(user);
         
-        var refreshToken = GenerateRefreshToken();
-        user.RefreshToken = refreshToken;
-        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
-        await _userManager.UpdateAsync(user);
+        var refreshToken = await IssueRefreshTokenAsync(user);
 
         return AuthResult.Success(token, expiration, user.Id, user.Email!, user.FirstName, user.LastName, roles, refreshToken);
     }
@@ -72,10 +76,7 @@ public class IdentityService : IIdentityService
         var (token, expiration) = await _tokenService.GenerateTokenAsync(user);
         var roles = await _userManager.GetRolesAsync(user);
 
-        var refreshToken = GenerateRefreshToken();
-        user.RefreshToken = refreshToken;
-        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
-        await _userManager.UpdateAsync(user);
+        var refreshToken = await IssueRefreshTokenAsync(user);
 
         return AuthResult.Success(token, expiration, user.Id, user.Email!, user.FirstName, user.LastName, roles, refreshToken);
     }
@@ -179,10 +180,7 @@ public class IdentityService : IIdentityService
         var (token, expiration) = await _tokenService.GenerateTokenAsync(user);
         var roles = await _userManager.GetRolesAsync(user);
         
-        var refreshToken = GenerateRefreshToken();
-        user.RefreshToken = refreshToken;
-        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
-        await _userManager.UpdateAsync(user);
+        var refreshToken = await IssueRefreshTokenAsync(user);
 
         return AuthResult.Success(token, expiration, user.Id, user.Email!, user.FirstName, user.LastName, roles, refreshToken);
     }
@@ -236,26 +234,134 @@ public class IdentityService : IIdentityService
         var user = await _userManager.FindByEmailAsync(email);
         var securityStamp = principal.FindFirst("security_stamp")?.Value;
         if (user == null || user.LockoutEnd > DateTimeOffset.UtcNow ||
-            !string.Equals(user.SecurityStamp ?? string.Empty, securityStamp ?? string.Empty, StringComparison.Ordinal) ||
-            user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
+            !string.Equals(user.SecurityStamp ?? string.Empty, securityStamp ?? string.Empty, StringComparison.Ordinal))
             return AuthResult.Failure("Invalid refresh token.");
 
-        var (newToken, newExpiration) = await _tokenService.GenerateTokenAsync(user);
+        var now = DateTimeOffset.UtcNow;
+        var tokenHash = HashToken(refreshToken);
+        var storedToken = await _context.RefreshTokens
+            .SingleOrDefaultAsync(candidate => candidate.UserId == user.Id && candidate.TokenHash == tokenHash);
+
+        // Existing installations stored one raw token on the user. Rotate it once into the token-family model.
+        var isLegacyToken = storedToken is null &&
+            user.RefreshTokenExpiryTime > DateTime.UtcNow &&
+            FixedTimeEquals(user.RefreshToken, refreshToken);
+        if (storedToken is null && !isLegacyToken)
+            return AuthResult.Failure("Invalid refresh token.");
+
+        if (storedToken is not null &&
+            (storedToken.UsedAt.HasValue || storedToken.RevokedAt.HasValue))
+        {
+            await RevokeAllSessionsAsync(user.Id, now);
+            return AuthResult.Failure("Refresh token reuse detected. All sessions have been revoked.");
+        }
+
+        if (storedToken is not null && storedToken.ExpiresAt <= now)
+            return AuthResult.Failure("Invalid refresh token.");
+
+        var familyId = storedToken?.FamilyId ?? Guid.NewGuid();
         var newRefreshToken = GenerateRefreshToken();
+        var newRefreshTokenHash = HashToken(newRefreshToken);
 
-        user.RefreshToken = newRefreshToken;
-        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
-        await _userManager.UpdateAsync(user);
+        if (storedToken is null)
+        {
+            storedToken = new RefreshToken
+            {
+                UserId = user.Id,
+                TokenHash = tokenHash,
+                FamilyId = familyId,
+                CreatedAt = now,
+                ExpiresAt = new DateTimeOffset(
+                    DateTime.SpecifyKind(user.RefreshTokenExpiryTime!.Value, DateTimeKind.Utc))
+            };
+            _context.RefreshTokens.Add(storedToken);
+            user.RefreshToken = null;
+            user.RefreshTokenExpiryTime = null;
+        }
 
+        storedToken.UsedAt = now;
+        storedToken.ReplacedByTokenHash = newRefreshTokenHash;
+        _context.RefreshTokens.Add(new RefreshToken
+        {
+            UserId = user.Id,
+            TokenHash = newRefreshTokenHash,
+            FamilyId = familyId,
+            CreatedAt = now,
+            ExpiresAt = now.AddDays(7)
+        });
+
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await RevokeAllSessionsAsync(user.Id, now);
+            return AuthResult.Failure("Refresh token reuse detected. All sessions have been revoked.");
+        }
+        catch (DbUpdateException)
+        {
+            await RevokeAllSessionsAsync(user.Id, now);
+            return AuthResult.Failure("Refresh token reuse detected. All sessions have been revoked.");
+        }
+
+        var (newToken, newExpiration) = await _tokenService.GenerateTokenAsync(user);
         var roles = await _userManager.GetRolesAsync(user);
         return AuthResult.Success(newToken, newExpiration, user.Id, user.Email!, user.FirstName, user.LastName, roles, newRefreshToken);
     }
 
-    private string GenerateRefreshToken()
+    private async Task<string> IssueRefreshTokenAsync(ApplicationUser user)
+    {
+        var token = GenerateRefreshToken();
+        var now = DateTimeOffset.UtcNow;
+        _context.RefreshTokens.Add(new RefreshToken
+        {
+            UserId = user.Id,
+            TokenHash = HashToken(token),
+            FamilyId = Guid.NewGuid(),
+            CreatedAt = now,
+            ExpiresAt = now.AddDays(7)
+        });
+        user.RefreshToken = null;
+        user.RefreshTokenExpiryTime = null;
+        await _context.SaveChangesAsync();
+        return token;
+    }
+
+    private async Task RevokeAllSessionsAsync(string userId, DateTimeOffset revokedAt)
+    {
+        _context.ChangeTracker.Clear();
+        await _context.RefreshTokens
+            .Where(token => token.UserId == userId && token.RevokedAt == null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(token => token.RevokedAt, revokedAt));
+
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is not null)
+        {
+            user.RefreshToken = null;
+            user.RefreshTokenExpiryTime = null;
+        }
+
+        await _context.SaveChangesAsync();
+        if (user is not null)
+            await _userManager.UpdateSecurityStampAsync(user);
+    }
+
+    private static string GenerateRefreshToken()
     {
         var randomNumber = new byte[32];
-        using var rng = System.Security.Cryptography.RandomNumberGenerator.Create();
-        rng.GetBytes(randomNumber);
+        RandomNumberGenerator.Fill(randomNumber);
         return Convert.ToBase64String(randomNumber);
+    }
+
+    private static string HashToken(string token) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+    private static bool FixedTimeEquals(string? left, string right)
+    {
+        if (left is null) return false;
+        return CryptographicOperations.FixedTimeEquals(
+            SHA256.HashData(Encoding.UTF8.GetBytes(left)),
+            SHA256.HashData(Encoding.UTF8.GetBytes(right)));
     }
 }

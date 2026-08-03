@@ -49,6 +49,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<PendingImageUpload> PendingImageUploads => Set<PendingImageUpload>();
     public DbSet<PendingImageDeletion> PendingImageDeletions => Set<PendingImageDeletion>();
     public DbSet<OutboxDelivery> OutboxDeliveries => Set<OutboxDelivery>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

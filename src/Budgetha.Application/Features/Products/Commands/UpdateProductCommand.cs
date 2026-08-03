@@ -100,11 +100,7 @@ public class UpdateProductCommandHandler : IRequestHandler<UpdateProductCommand,
             return false;
         }
 
-        var slug = ProductRules.GenerateSlug(request.Name);
-        var originalSlug = slug;
-        var counter = 1;
-        while (await _context.Products.AnyAsync(p => p.Id != product.Id && p.Slug == slug, cancellationToken))
-            slug = $"{originalSlug}-{counter++}";
+        var slug = $"{ProductRules.GenerateSlug(request.Name)}-{product.Id:N}";
 
         var oldPublicIds = product.Images
             .Select(image => image.PublicId)
