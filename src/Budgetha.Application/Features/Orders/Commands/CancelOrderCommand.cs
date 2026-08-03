@@ -55,7 +55,7 @@ public class CancelOrderCommandHandler : IRequestHandler<CancelOrderCommand, boo
             order.Status == OrderStatus.Failed)
             return false;
 
-        if (order.Payment?.Status is PaymentStatus.Completed or PaymentStatus.Processing)
+        if (order.Payment?.Provider != PaymentProvider.Mock && order.Payment?.Status is PaymentStatus.Completed or PaymentStatus.Processing)
             throw new InvalidOperationException("A paid order cannot be cancelled until a refund has been processed.");
 
         order.Status = OrderStatus.Cancelled;

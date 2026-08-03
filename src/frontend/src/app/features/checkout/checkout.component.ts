@@ -13,10 +13,8 @@ import { debounceTime, Observable, switchMap } from 'rxjs';
 import { firstValueFrom } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { COUNTRIES, CountryData } from '../../core/data/countries.data';
-import { IPayPalConfig, IOnApproveCallbackData, NgxPayPalModule } from 'ngx-paypal';
-import { environment } from '../../../environments/environment';
 
-type PaymentMethod = 'paypal' | 'mock' | 'cod';
+type PaymentMethod = 'mock' | 'cod';
 
 function phoneValidator(getDialCode: () => CountryData | undefined) {
   return (control: AbstractControl): ValidationErrors | null => {
@@ -33,7 +31,7 @@ function phoneValidator(getDialCode: () => CountryData | undefined) {
 
 @Component({
   selector: 'app-checkout',
-  imports: [CurrencyPipe, LowerCasePipe, RouterLink, ReactiveFormsModule, FormsModule, EmptyStateComponent, NgxPayPalModule],
+  imports: [CurrencyPipe, LowerCasePipe, RouterLink, ReactiveFormsModule, FormsModule, EmptyStateComponent],
   template: `
     @if (cart.items().length === 0) {
       <div class="max-w-2xl mx-auto px-4 py-16">
@@ -281,17 +279,7 @@ function phoneValidator(getDialCode: () => CountryData | undefined) {
                 Payment Method
               </h2>
 
-              <div class="mt-5 grid sm:grid-cols-3 gap-3" role="radiogroup" aria-label="Payment method">
-                <button type="button" role="radio" [attr.aria-checked]="paymentMethod() === 'paypal'" (click)="paymentMethod.set('paypal')"
-                        class="rounded-2xl border-2 p-4 text-start transition-all duration-300"
-                        [class]="paymentMethod() === 'paypal' ? 'border-blue-600 bg-blue-50/60 shadow-md shadow-blue-100' : 'border-slate-200 hover:border-slate-300'">
-                  <svg class="w-7 h-7 mb-2" viewBox="0 0 24 24" aria-hidden="true">
-                    <path fill="#003087" d="M7.2 20.5H4.1a.7.7 0 0 1-.7-.8L6.3 2.3a.9.9 0 0 1 .9-.8h6.2c4 0 6.2 2.1 5.6 5.5-.7 4.4-3.7 6.3-7.8 6.3H9.6l-.8 5.2a2.1 2.1 0 0 1-1.6 2Z"/>
-                    <path fill="#009cde" d="M10.5 8.1h4.8c3.3 0 4.6 1.7 4.1 4.4-.6 3.7-3.2 5.4-6.5 5.4h-1.2l-.6 3.8a.7.7 0 0 1-.7.6H7.8l2.7-14.2Z" opacity=".85"/>
-                  </svg>
-                  <p class="text-sm font-bold text-slate-900">PayPal</p>
-                  <p class="text-xs text-slate-400 mt-0.5">Secure online payment</p>
-                </button>
+              <div class="mt-5 grid sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Payment method">
 
                 <button type="button" role="radio" [attr.aria-checked]="paymentMethod() === 'mock'" (click)="paymentMethod.set('mock')"
                          class="rounded-2xl border-2 p-4 text-start transition-all duration-300"
@@ -314,12 +302,7 @@ function phoneValidator(getDialCode: () => CountryData | undefined) {
                 </button>
               </div>
 
-              @if (paymentMethod() === 'paypal') {
-                <div class="mt-6 rounded-2xl bg-blue-50 ring-1 ring-blue-100 p-5">
-                  <p class="text-sm font-semibold text-blue-950">Pay securely with PayPal</p>
-                  <p class="text-sm text-blue-800 mt-1">Your total is calculated by Budgetha and captured by PayPal only after you approve the payment.</p>
-                </div>
-              } @else if (paymentMethod() === 'mock') {
+              @if (paymentMethod() === 'mock') {
                 <div class="mt-6 rounded-2xl bg-violet-50 ring-1 ring-violet-100 p-5">
                   <p class="text-sm font-semibold text-violet-900">Safe test checkout</p>
                   <p class="text-sm text-violet-700 mt-1">No card details are collected and no money is charged. The order is marked paid for testing the full shipping workflow.</p>
@@ -420,19 +403,6 @@ function phoneValidator(getDialCode: () => CountryData | undefined) {
                   {{ paymentMethod() === 'mock' ? 'Complete Test Payment' : 'Place COD Order' }} — {{ (quote()?.totalAmount ?? cart.total()) | currency }}
                 }
               </button>
-            } @else if (payPalConfig(); as config) {
-              <div class="mt-6" [class.pointer-events-none]="placing()" [class.opacity-60]="placing()">
-                <ngx-paypal [config]="config"></ngx-paypal>
-              </div>
-              @if (placing()) {
-                <p class="mt-3 text-center text-sm font-medium text-blue-700">Processing your PayPal payment. Do not close this page.</p>
-              }
-            } @else if (payPalConfigured) {
-              <p class="mt-6 text-center text-sm text-slate-500">Loading secure payment options…</p>
-            } @else {
-              <div class="mt-6 rounded-xl bg-red-50 ring-1 ring-red-100 px-4 py-3 text-sm text-red-700">
-                PayPal is temporarily unavailable because its client ID is not configured.
-              </div>
             }
 
             <div class="mt-5 flex items-center justify-center gap-2 text-xs text-slate-400">
@@ -463,15 +433,11 @@ export class CheckoutComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly countries = COUNTRIES;
-  readonly paymentMethod = signal<PaymentMethod>('paypal');
+  readonly paymentMethod = signal<PaymentMethod>('mock');
   readonly placing = signal(false);
   readonly submitted = signal(false);
   readonly selectedAddressId = signal<number | string | null>(null);
   readonly quote = signal<CheckoutQuote | null>(null);
-  readonly payPalConfigured = environment.payPalClientId.trim().length > 0;
-  readonly payPalConfig = signal<IPayPalConfig | null>(null);
-  private payPalOrderId: string | null = null;
-  private budgethaOrderId: string | null = null;
 
   readonly dialDropdownOpen = signal(false);
   readonly selectedDialCountry = signal('JO');
@@ -575,9 +541,6 @@ export class CheckoutComponent implements OnInit {
     this.orders.getQuote(country, state, this.cart.promo()?.code).subscribe({
       next: quote => {
         this.quote.set(quote);
-        if (this.payPalConfigured && !this.payPalConfig()) {
-          this.payPalConfig.set(this.createPayPalConfig(quote.currency));
-        }
       },
       error: () => this.quote.set(null)
     });
@@ -625,84 +588,7 @@ export class CheckoutComponent implements OnInit {
     }, 900);
   }
 
-  private createPayPalConfig(currency: string): IPayPalConfig {
-    return {
-      clientId: environment.payPalClientId,
-      currency,
-      style: { label: 'paypal', layout: 'vertical', shape: 'rect', color: 'gold', height: 48 },
-      onClick: (_data, actions) => {
-        this.submitted.set(true);
-        if (this.form.invalid) {
-          this.form.markAllAsTouched();
-          this.toast.error('Please complete the highlighted fields before paying with PayPal.');
-          actions.reject();
-          return;
-        }
-        actions.resolve();
-      },
-      createOrderOnServer: () => this.createPayPalOrder(),
-      authorizeOnServer: data => this.capturePayPalOrder(data),
-      onCancel: () => this.cancelPendingPayPalOrder(),
-      onError: () => {
-        this.placing.set(false);
-        this.toast.error(this.budgethaOrderId
-          ? 'PayPal could not finish the payment. Check your orders before trying again.'
-          : 'PayPal could not start the payment. Please try again.');
-      }
-    };
-  }
 
-  private async createPayPalOrder(): Promise<string> {
-    if (this.form.invalid) {
-      this.form.markAllAsTouched();
-      throw new Error('Checkout form is invalid.');
-    }
-    if (this.budgethaOrderId && this.payPalOrderId) return this.payPalOrderId;
-
-    this.placing.set(true);
-    try {
-      this.budgethaOrderId = await firstValueFrom(this.placeOrderRequest(this.buildOrderInput('PayPal', 'PayPal')));
-      const response = await firstValueFrom(this.orders.createPayPalOrder(this.budgethaOrderId));
-      this.payPalOrderId = response.id;
-      return response.id;
-    } catch (error) {
-      await this.cancelCreatedPayPalOrder();
-      this.placing.set(false);
-      throw error;
-    }
-  }
-
-  private async capturePayPalOrder(data: IOnApproveCallbackData): Promise<void> {
-    if (!this.budgethaOrderId || !this.payPalOrderId || data.orderID !== this.payPalOrderId) {
-      throw new Error('PayPal returned an order that does not match this checkout.');
-    }
-
-    this.placing.set(true);
-    await firstValueFrom(this.orders.capturePayPalOrder(this.budgethaOrderId, data.orderID));
-    const orderId = this.budgethaOrderId;
-    this.payPalOrderId = null;
-    this.budgethaOrderId = null;
-    this.placing.set(false);
-    this.cart.refresh();
-    await this.router.navigate(['/checkout/success', this.orders.formatOrderNumber(orderId)]);
-  }
-
-  private cancelPendingPayPalOrder(): void {
-    void this.cancelCreatedPayPalOrder().finally(() => this.placing.set(false));
-  }
-
-  private async cancelCreatedPayPalOrder(): Promise<void> {
-    const orderId = this.budgethaOrderId;
-    this.payPalOrderId = null;
-    this.budgethaOrderId = null;
-    if (!orderId) return;
-
-    try {
-      await firstValueFrom(this.orders.cancelOrder(orderId));
-    } catch {
-      this.toast.info('The pending order could not be cancelled automatically. It will expire if unpaid.');
-    }
-  }
 
   private completeOrder(paymentSummary: string): void {
     const paymentMethod = paymentSummary === 'Test Payment' ? 'Mock' : 'CashOnDelivery';

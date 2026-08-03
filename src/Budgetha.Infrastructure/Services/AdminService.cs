@@ -190,6 +190,19 @@ public class AdminService : IAdminService
             })
             .ToListAsync();
 
+        var orders = await _context.Orders
+            .Where(o => o.UserId == userId)
+            .OrderByDescending(o => o.Created)
+            .Select(o => new AdminUserOrderDto
+            {
+                Id = o.Id.ToString(),
+                OrderNumber = "BGT-" + o.Created.Year + "-" + o.Id.ToString().Substring(0, 4).ToUpper(),
+                Date = o.Created,
+                TotalAmount = o.TotalAmount,
+                Status = o.Status.ToString()
+            })
+            .ToListAsync();
+
         return new AdminUserProfileDto
         {
             Id = user.Id,
@@ -199,7 +212,8 @@ public class AdminService : IAdminService
             Roles = roles,
             CreatedAt = user.Created,
             IsBanned = isBanned,
-            Products = products
+            Products = products,
+            Orders = orders
         };
     }
 

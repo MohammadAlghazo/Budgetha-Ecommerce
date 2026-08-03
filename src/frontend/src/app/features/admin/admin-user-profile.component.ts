@@ -144,6 +144,57 @@ import { ToastService } from '../../core/services/toast.service';
               }
             </div>
           </div>
+
+          <!-- User's Orders -->
+          <div class="lg:col-span-3 space-y-6 mt-6">
+            <div class="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
+              <div class="flex items-center justify-between mb-6">
+                <h3 class="text-lg font-bold text-slate-900">Order History ({{ profile()!.orders?.length || 0 }})</h3>
+              </div>
+
+              @if (profile()!.orders?.length) {
+                <div class="overflow-x-auto">
+                  <table class="w-full text-sm text-start">
+                    <thead>
+                      <tr class="text-xs font-semibold text-slate-400 uppercase tracking-wider bg-slate-50 border-b border-slate-100">
+                        <th class="px-4 py-3 text-start">Order Number</th>
+                        <th class="px-4 py-3 text-start">Date</th>
+                        <th class="px-4 py-3 text-start">Total Amount</th>
+                        <th class="px-4 py-3 text-start">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                      @for (order of profile()!.orders; track order.id) {
+                        <tr class="hover:bg-slate-50 transition-colors">
+                          <td class="px-4 py-3 font-semibold text-slate-900">{{ order.orderNumber }}</td>
+                          <td class="px-4 py-3 text-slate-500">{{ order.date | date: 'mediumDate' }}</td>
+                          <td class="px-4 py-3 font-bold text-teal-600">{{ order.totalAmount | currency }}</td>
+                          <td class="px-4 py-3">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"
+                                  [class.bg-emerald-100]="order.status === 'Delivered'" [class.text-emerald-700]="order.status === 'Delivered'"
+                                  [class.bg-amber-100]="order.status === 'Processing' || order.status === 'Pending'" [class.text-amber-700]="order.status === 'Processing' || order.status === 'Pending'"
+                                  [class.bg-rose-100]="order.status === 'Cancelled' || order.status === 'Failed'" [class.text-rose-700]="order.status === 'Cancelled' || order.status === 'Failed'"
+                                  [class.bg-slate-100]="!['Delivered','Processing','Pending','Cancelled','Failed'].includes(order.status)"
+                                  [class.text-slate-700]="!['Delivered','Processing','Pending','Cancelled','Failed'].includes(order.status)">
+                              {{ order.status }}
+                            </span>
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              } @else {
+                <div class="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                  <div class="w-12 h-12 mx-auto bg-slate-100 text-slate-400 rounded-xl flex items-center justify-center mb-3">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                  </div>
+                  <h4 class="text-sm font-bold text-slate-700">No orders found</h4>
+                  <p class="text-xs text-slate-500 mt-1">This user hasn't placed any orders yet.</p>
+                </div>
+              }
+            </div>
+          </div>
         </div>
       } @else {
         <div class="text-center py-12">

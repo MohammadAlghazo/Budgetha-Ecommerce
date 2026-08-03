@@ -1,4 +1,4 @@
-﻿import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { CurrencyPipe, DatePipe, NgTemplateOutlet } from '@angular/common';
 import { OrderService } from '../../core/services/order.service';
 import { Order, OrderStatus } from '../../core/models/shop.models';
@@ -146,6 +146,9 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                  }
                </div>
              }
+             @if (order.status === 'Pending' || order.status === 'Processing') {
+               <button type="button" class="btn-secondary text-sm text-rose-600 hover:bg-rose-50 border-rose-200 hover:border-rose-300 me-3" (click)="cancelOrder(order.id)">Cancel Order</button>
+             }
              @if (order.canConfirmReceipt) {
                <button type="button" class="btn-primary text-sm" (click)="confirmReceived(order.id)">I received my order</button>
              }
@@ -180,6 +183,14 @@ export class AccountOrdersComponent {
   confirmReceived(orderId: string): void {
     if (!confirm('Confirm that you received this order?')) return;
     this.orderService.confirmReceived(orderId).subscribe();
+  }
+
+  cancelOrder(orderId: string): void {
+    if (!confirm('Are you sure you want to cancel this order?')) return;
+    this.orderService.cancelOrder(orderId).subscribe({
+      next: () => this.orderService.refresh().subscribe(),
+      error: () => alert('Failed to cancel the order. It may have already been processed.')
+    });
   }
 
   reportNotReceived(orderId: string): void {

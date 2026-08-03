@@ -61,9 +61,6 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
         var isPayPal = request.PaymentMethod.Equals("PayPal", StringComparison.OrdinalIgnoreCase);
         var isMock = request.PaymentMethod.Equals("Mock", StringComparison.OrdinalIgnoreCase);
         var isCashOnDelivery = request.PaymentMethod.Equals("CashOnDelivery", StringComparison.OrdinalIgnoreCase);
-        var mockEnabled = bool.TryParse(_configuration["Payments:Mock:Enabled"], out var enabled) && enabled;
-        if (isMock && !mockEnabled)
-            throw new ValidationException(new[] { "Mock payment is only available in the development environment." });
         if (!isPayPal && !isMock && !isCashOnDelivery)
             throw new ValidationException(new[] { "Payment method must be PayPal, Mock, or CashOnDelivery." });
 

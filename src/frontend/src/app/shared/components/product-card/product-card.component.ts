@@ -15,7 +15,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
       <!-- ── Grid card ── -->
       <article class="group card overflow-hidden hover:shadow-xl hover:shadow-violet-100/60 hover:-translate-y-1 transition-all duration-300 flex flex-col h-full">
         <div class="relative aspect-square overflow-hidden bg-slate-100">
-          <a [routerLink]="['/products', product().slug]" class="block h-full p-4">
+          <a [routerLink]="['/products', product().slug]" class="block h-full p-2 sm:p-4">
             <img
               [src]="product().images[0]"
               [alt]="product().name"
@@ -26,16 +26,16 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
           <!-- Badges -->
           <div class="absolute top-3 start-3 flex flex-col gap-1.5">
             @if (discountPercent() > 0) {
-              <span class="badge bg-rose-500 text-white shadow-sm">-{{ discountPercent() }}%</span>
+              <span class="badge bg-rose-500 text-white shadow-sm text-[10px] sm:text-xs px-1.5 py-0.5 sm:px-2.5 sm:py-0.5">-{{ discountPercent() }}%</span>
             }
             @if (product().isNew) {
-              <span class="badge bg-violet-600 text-white shadow-sm">New</span>
+              <span class="badge bg-violet-600 text-white shadow-sm text-[10px] sm:text-xs px-1.5 py-0.5 sm:px-2.5 sm:py-0.5">New</span>
             }
             @if (product().stock === 0) {
-              <span class="badge bg-slate-700 text-white shadow-sm">Sold out</span>
+              <span class="badge bg-slate-700 text-white shadow-sm text-[10px] sm:text-xs px-1.5 py-0.5 sm:px-2.5 sm:py-0.5">Sold out</span>
             }
             @if (product().approvalStatus && product().approvalStatus !== 'Approved') {
-              <span class="badge" [class]="product().approvalStatus === 'Pending' ? 'bg-amber-500 text-white shadow-sm' : 'bg-rose-700 text-white shadow-sm'">
+              <span class="badge text-[10px] sm:text-xs px-1.5 py-0.5 sm:px-2.5 sm:py-0.5" [class]="product().approvalStatus === 'Pending' ? 'bg-amber-500 text-white shadow-sm' : 'bg-rose-700 text-white shadow-sm'">
                 {{ product().approvalStatus }}
               </span>
             }
@@ -47,9 +47,9 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
               type="button"
               (click)="toggleWishlist()"
               [attr.aria-label]="inWishlist() ? 'Remove from wishlist' : 'Add to wishlist'"
-              class="icon-btn h-9 w-9 bg-white/95 shadow-md backdrop-blur"
+              class="icon-btn h-8 w-8 sm:h-9 sm:w-9 bg-white/95 shadow-md backdrop-blur"
               [class.text-rose-500]="inWishlist()">
-              <svg class="w-4.5 h-4.5 w-[18px] h-[18px]" [attr.fill]="inWishlist() ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+              <svg class="w-[16px] h-[16px] sm:w-[18px] sm:h-[18px]" [attr.fill]="inWishlist() ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
               </svg>
             </button>
@@ -57,8 +57,8 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
               type="button"
               (click)="quickView()"
               aria-label="Quick view"
-              class="icon-btn h-9 w-9 bg-white/95 shadow-md backdrop-blur">
-              <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+              class="icon-btn h-8 w-8 sm:h-9 sm:w-9 bg-white/95 shadow-md backdrop-blur">
+              <svg class="w-[16px] h-[16px] sm:w-[18px] sm:h-[18px]" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
@@ -71,7 +71,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
               type="button"
               (click)="addToCart()"
               [disabled]="product().stock === 0"
-              class="w-full rounded-xl bg-slate-900/90 backdrop-blur text-white text-sm font-semibold py-2.5
+              class="w-full rounded-xl bg-slate-900/90 backdrop-blur text-white text-[11px] sm:text-sm font-semibold py-1.5 sm:py-2.5
                      hover:bg-violet-600 disabled:opacity-50 disabled:hover:bg-slate-900/90
                      transition-colors duration-300 flex items-center justify-center gap-2">
               @if (isAdding()) {
@@ -93,19 +93,19 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
           </div>
         </div>
 
-        <div class="p-4 flex flex-col flex-1">
-          <span class="text-xs font-medium uppercase tracking-wider text-slate-400">{{ product().brand }}</span>
-          <a [routerLink]="['/products', product().slug]" class="mt-1 font-semibold text-slate-900 leading-snug line-clamp-2 hover:text-violet-600 transition-colors duration-300">
+        <div class="p-3 sm:p-4 flex flex-col flex-1">
+          <span class="text-[10px] sm:text-xs font-medium uppercase tracking-wider text-slate-400 truncate">{{ product().brand }}</span>
+          <a [routerLink]="['/products', product().slug]" class="mt-1 text-xs sm:text-base font-semibold text-slate-900 leading-snug line-clamp-2 hover:text-violet-600 transition-colors duration-300">
             {{ product().name }}
           </a>
-          <div class="mt-2 flex items-center gap-1.5">
+          <div class="mt-1.5 sm:mt-2 flex items-center gap-1.5">
             <app-star-rating [rating]="product().rating" size="sm" />
-            <span class="text-xs text-slate-400">({{ product().reviewCount }})</span>
+            <span class="text-[10px] sm:text-xs text-slate-400">({{ product().reviewCount }})</span>
           </div>
-          <div class="mt-auto pt-3 flex items-baseline gap-2">
-            <span class="text-lg font-bold text-slate-900">{{ product().price | currency }}</span>
+          <div class="mt-auto pt-2 sm:pt-3 flex items-baseline gap-1.5 sm:gap-2">
+            <span class="text-sm sm:text-lg font-bold text-slate-900">{{ product().price | currency }}</span>
             @if (product().originalPrice) {
-              <span class="text-sm text-slate-400 line-through">{{ product().originalPrice | currency }}</span>
+              <span class="text-[10px] sm:text-sm text-slate-400 line-through">{{ product().originalPrice | currency }}</span>
             }
           </div>
         </div>

@@ -229,7 +229,7 @@ const PAGE_SIZE = 9;
         <div class="flex-1 min-w-0">
           @if (isLoading() && result().items.length === 0) {
             @if (view() === 'grid') {
-              <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+              <div class="grid grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-5">
                 <app-skeleton-card layout="grid" />
                 <app-skeleton-card layout="grid" />
                 <app-skeleton-card layout="grid" />
@@ -267,7 +267,7 @@ const PAGE_SIZE = 9;
               </div>
             }
             @if (view() === 'grid') {
-              <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+              <div class="grid grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-5">
                 @for (product of result().items; track product.id) {
                   <app-product-card [product]="product" layout="grid" />
                 }

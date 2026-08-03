@@ -40,9 +40,19 @@ public class PagedResult<T>
     public int PageSize { get; set; }
 }
 
+public class AdminUserOrderDto
+{
+    public string Id { get; set; } = null!;
+    public string OrderNumber { get; set; } = null!;
+    public DateTimeOffset Date { get; set; }
+    public decimal TotalAmount { get; set; }
+    public string Status { get; set; } = null!;
+}
+
 public class AdminUserProfileDto : AdminUserDto
 {
     public List<Budgetha.Application.Features.Products.Queries.ProductDto> Products { get; set; } = new();
+    public List<AdminUserOrderDto> Orders { get; set; } = new();
 }
 
 public interface IAdminService

@@ -29,7 +29,21 @@ export interface AdminUser {
 }
 
 export interface AdminUserProfile extends AdminUser {
-  products: any[];
+  products: {
+    id: string;
+    name: string;
+    price: number;
+    categories: { name: string }[];
+    images: string[];
+    approvalStatus: string;
+  }[];
+  orders: {
+    id: string;
+    orderNumber: string;
+    date: string;
+    totalAmount: number;
+    status: string;
+  }[];
 }
 
 export interface AdminProductResult {
