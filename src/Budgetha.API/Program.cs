@@ -82,11 +82,16 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 builder.Services.AddCors(options =>
+{
+    var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() 
+                         ?? new[] { "http://localhost:4200" };
+                         
     options.AddDefaultPolicy(policy =>
-        policy.WithOrigins("http://localhost:4200")
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod()
-              .AllowCredentials()));
+              .AllowCredentials());
+});
 
 var app = builder.Build();
 
