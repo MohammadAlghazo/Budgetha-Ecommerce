@@ -15,6 +15,6 @@ public class DeliveryReportConfiguration : IEntityTypeConfiguration<DeliveryRepo
         builder.HasIndex(x => new { x.OrderId, x.BuyerId, x.Status });
         builder.HasOne(x => x.Order).WithMany(x => x.DeliveryReports).HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(x => x.Fulfillment).WithMany(x => x.DeliveryReports).HasForeignKey(x => x.FulfillmentId).OnDelete(DeleteBehavior.SetNull);
-        builder.HasOne(x => x.Buyer).WithMany(x => x.DeliveryReports).HasForeignKey(x => x.BuyerId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(x => x.Buyer).WithMany(x => x.DeliveryReports).HasForeignKey(x => x.BuyerId).IsRequired(false).OnDelete(DeleteBehavior.SetNull);
     }
 }

@@ -9,8 +9,8 @@ public class DeliveryReport : BaseAuditableEntity
     public Order Order { get; set; } = null!;
     public Guid? FulfillmentId { get; set; }
     public OrderFulfillment? Fulfillment { get; set; }
-    public string BuyerId { get; set; } = string.Empty;
-    public ApplicationUser Buyer { get; set; } = null!;
+    public string? BuyerId { get; set; }
+    public ApplicationUser? Buyer { get; set; }
     public bool WasReceived { get; set; }
     public string? Reason { get; set; }
     public DeliveryReportStatus Status { get; set; } = DeliveryReportStatus.Open;

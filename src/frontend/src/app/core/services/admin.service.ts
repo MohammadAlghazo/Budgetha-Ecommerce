@@ -128,7 +128,7 @@ export class AdminService {
   }
 
   deleteUser(userId: string): Observable<any> {
-    return this.http.delete(`${this.apiUrl}/users/${userId}`);
+    return this.http.delete(`${this.apiUrl}/users/${userId}`, { observe: 'response' });
   }
 
   getTransactionHistory(type: string, startDate?: string, endDate?: string): Observable<TransactionHistoryDto[]> {

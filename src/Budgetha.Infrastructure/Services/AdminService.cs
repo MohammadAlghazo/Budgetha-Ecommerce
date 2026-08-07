@@ -251,8 +251,26 @@ public class AdminService : IAdminService
         var user = await _userManager.FindByIdAsync(userId);
         if (user == null || !await CanManageUserAsync(actorId, actorIsSuperAdmin, user)) return false;
 
-        
-        
+        var hasProducts = await _context.Products.AnyAsync(p => p.SellerId == userId);
+        if (hasProducts)
+            throw new InvalidOperationException("SELLER_HAS_PRODUCTS");
+
+        await _context.Orders
+            .Where(o => o.UserId == userId)
+            .ExecuteUpdateAsync(s => s.SetProperty(o => o.UserId, (string?)null));
+
+        await _context.Reviews
+            .Where(r => r.UserId == userId)
+            .ExecuteDeleteAsync();
+
+        await _context.SupportTickets
+            .Where(t => t.UserId == userId)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.UserId, (string?)null));
+
+        await _context.DeliveryReports
+            .Where(d => d.BuyerId == userId)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.BuyerId, (string?)null));
+
         var result = await _userManager.DeleteAsync(user);
         if (result.Succeeded)
             _cache.Remove(UsersCacheKey);

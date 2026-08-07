@@ -4,13 +4,13 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AdminService, AdminUserProfile } from '../../core/services/admin.service';
 import { AuthService } from '../../core/services/auth.service';
 import { ToastService } from '../../core/services/toast.service';
+import { HttpErrorResponse } from '@angular/common/http';
 
 @Component({
   selector: 'app-admin-user-profile',
   imports: [CommonModule, RouterLink],
   template: `
     <div class="max-w-7xl mx-auto space-y-6">
-      <!-- Header -->
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-4">
           <a routerLink="/admin/users" class="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors">
@@ -25,15 +25,25 @@ import { ToastService } from '../../core/services/toast.service';
         @if (profile() && isSuperAdmin()) {
           <div class="flex items-center gap-3">
             <button (click)="toggleBan()"
-                    [class.text-rose-600]="!profile()!.isBanned" [class.bg-rose-50]="!profile()!.isBanned" [class.hover:bg-rose-100]="!profile()!.isBanned"
-                    [class.text-emerald-600]="profile()!.isBanned" [class.bg-emerald-50]="profile()!.isBanned" [class.hover:bg-emerald-100]="profile()!.isBanned"
-                    class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl transition-all">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                    [disabled]="actionLoading() !== null"
+                    [class.text-rose-600]="!profile()!.isBanned" [class.bg-rose-50]="!profile()!.isBanned" [class.hover:bg-rose-100]="!profile()!.isBanned && actionLoading() === null"
+                    [class.text-emerald-600]="profile()!.isBanned" [class.bg-emerald-50]="profile()!.isBanned" [class.hover:bg-emerald-100]="profile()!.isBanned && actionLoading() === null"
+                    class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl transition-all disabled:opacity-60 disabled:cursor-not-allowed">
+              @if (actionLoading() === 'ban') {
+                <span class="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin inline-block"></span>
+              } @else {
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+              }
               {{ profile()!.isBanned ? 'Unban User' : 'Ban User' }}
             </button>
             <button (click)="deleteUser()"
-                    class="inline-flex items-center gap-1.5 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 px-4 py-2 rounded-xl transition-all shadow-sm">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    [disabled]="actionLoading() !== null"
+                    class="inline-flex items-center gap-1.5 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 px-4 py-2 rounded-xl transition-all shadow-sm disabled:opacity-60 disabled:cursor-not-allowed">
+              @if (actionLoading() === 'delete') {
+                <span class="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin inline-block"></span>
+              } @else {
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+              }
               Delete User
             </button>
           </div>
@@ -46,7 +56,6 @@ import { ToastService } from '../../core/services/toast.service';
         </div>
       } @else if (profile()) {
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <!-- Profile Card -->
           <div class="lg:col-span-1 space-y-6">
             <div class="bg-white rounded-3xl p-8 border border-slate-100 shadow-sm text-center">
               <div class="w-24 h-24 mx-auto rounded-2xl bg-gradient-to-br from-teal-400 to-teal-700 text-white flex items-center justify-center font-bold text-3xl shadow-lg shadow-teal-200 mb-6 relative">
@@ -88,7 +97,6 @@ import { ToastService } from '../../core/services/toast.service';
             </div>
           </div>
 
-          <!-- User's Products -->
           <div class="lg:col-span-2 space-y-6">
             <div class="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
               <div class="flex items-center justify-between mb-6">
@@ -145,7 +153,6 @@ import { ToastService } from '../../core/services/toast.service';
             </div>
           </div>
 
-          <!-- User's Orders -->
           <div class="lg:col-span-3 space-y-6 mt-6">
             <div class="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
               <div class="flex items-center justify-between mb-6">
@@ -203,7 +210,6 @@ import { ToastService } from '../../core/services/toast.service';
         </div>
       }
 
-    <!-- Confirmation Modal -->
     @if (confirmAction()) {
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" (click)="closeConfirmModal()"></div>
@@ -233,15 +239,19 @@ import { ToastService } from '../../core/services/toast.service';
             </p>
             
             <div class="flex items-center gap-3 w-full">
-              <button (click)="closeConfirmModal()" class="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold transition-colors">
+              <button (click)="closeConfirmModal()" [disabled]="actionLoading() !== null" class="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold transition-colors disabled:opacity-60">
                 Cancel
               </button>
-              <button (click)="executeConfirmAction()" 
-                      class="flex-1 px-4 py-2 text-white rounded-xl font-semibold transition-colors shadow-sm"
+              <button (click)="executeConfirmAction()"
+                      [disabled]="actionLoading() !== null"
+                      class="flex-1 px-4 py-2 text-white rounded-xl font-semibold transition-colors shadow-sm disabled:opacity-60 flex items-center justify-center gap-2"
                       [class.bg-rose-600]="confirmAction()?.type === 'delete' || confirmAction()?.type === 'ban'"
-                      [class.hover:bg-rose-700]="confirmAction()?.type === 'delete' || confirmAction()?.type === 'ban'"
+                      [class.hover:bg-rose-700]="(confirmAction()?.type === 'delete' || confirmAction()?.type === 'ban') && actionLoading() === null"
                       [class.bg-emerald-600]="confirmAction()?.type === 'unban'"
-                      [class.hover:bg-emerald-700]="confirmAction()?.type === 'unban'">
+                      [class.hover:bg-emerald-700]="confirmAction()?.type === 'unban' && actionLoading() === null">
+                @if (actionLoading() !== null) {
+                  <span class="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin inline-block"></span>
+                }
                 Confirm
               </button>
             </div>
@@ -262,6 +272,7 @@ export class AdminUserProfileComponent implements OnInit {
   readonly profile = signal<AdminUserProfile | null>(null);
   readonly loading = signal<boolean>(true);
   readonly confirmAction = signal<{ type: 'ban' | 'unban' | 'delete' } | null>(null);
+  readonly actionLoading = signal<'ban' | 'delete' | null>(null);
 
   readonly isSuperAdmin = computed(() =>
     this.authService.user()?.roles?.includes('SuperAdmin') ?? false
@@ -295,6 +306,7 @@ export class AdminUserProfileComponent implements OnInit {
   }
 
   closeConfirmModal(): void {
+    if (this.actionLoading() !== null) return;
     this.confirmAction.set(null);
   }
 
@@ -311,30 +323,51 @@ export class AdminUserProfileComponent implements OnInit {
   executeConfirmAction(): void {
     const action = this.confirmAction();
     const user = this.profile();
-    if (!action || !user) return;
+    if (!action || !user || this.actionLoading() !== null) return;
 
     const { type } = action;
-    this.closeConfirmModal();
 
     if (type === 'ban' || type === 'unban') {
+      this.actionLoading.set('ban');
       const action$ = type === 'unban'
         ? this.adminService.unbanUser(user.id)
         : this.adminService.banUser(user.id);
 
       action$.subscribe({
         next: () => {
-          this.toastService.success(`User successfully ${type}ned.`);
+          this.actionLoading.set(null);
+          this.confirmAction.set(null);
+          this.toastService.success(`User successfully ${type === 'ban' ? 'banned' : 'unbanned'}.`);
           this.loadProfile(user.id);
         },
-        error: () => this.toastService.error(`Failed to ${type} user.`)
+        error: () => {
+          this.actionLoading.set(null);
+          this.confirmAction.set(null);
+          this.toastService.error(`Failed to ${type} user.`);
+        }
       });
     } else if (type === 'delete') {
+      this.actionLoading.set('delete');
       this.adminService.deleteUser(user.id).subscribe({
         next: () => {
+          this.actionLoading.set(null);
+          this.confirmAction.set(null);
           this.toastService.success(`User deleted permanently.`);
           this.router.navigate(['/admin/users']);
         },
-        error: () => this.toastService.error('Failed to delete user.')
+        error: (err: HttpErrorResponse) => {
+          this.actionLoading.set(null);
+          this.confirmAction.set(null);
+
+          if (err.status === 409 && err.error?.code === 'SELLER_HAS_PRODUCTS') {
+            this.toastService.error('This seller has products. You must delete all products first.');
+            this.router.navigate(['/admin/products'], {
+              queryParams: { sellerDeleteMode: '1', sellerId: user.id, sellerName: user.firstName + ' ' + user.lastName }
+            });
+          } else {
+            this.toastService.error('Failed to delete user.');
+          }
+        }
       });
     }
   }

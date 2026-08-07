@@ -1,10 +1,11 @@
-﻿import { Component, OnInit, inject, signal, computed } from '@angular/core';
+import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { AdminService, AdminUser } from '../../core/services/admin.service';
 import { AuthService } from '../../core/services/auth.service';
 import { ToastService } from '../../core/services/toast.service';
+import { HttpErrorResponse } from '@angular/common/http';
 
 @Component({
   selector: 'app-admin-users',
@@ -67,7 +68,7 @@ import { ToastService } from '../../core/services/toast.service';
                         <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold"
                               [class.bg-purple-100]="role === 'SuperAdmin'" [class.text-purple-700]="role === 'SuperAdmin'"
                               [class.bg-teal-100]="role === 'Admin'" [class.text-teal-700]="role === 'Admin'"
-
+                              [class.bg-indigo-100]="role === 'Seller'" [class.text-indigo-700]="role === 'Seller'"
                               [class.bg-slate-100]="role === 'User'" [class.text-slate-600]="role === 'User'">
                           {{ role }}
                         </span>
@@ -99,15 +100,25 @@ import { ToastService } from '../../core/services/toast.service';
                           </button>
 
                           <button (click)="toggleBan(user)"
-                                  [class.from-rose-600]="!user.isBanned" [class.to-rose-700]="!user.isBanned" [class.hover:from-rose-700]="!user.isBanned"
-                                  [class.from-emerald-600]="user.isBanned" [class.to-emerald-700]="user.isBanned" [class.hover:from-emerald-700]="user.isBanned"
-                                  class="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-gradient-to-r px-3 py-1.5 rounded-lg transition-all shadow-sm">
-                            {{ user.isBanned ? 'Unban' : 'Ban' }}
+                                  [disabled]="actionLoadingId() === user.id + ':ban'"
+                                  [class.from-rose-600]="!user.isBanned" [class.to-rose-700]="!user.isBanned"
+                                  [class.from-emerald-600]="user.isBanned" [class.to-emerald-700]="user.isBanned"
+                                  class="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-gradient-to-r px-3 py-1.5 rounded-lg transition-all shadow-sm disabled:opacity-60 disabled:cursor-not-allowed">
+                            @if (actionLoadingId() === user.id + ':ban') {
+                              <span class="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin inline-block"></span>
+                            } @else {
+                              {{ user.isBanned ? 'Unban' : 'Ban' }}
+                            }
                           </button>
 
                           <button (click)="deleteUser(user)"
-                                  class="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-lg transition-all shadow-sm">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                  [disabled]="actionLoadingId() === user.id + ':delete'"
+                                  class="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-lg transition-all shadow-sm disabled:opacity-60 disabled:cursor-not-allowed">
+                            @if (actionLoadingId() === user.id + ':delete') {
+                              <span class="w-3 h-3 border-2 border-rose-300 border-t-rose-600 rounded-full animate-spin inline-block"></span>
+                            } @else {
+                              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                            }
                           </button>
                         } @else {
                           <span class="text-xs text-slate-300 italic">Protected</span>
@@ -271,12 +282,16 @@ import { ToastService } from '../../core/services/toast.service';
               <button (click)="closeConfirmModal()" class="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold transition-colors">
                 Cancel
               </button>
-              <button (click)="executeConfirmAction()" 
-                      class="flex-1 px-4 py-2 text-white rounded-xl font-semibold transition-colors shadow-sm"
+              <button (click)="executeConfirmAction()"
+                      [disabled]="confirming()"
+                      class="flex-1 px-4 py-2 text-white rounded-xl font-semibold transition-colors shadow-sm disabled:opacity-60 flex items-center justify-center gap-2"
                       [class.bg-rose-600]="confirmAction()?.type === 'delete' || confirmAction()?.type === 'ban'"
-                      [class.hover:bg-rose-700]="confirmAction()?.type === 'delete' || confirmAction()?.type === 'ban'"
+                      [class.hover:bg-rose-700]="(confirmAction()?.type === 'delete' || confirmAction()?.type === 'ban') && !confirming()"
                       [class.bg-emerald-600]="confirmAction()?.type === 'unban'"
-                      [class.hover:bg-emerald-700]="confirmAction()?.type === 'unban'">
+                      [class.hover:bg-emerald-700]="confirmAction()?.type === 'unban' && !confirming()">
+                @if (confirming()) {
+                  <span class="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin inline-block"></span>
+                }
                 Confirm
               </button>
             </div>
@@ -289,12 +304,15 @@ import { ToastService } from '../../core/services/toast.service';
 export class AdminUsersComponent implements OnInit {
   private readonly adminService = inject(AdminService);
   readonly authService = inject(AuthService);
+  private readonly router = inject(Router);
 
   readonly users = signal<AdminUser[]>([]);
   readonly isLoading = signal(true);
   readonly loadingMore = signal(false);
   readonly currentPage = signal(1);
   readonly hasMore = signal(false);
+  readonly actionLoadingId = signal<string | null>(null);
+  readonly confirming = signal(false);
   
   readonly selectedUser = signal<AdminUser | null>(null);
   readonly confirmAction = signal<{ type: 'ban' | 'unban' | 'delete', user: AdminUser } | null>(null);
@@ -351,6 +369,7 @@ export class AdminUsersComponent implements OnInit {
   }
 
   closeConfirmModal(): void {
+    if (this.confirming()) return;
     this.confirmAction.set(null);
   }
 
@@ -396,12 +415,12 @@ export class AdminUsersComponent implements OnInit {
 
   executeConfirmAction(): void {
     const action = this.confirmAction();
-    if (!action) return;
+    if (!action || this.confirming()) return;
 
     const { type, user } = action;
-    this.closeConfirmModal();
 
     if (type === 'ban' || type === 'unban') {
+      this.confirming.set(true);
       const newStatus = type === 'ban';
       this.users.update(users => users.map(u => u.id === user.id ? { ...u, isBanned: newStatus } : u));
       
@@ -411,24 +430,39 @@ export class AdminUsersComponent implements OnInit {
 
       action$.subscribe({
         next: () => {
-            this.toastService.success(`User successfully ${type}ned.`);
+          this.confirming.set(false);
+          this.confirmAction.set(null);
+          this.toastService.success(`User successfully ${type === 'ban' ? 'banned' : 'unbanned'}.`);
         },
         error: () => {
+          this.confirming.set(false);
+          this.confirmAction.set(null);
           this.users.update(users => users.map(u => u.id === user.id ? user : u));
           this.toastService.error(`Failed to ${type} user.`);
         }
       });
     } else if (type === 'delete') {
-      const previousUsers = this.users();
-      this.users.set(previousUsers.filter(u => u.id !== user.id));
-      
+      this.confirming.set(true);
+
       this.adminService.deleteUser(user.id).subscribe({
         next: () => {
-            this.toastService.success(`User deleted permanently.`);
+          this.confirming.set(false);
+          this.confirmAction.set(null);
+          this.users.update(users => users.filter(u => u.id !== user.id));
+          this.toastService.success(`User deleted permanently.`);
         },
-        error: () => {
-          this.users.set(previousUsers);
-          this.toastService.error('Failed to delete user.');
+        error: (err: HttpErrorResponse) => {
+          this.confirming.set(false);
+          this.confirmAction.set(null);
+
+          if (err.status === 409 && err.error?.code === 'SELLER_HAS_PRODUCTS') {
+            this.toastService.error('This seller has products. You must delete all products first.');
+            this.router.navigate(['/admin/users', user.id], {
+              queryParams: { sellerDeleteMode: '1', sellerId: user.id, sellerName: user.firstName + ' ' + user.lastName }
+            });
+          } else {
+            this.toastService.error('Failed to delete user.');
+          }
         }
       });
     }

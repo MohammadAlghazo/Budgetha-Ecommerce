@@ -5,8 +5,8 @@ namespace Budgetha.Domain.Entities;
 
 public class SupportTicket : BaseAuditableEntity
 {
-    public string UserId { get; set; } = string.Empty;
-    public ApplicationUser User { get; set; } = null!;
+    public string? UserId { get; set; }
+    public ApplicationUser? User { get; set; }
 
     public string Subject { get; set; } = string.Empty;
     public TicketStatus Status { get; set; } = TicketStatus.Open;

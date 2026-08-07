@@ -5,8 +5,8 @@ namespace Budgetha.Domain.Entities;
 
 public class Order : BaseAuditableEntity
 {
-    public string UserId { get; set; } = string.Empty;
-    public ApplicationUser User { get; set; } = null!;
+    public string? UserId { get; set; }
+    public ApplicationUser? User { get; set; }
 
     public OrderStatus Status { get; set; } = OrderStatus.Pending;
     public decimal Subtotal { get; set; }

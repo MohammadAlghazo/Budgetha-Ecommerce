@@ -135,8 +135,15 @@ public class AdminController : ControllerBase
     {
         var actorId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrEmpty(actorId)) return Unauthorized();
-        var success = await _adminService.DeleteUserAsync(actorId, User.IsInRole("SuperAdmin"), id);
-        if (!success) return BadRequest("Could not delete user.");
-        return Ok();
+        try
+        {
+            var success = await _adminService.DeleteUserAsync(actorId, User.IsInRole("SuperAdmin"), id);
+            if (!success) return BadRequest("Could not delete user.");
+            return Ok();
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "SELLER_HAS_PRODUCTS")
+        {
+            return Conflict(new { code = "SELLER_HAS_PRODUCTS", message = "This seller has active products. Please delete all products before removing this seller." });
+        }
     }
 }

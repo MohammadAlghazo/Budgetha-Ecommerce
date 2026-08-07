@@ -1,16 +1,47 @@
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AdminService, AdminProductResult } from '../../core/services/admin.service';
 import { AuthService } from '../../core/services/auth.service';
 import { ProductService } from '../../core/services/product.service';
+import { forkJoin } from 'rxjs';
 
 @Component({
   selector: 'app-admin-products',
   imports: [CurrencyPipe, RouterLink, FormsModule],
   template: `
     <div class="max-w-7xl mx-auto space-y-6">
+
+      @if (sellerDeleteMode()) {
+        <div class="rounded-2xl bg-rose-50 border border-rose-200 p-5 flex flex-col md:flex-row md:items-center gap-4">
+          <div class="flex items-center gap-3 flex-1">
+            <div class="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center flex-shrink-0">
+              <svg class="w-5 h-5 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            </div>
+            <div>
+              <p class="font-bold text-rose-900 text-sm">Seller Deletion Mode</p>
+              <p class="text-rose-700 text-xs mt-0.5">
+                To delete seller <strong>{{ sellerDeleteMode()!.sellerName }}</strong>, you must first delete all {{ sellerProductCount() }} product(s) listed below.
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 flex-shrink-0">
+            <button (click)="deleteAllSellerProducts()"
+                    [disabled]="deletingAllSeller()"
+                    class="inline-flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold rounded-xl transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed">
+              @if (deletingAllSeller()) {
+                <span class="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+                Deleting...
+              } @else {
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                Delete All Products
+              }
+            </button>
+            <button (click)="exitSellerDeleteMode()" class="text-xs text-rose-600 hover:text-rose-800 font-semibold underline">Cancel</button>
+          </div>
+        </div>
+      }
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Products Management</h2>
@@ -351,11 +382,16 @@ import { ProductService } from '../../core/services/product.service';
             </p>
             <div class="flex gap-3">
               <button (click)="productToDelete.set(null)"
-                      class="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-colors text-sm">
+                      [disabled]="!!processingId()"
+                      class="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-colors text-sm disabled:opacity-60">
                 Cancel
               </button>
               <button (click)="deleteProduct()"
-                      class="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-xl transition-colors text-sm shadow-sm">
+                      [disabled]="!!processingId()"
+                      class="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-xl transition-colors text-sm shadow-sm disabled:opacity-60 flex items-center justify-center gap-2">
+                @if (processingId() === productToDelete()?.id) {
+                  <span class="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+                }
                 Delete
               </button>
             </div>
@@ -368,6 +404,7 @@ import { ProductService } from '../../core/services/product.service';
 export class AdminProductsComponent implements OnInit {
   private readonly adminService = inject(AdminService);
   private readonly productService = inject(ProductService);
+  private readonly route = inject(ActivatedRoute);
   readonly authService = inject(AuthService);
 
   readonly productsResult = signal<AdminProductResult | null>(null);
@@ -377,8 +414,9 @@ export class AdminProductsComponent implements OnInit {
   readonly isLoading = signal(true);
   readonly currentPage = signal(1);
   readonly categories = signal<any[]>([]);
+  readonly sellerDeleteMode = signal<{ sellerId: string; sellerName: string } | null>(null);
+  readonly deletingAllSeller = signal(false);
 
-  // Filter state
   selectedCategory = '';
   selectedSort = 'newest';
 
@@ -397,10 +435,24 @@ export class AdminProductsComponent implements OnInit {
   });
 
   readonly filteredProducts = computed(() => {
-    return this.productsResult()?.items ?? [];
+    const mode = this.sellerDeleteMode();
+    const items = this.productsResult()?.items ?? [];
+    if (mode) {
+      return items.filter((p: any) => p.sellerId === mode.sellerId);
+    }
+    return items;
   });
 
+  readonly sellerProductCount = computed(() => this.filteredProducts().length);
+
   ngOnInit(): void {
+    const params = this.route.snapshot.queryParamMap;
+    if (params.get('sellerDeleteMode') === '1') {
+      this.sellerDeleteMode.set({
+        sellerId: params.get('sellerId') ?? '',
+        sellerName: params.get('sellerName') ?? 'Unknown Seller'
+      });
+    }
     this.loadCategories();
     this.loadProducts(this.currentPage());
   }
@@ -476,5 +528,37 @@ export class AdminProductsComponent implements OnInit {
         this.processingId.set(null);
       }
     });
+  }
+
+  deleteAllSellerProducts(): void {
+    const mode = this.sellerDeleteMode();
+    if (!mode || this.deletingAllSeller()) return;
+
+    const sellerProducts = this.filteredProducts();
+    if (sellerProducts.length === 0) return;
+
+    this.deletingAllSeller.set(true);
+    const deletes$ = sellerProducts.map((p: any) => this.adminService.deleteProduct(p.id));
+
+    forkJoin(deletes$).subscribe({
+      next: () => {
+        const current = this.productsResult();
+        if (current) {
+          const sellerIds = new Set(sellerProducts.map((p: any) => p.id));
+          const remaining = current.items.filter((p: any) => !sellerIds.has(p.id));
+          this.productsResult.set({ ...current, items: remaining, total: remaining.length });
+        }
+        this.deletingAllSeller.set(false);
+        this.sellerDeleteMode.set(null);
+      },
+      error: () => {
+        this.deletingAllSeller.set(false);
+        this.loadProducts(this.currentPage());
+      }
+    });
+  }
+
+  exitSellerDeleteMode(): void {
+    this.sellerDeleteMode.set(null);
   }
 }

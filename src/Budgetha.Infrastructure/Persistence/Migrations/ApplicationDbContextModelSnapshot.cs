@@ -348,7 +348,6 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(2000)");
 
                     b.Property<string>("BuyerId")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<DateTimeOffset>("Created")
@@ -580,7 +579,6 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .HasColumnType("numeric(18,2)");
 
                     b.Property<string>("UserId")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("Id");
@@ -1489,7 +1487,6 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(300)");
 
                     b.Property<string>("UserId")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("Id");
@@ -1766,8 +1763,7 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "Buyer")
                         .WithMany("DeliveryReports")
                         .HasForeignKey("BuyerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("Budgetha.Domain.Entities.OrderFulfillment", "Fulfillment")
                         .WithMany("DeliveryReports")
@@ -1808,8 +1804,7 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
                         .WithMany("Orders")
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("ShippingAddress");
 
@@ -2020,8 +2015,7 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
                     b.HasOne("Budgetha.Domain.Entities.ApplicationUser", "User")
                         .WithMany("SupportTickets")
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("User");
                 });
