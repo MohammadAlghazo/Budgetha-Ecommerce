@@ -50,6 +50,12 @@ public sealed class CheckoutPricingService : ICheckoutPricingService
                 .SingleOrDefaultAsync(p => p.Code.ToUpper() == normalizedCode && p.IsActive, cancellationToken);
             if (promo == null || promo.ExpiryDate.HasValue && promo.ExpiryDate.Value <= DateTime.UtcNow)
                 throw new ValidationException(new[] { "Promo code is invalid or expired." });
+                
+            var userUsageCount = await _context.PromoCodeUsages
+                .CountAsync(u => u.PromoCodeId == promo.Id && u.UserId == userId, cancellationToken);
+            if (userUsageCount >= promo.MaxUsesPerUser)
+                throw new ValidationException(new[] { "You have reached the maximum usage limit for this promo code." });
+
             ValidatePromo(promo);
             AllocateDiscount(promo, lines);
         }

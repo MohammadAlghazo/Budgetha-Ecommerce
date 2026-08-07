@@ -231,6 +231,21 @@ public class CreateOrderCommandHandler : IRequestHandler<CreateOrderCommand, Gui
 
         _context.Orders.Add(order);
 
+        if (!string.IsNullOrWhiteSpace(quote.PromoCode))
+        {
+            var promoCodeRecord = await _context.PromoCodes
+                .SingleOrDefaultAsync(p => p.Code.ToUpper() == quote.PromoCode.ToUpper(), cancellationToken);
+                
+            if (promoCodeRecord != null)
+            {
+                _context.PromoCodeUsages.Add(new PromoCodeUsage
+                {
+                    PromoCodeId = promoCodeRecord.Id,
+                    UserId = userId
+                });
+            }
+        }
+
         // Keep PayPal carts intact until capture so an abandoned checkout loses neither stock nor cart.
         if (!isPayPal)
             _context.CartItems.RemoveRange(cart.Items);

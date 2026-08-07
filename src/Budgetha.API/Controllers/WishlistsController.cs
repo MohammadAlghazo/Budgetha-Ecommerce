@@ -37,4 +37,19 @@ public class WishlistsController : ControllerBase
         await _mediator.Send(new RemoveFromWishlistCommand(productId));
         return NoContent();
     }
+
+    [HttpPost("bulk")]
+    public async Task<ActionResult> SyncBulkItems([FromBody] BulkAddWishlistRequest request)
+    {
+        foreach (var id in request.ProductIds)
+        {
+            await _mediator.Send(new AddToWishlistCommand(id));
+        }
+        return Ok();
+    }
+}
+
+public class BulkAddWishlistRequest
+{
+    public List<Guid> ProductIds { get; set; } = new();
 }

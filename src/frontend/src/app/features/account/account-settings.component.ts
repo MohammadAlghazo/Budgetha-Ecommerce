@@ -1,4 +1,4 @@
-﻿import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators, FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
@@ -319,6 +319,17 @@ export class AccountSettingsComponent implements OnInit {
   }
 
   requestDelete(): void {
-    this.toast.info('Account deletion requires email confirmation — check your inbox.');
+    if (confirm('Are you sure you want to permanently delete your account? This action cannot be undone.')) {
+      this.http.delete(`${environment.apiUrl}/auth/me`).subscribe({
+        next: () => {
+          this.toast.success('Your account has been deleted.');
+          this.auth.logout();
+        },
+        error: (err) => {
+          const msg = err.error?.message || 'Failed to delete account. Please try again.';
+          this.toast.error(msg);
+        }
+      });
+    }
   }
 }

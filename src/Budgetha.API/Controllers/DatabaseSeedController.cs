@@ -1,6 +1,7 @@
 using Budgetha.Domain.Entities;
 using Budgetha.Domain.Enums;
 using Budgetha.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -10,6 +11,7 @@ namespace Budgetha.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Roles = "SuperAdmin")]
 public class DatabaseSeedController : ControllerBase
 {
     private readonly ApplicationDbContext _context;

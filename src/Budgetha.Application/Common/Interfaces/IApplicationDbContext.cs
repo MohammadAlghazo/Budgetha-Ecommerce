@@ -31,6 +31,7 @@ public interface IApplicationDbContext
     DbSet<ProductSpec> ProductSpecs { get; }
     DbSet<ProductFeature> ProductFeatures { get; }
     DbSet<PromoCode> PromoCodes { get; }
+    DbSet<PromoCodeUsage> PromoCodeUsages { get; }
     DbSet<PendingImageUpload> PendingImageUploads { get; }
     DbSet<PendingImageDeletion> PendingImageDeletions { get; }
     DbSet<OutboxDelivery> OutboxDeliveries { get; }

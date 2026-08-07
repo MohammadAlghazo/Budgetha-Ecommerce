@@ -54,3 +54,6 @@ desktop.ini
 .env
 .env.*
 !.env.example
+backend_code.md
+frontend_code.md
+backend_code.md

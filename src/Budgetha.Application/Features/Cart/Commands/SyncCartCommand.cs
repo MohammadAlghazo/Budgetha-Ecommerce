@@ -106,8 +106,9 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
 
             if (itemDto.Type == OrderItemType.Purchase)
             {
-                if (mergedQuantity > (variant?.StockQuantity ?? product.StockQuantity))
-                    throw new InvalidOperationException($"Not enough stock available for product {itemDto.ProductId}.");
+                var availableStock = variant?.StockQuantity ?? product.StockQuantity;
+                if (mergedQuantity > availableStock)
+                    mergedQuantity = availableStock;
             }
             else if (itemDto.Type == OrderItemType.Rental)
             {
@@ -120,8 +121,9 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
                     _context, itemDto.ProductId, variant?.Id, itemDto.RentalStartDate!.Value,
                     itemDto.RentalEndDate!.Value, cancellationToken);
 
-                if (mergedQuantity > (variant?.StockQuantity ?? product.StockQuantity) - totalRented)
-                    throw new InvalidOperationException($"Not enough rental stock available for product {itemDto.ProductId}.");
+                var availableStock = (variant?.StockQuantity ?? product.StockQuantity) - totalRented;
+                if (mergedQuantity > availableStock)
+                    mergedQuantity = availableStock;
             }
             else
             {

@@ -10,6 +10,7 @@ public class Review : BaseAuditableEntity
     public string UserId { get; set; } = string.Empty;
     public ApplicationUser User { get; set; } = null!;
 
-    public int Rating { get; set; } 
+    public int Rating { get; set; }
     public string? Comment { get; set; }
+    public List<string> ImageUrls { get; set; } = new List<string>();
 }

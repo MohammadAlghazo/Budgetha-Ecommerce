@@ -3,8 +3,10 @@ using Budgetha.Domain.Enums;
 
 namespace Budgetha.Domain.Entities;
 
-public class Product : BaseAuditableEntity
+public class Product : BaseAuditableEntity, ISoftDelete
 {
+    public bool IsDeleted { get; set; }
+    public DateTime? DeletedAt { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;

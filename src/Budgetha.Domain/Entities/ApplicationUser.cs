@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.Identity;
 
 namespace Budgetha.Domain.Entities;
 
-public class ApplicationUser : IdentityUser
+public class ApplicationUser : IdentityUser, ISoftDelete
 {
+    public bool IsDeleted { get; set; }
+    public DateTime? DeletedAt { get; set; }
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
     public string? AvatarUrl { get; set; }

@@ -131,7 +131,7 @@ type Tab = 'description' | 'specs' | 'reviews';
               <div class="mt-6">
                 <div class="flex items-center justify-between">
                   <span class="text-sm font-semibold text-slate-900">Size: <span class="font-normal text-slate-500">{{ selectedSize() || 'Select a size' }}</span></span>
-                  <button type="button" class="text-xs font-medium text-violet-600 hover:text-violet-500 underline underline-offset-2 transition-colors duration-300">Size guide</button>
+                  <button type="button" (click)="isSizeGuideModalOpen.set(true)" class="text-xs font-medium text-violet-600 hover:text-violet-500 underline underline-offset-2 transition-colors duration-300">Size guide</button>
                 </div>
                 <div class="mt-3 flex flex-wrap gap-2.5">
                   @for (size of p.sizes; track size) {
@@ -333,6 +333,10 @@ type Tab = 'description' | 'specs' | 'reviews';
                             }
                           </div>
                           <textarea [(ngModel)]="newReviewComment" rows="3" class="w-full rounded-xl border-slate-200 text-sm focus:border-violet-500 focus:ring-violet-500 mb-3" placeholder="Share your thoughts..."></textarea>
+                          <div class="mb-3">
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Attach Images (optional)</label>
+                            <input type="file" multiple accept="image/*" (change)="onReviewImagesSelected($event)" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100" />
+                          </div>
                           <button type="button" (click)="submitReview()" [disabled]="isSubmittingReview()" class="btn-primary w-full disabled:opacity-50">Submit Review</button>
                         </div>
                       } @else if (!authService.isAuthenticated()) {
@@ -393,6 +397,13 @@ type Tab = 'description' | 'specs' | 'reviews';
                             <h3 class="mt-4 text-sm font-bold text-slate-900">{{ review.title }}</h3>
                           }
                           <p class="mt-2 text-sm text-slate-600 leading-relaxed">{{ review.comment }}</p>
+                          @if (review.imageUrls && review.imageUrls.length > 0) {
+                            <div class="mt-4 flex flex-wrap gap-2">
+                              @for (img of review.imageUrls; track img) {
+                                <img [src]="img" alt="Review image" class="h-20 w-20 rounded-lg object-cover cursor-pointer hover:opacity-90 transition-opacity" />
+                              }
+                            </div>
+                          }
                         }
                       </article>
                     }
@@ -471,6 +482,77 @@ type Tab = 'description' | 'specs' | 'reviews';
         </div>
       </div>
     }
+
+    <!-- Size Guide Modal -->
+    @if (isSizeGuideModalOpen()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm" (click)="isSizeGuideModalOpen.set(false)">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200" (click)="$event.stopPropagation()">
+          <div class="flex items-center justify-between p-4 sm:p-6 border-b border-slate-100">
+            <h3 class="text-lg font-bold text-slate-900">Size Guide</h3>
+            <button (click)="isSizeGuideModalOpen.set(false)" class="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div class="p-4 sm:p-6 max-h-[70vh] overflow-y-auto">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-left">
+                <thead class="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    <th class="px-4 py-3 font-semibold">Size</th>
+                    <th class="px-4 py-3 font-semibold">Chest (in)</th>
+                    <th class="px-4 py-3 font-semibold">Waist (in)</th>
+                    <th class="px-4 py-3 font-semibold">Hips (in)</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 text-slate-600">
+                  <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-4 py-3 font-medium text-slate-900">XS</td>
+                    <td class="px-4 py-3">32 - 34</td>
+                    <td class="px-4 py-3">26 - 28</td>
+                    <td class="px-4 py-3">34 - 36</td>
+                  </tr>
+                  <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-4 py-3 font-medium text-slate-900">S</td>
+                    <td class="px-4 py-3">35 - 37</td>
+                    <td class="px-4 py-3">29 - 31</td>
+                    <td class="px-4 py-3">37 - 39</td>
+                  </tr>
+                  <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-4 py-3 font-medium text-slate-900">M</td>
+                    <td class="px-4 py-3">38 - 40</td>
+                    <td class="px-4 py-3">32 - 34</td>
+                    <td class="px-4 py-3">40 - 42</td>
+                  </tr>
+                  <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-4 py-3 font-medium text-slate-900">L</td>
+                    <td class="px-4 py-3">41 - 43</td>
+                    <td class="px-4 py-3">35 - 37</td>
+                    <td class="px-4 py-3">43 - 45</td>
+                  </tr>
+                  <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-4 py-3 font-medium text-slate-900">XL</td>
+                    <td class="px-4 py-3">44 - 46</td>
+                    <td class="px-4 py-3">38 - 40</td>
+                    <td class="px-4 py-3">46 - 48</td>
+                  </tr>
+                  <tr class="hover:bg-slate-50 transition-colors">
+                    <td class="px-4 py-3 font-medium text-slate-900">XXL</td>
+                    <td class="px-4 py-3">47 - 49</td>
+                    <td class="px-4 py-3">41 - 43</td>
+                    <td class="px-4 py-3">49 - 51</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="mt-4 text-xs text-slate-500">
+              * Measurements are in inches. This is a general guide; actual fit may vary by brand and product type. If you are between sizes, we recommend sizing up.
+            </p>
+          </div>
+        </div>
+      </div>
+    }
   `,
 })
 export class ProductDetailComponent implements OnDestroy {
@@ -486,6 +568,7 @@ export class ProductDetailComponent implements OnDestroy {
   readonly product = signal<Product | undefined>(undefined);
   readonly isLoading = signal(true);
   readonly confirmDeleteReviewId = signal<string | number | null>(null);
+  readonly isSizeGuideModalOpen = signal(false);
   readonly activeIndex = signal(0);
   readonly selectedColor = signal('');
   readonly selectedSize = signal('');
@@ -542,6 +625,7 @@ export class ProductDetailComponent implements OnDestroy {
   readonly hasReviewed = signal(false);
   readonly newReviewRating = signal(5);
   readonly newReviewComment = signal('');
+  readonly newReviewImages = signal<File[]>([]);
   
   readonly isEditingReview = signal<string | number | null>(null);
 
@@ -715,6 +799,13 @@ export class ProductDetailComponent implements OnDestroy {
     document.getElementById('product-tabs')?.scrollIntoView({ behavior: 'smooth' });
   }
 
+  onReviewImagesSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (input.files) {
+      this.newReviewImages.set(Array.from(input.files));
+    }
+  }
+
   submitReview(): void {
     const p = this.product();
     if (!p) return;
@@ -722,11 +813,13 @@ export class ProductDetailComponent implements OnDestroy {
     this.reviewService.addReview({
       productId: p.id.toString(),
       rating: this.newReviewRating(),
-      comment: this.newReviewComment()
+      comment: this.newReviewComment(),
+      images: this.newReviewImages()
     }).subscribe({
       next: () => {
         this.newReviewComment.set('');
         this.newReviewRating.set(5);
+        this.newReviewImages.set([]);
         this.canReview.set(false);
         this.hasReviewed.set(true);
         this.isSubmittingReview.set(false);

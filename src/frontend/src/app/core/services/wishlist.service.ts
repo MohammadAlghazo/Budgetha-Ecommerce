@@ -50,10 +50,10 @@ export class WishlistService {
   }
 
   private pushLocalToBackend(localIds: string[]) {
-    localIds.forEach(id => {
-      this.http.post(this.apiUrl, { productId: id }).subscribe();
+    this.http.post(`${this.apiUrl}/bulk`, { productIds: localIds }).subscribe({
+      next: () => this.syncWithBackend(),
+      error: (err) => console.error('Failed to bulk sync wishlist', err)
     });
-    setTimeout(() => this.syncWithBackend(), 1000);
   }
 
   has(productId: string): boolean {

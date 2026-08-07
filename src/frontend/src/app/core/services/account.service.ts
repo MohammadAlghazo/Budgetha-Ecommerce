@@ -88,7 +88,7 @@ export class AccountService {
     return this._addresses().find(a => a.isDefault) ?? this._addresses()[0];
   }
 
-  saveAddress(address: Omit<Address, 'id'> & { id?: number | string }): void {
+  saveAddress(address: Omit<Address, 'id'> & { id?: string }): void {
     if (this.auth.isAuthenticated()) {
       if (address.id && typeof address.id === 'string') {
         this.http.put(`${this.apiUrl}/${address.id}`, {
@@ -125,13 +125,13 @@ export class AccountService {
         if (address.id) {
           return next.map(a => (a.id === address.id ? ({ ...address, id: address.id } as Address) : a));
         }
-        const numericId = Math.max(0, ...next.map(a => typeof a.id === 'number' ? a.id : 0)) + 1;
-        return [...next, { ...address, id: numericId } as Address];
+        const newId = crypto.randomUUID();
+        return [...next, { ...address, id: newId } as Address];
       });
     }
   }
 
-  deleteAddress(id: number | string): void {
+  deleteAddress(id: string): void {
     if (this.auth.isAuthenticated() && typeof id === 'string') {
       this.http.delete(`${this.apiUrl}/${id}`).subscribe(() => this.syncAddresses());
     } else {
@@ -145,7 +145,7 @@ export class AccountService {
     }
   }
 
-  setDefaultAddress(id: number | string): void {
+  setDefaultAddress(id: string): void {
     if (this.auth.isAuthenticated() && typeof id === 'string') {
       const address = this._addresses().find(a => a.id === id);
       if (address) {

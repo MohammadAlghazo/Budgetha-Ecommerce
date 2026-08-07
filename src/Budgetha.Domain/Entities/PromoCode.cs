@@ -11,4 +11,5 @@ public class PromoCode : BaseEntity
     public string? SellerId { get; set; }
     public DateTime? ExpiryDate { get; set; }
     public bool IsActive { get; set; } = true;
+    public int MaxUsesPerUser { get; set; } = 1;
 }

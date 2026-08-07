@@ -46,6 +46,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<ProductSpec> ProductSpecs => Set<ProductSpec>();
     public DbSet<ProductFeature> ProductFeatures => Set<ProductFeature>();
     public DbSet<PromoCode> PromoCodes => Set<PromoCode>();
+    public DbSet<PromoCodeUsage> PromoCodeUsages => Set<PromoCodeUsage>();
     public DbSet<PendingImageUpload> PendingImageUploads => Set<PendingImageUpload>();
     public DbSet<PendingImageDeletion> PendingImageDeletions => Set<PendingImageDeletion>();
     public DbSet<OutboxDelivery> OutboxDeliveries => Set<OutboxDelivery>();
@@ -59,6 +60,9 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
         builder.Ignore<BaseEvent>();
 
         builder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
+
+        builder.Entity<ApplicationUser>().HasQueryFilter(e => !e.IsDeleted);
+        builder.Entity<Product>().HasQueryFilter(e => !e.IsDeleted);
     }
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
@@ -110,6 +114,16 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
                     entry.Entity.LastModified = now;
                     entry.Entity.LastModifiedBy = userId;
                     break;
+            }
+        }
+
+        foreach (var entry in ChangeTracker.Entries<ISoftDelete>())
+        {
+            if (entry.State == EntityState.Deleted)
+            {
+                entry.State = EntityState.Modified;
+                entry.Entity.IsDeleted = true;
+                entry.Entity.DeletedAt = DateTime.UtcNow;
             }
         }
 

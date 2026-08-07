@@ -51,6 +51,12 @@ export const routes: Routes = [
     loadComponent: () => import('./features/auth/reset-password/reset-password.component').then(m => m.ResetPasswordComponent),
   },
 
+  {
+    path: 'auth/confirm-email',
+    title: 'Confirm Email · Budgetha',
+    loadComponent: () => import('./features/auth/confirm-email/confirm-email.component').then(m => m.ConfirmEmailComponent),
+  },
+
   
   
   { path: 'login', redirectTo: 'auth/login', pathMatch: 'full' },
@@ -59,6 +65,7 @@ export const routes: Routes = [
   { path: 'register', redirectTo: 'auth/register', pathMatch: 'full' },
   { path: 'signup', redirectTo: 'auth/register', pathMatch: 'full' },
   { path: 'sign-up', redirectTo: 'auth/register', pathMatch: 'full' },
+  { path: 'confirm-email', redirectTo: 'auth/confirm-email', pathMatch: 'full' },
   { path: 'forgot-password', redirectTo: 'auth/forgot-password', pathMatch: 'full' },
   { path: 'reset-password', redirectTo: 'auth/reset-password', pathMatch: 'full' },
 

@@ -18,17 +18,20 @@ public class AuthController : ControllerBase
     private readonly IConfiguration _configuration;
     private readonly IEmailService _emailService;
     private readonly IApplicationDbContext _context;
+    private readonly IAdminService _adminService;
 
     public AuthController(
         IIdentityService identityService,
         IConfiguration configuration,
         IEmailService emailService,
-        IApplicationDbContext context)
+        IApplicationDbContext context,
+        IAdminService adminService)
     {
         _identityService = identityService;
         _configuration = configuration;
         _emailService = emailService;
         _context = context;
+        _adminService = adminService;
     }
 
     [HttpPost("register")]
@@ -189,6 +192,21 @@ public class AuthController : ControllerBase
         if (!result) return BadRequest(new { Message = "Failed to change password. Please check your current password." });
 
         return Ok(new { Message = "Password changed successfully." });
+    }
+
+    [Authorize]
+    [HttpDelete("me")]
+    public async Task<IActionResult> DeleteMe()
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return Unauthorized();
+
+        var isSuperAdmin = User.IsInRole("SuperAdmin");
+        var result = await _adminService.DeleteUserAsync(userId, isSuperAdmin, userId);
+
+        if (!result) return BadRequest(new { Message = "Failed to delete account. If you are a seller, you must delete your products first." });
+
+        return Ok(new { Message = "Account deleted successfully." });
     }
 }
 

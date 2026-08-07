@@ -8,6 +8,7 @@ export interface AddReviewDto {
   productId: string;
   rating: number;
   comment?: string;
+  images?: File[];
 }
 
 export interface UpdateReviewDto {
@@ -30,7 +31,18 @@ export class ReviewService {
   }
 
   addReview(dto: AddReviewDto): Observable<string> {
-    return this.http.post<string>(this.apiUrl, dto);
+    const formData = new FormData();
+    formData.append('productId', dto.productId);
+    formData.append('rating', dto.rating.toString());
+    if (dto.comment) {
+      formData.append('comment', dto.comment);
+    }
+    if (dto.images) {
+      dto.images.forEach(img => {
+        formData.append('images', img, img.name);
+      });
+    }
+    return this.http.post<string>(this.apiUrl, formData);
   }
 
   updateReview(id: string, dto: UpdateReviewDto): Observable<void> {
