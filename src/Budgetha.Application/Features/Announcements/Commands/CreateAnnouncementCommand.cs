@@ -1,6 +1,7 @@
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Domain.Entities;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 
 namespace Budgetha.Application.Features.Announcements.Commands;
 
@@ -18,10 +19,12 @@ public record CreateAnnouncementCommand(
 public class CreateAnnouncementCommandHandler : IRequestHandler<CreateAnnouncementCommand, Guid>
 {
     private readonly IApplicationDbContext _context;
+    private readonly IEmailService _emailService;
 
-    public CreateAnnouncementCommandHandler(IApplicationDbContext context)
+    public CreateAnnouncementCommandHandler(IApplicationDbContext context, IEmailService emailService)
     {
         _context = context;
+        _emailService = emailService;
     }
 
     public async Task<Guid> Handle(CreateAnnouncementCommand request, CancellationToken cancellationToken)
@@ -41,6 +44,27 @@ public class CreateAnnouncementCommandHandler : IRequestHandler<CreateAnnounceme
 
         _context.Announcements.Add(announcement);
         await _context.SaveChangesAsync(cancellationToken);
+
+        if (request.IsActive)
+        {
+            var users = await _context.Users
+                .Select(u => u.Email)
+                .ToListAsync(cancellationToken);
+
+            foreach (var email in users)
+            {
+                if (!string.IsNullOrEmpty(email))
+                {
+                    await _emailService.QueueEmailAsync(
+                        email,
+                        "New Announcement",
+                        $"<h3>{request.Message}</h3><p>{request.Subtitle}</p>",
+                        $"announcement-{announcement.Id}",
+                        cancellationToken);
+                }
+            }
+            await _context.SaveChangesAsync(cancellationToken);
+        }
 
         return announcement.Id;
     }

@@ -130,6 +130,15 @@ public class SyncCartCommandHandler : IRequestHandler<SyncCartCommand>
                 throw new InvalidOperationException("Invalid cart item type.");
             }
 
+            if (mergedQuantity <= 0)
+            {
+                if (existingItem != null)
+                {
+                    cart.Items.Remove(existingItem);
+                }
+                continue;
+            }
+
             if (existingItem != null)
             {
                 existingItem.Quantity = mergedQuantity;

@@ -208,7 +208,6 @@ export class CartService {
       }).subscribe({
         next: () => {
           this.fetchFromBackend();
-          this.toast.success(`${product.name} added to cart`);
         },
         error: () => {
           this._items.update(items => items.filter(i => i.id !== optimisticItem.id));
@@ -248,7 +247,6 @@ export class CartService {
           },
         ];
       });
-      this.toast.success(`${product.name} added to cart`);
     }
   }
 
@@ -283,7 +281,6 @@ export class CartService {
       this.http.delete(`${this.apiUrl}/items/${item.id}`).subscribe({
         next: () => {
           this.fetchFromBackend();
-          this.toast.success('Item removed');
         },
         error: () => undefined
       });
@@ -294,7 +291,6 @@ export class CartService {
             i.type === item.type && i.rentalStartDate === item.rentalStartDate && i.rentalEndDate === item.rentalEndDate)
         )
       );
-      this.toast.success('Item removed');
     }
   }
 

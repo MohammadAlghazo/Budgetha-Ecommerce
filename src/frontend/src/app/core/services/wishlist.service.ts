@@ -68,7 +68,6 @@ export class WishlistService {
         this.http.delete(`${this.apiUrl}/${productId}`).subscribe({
           next: () => {
             this._ids.update(ids => ids.filter(id => id !== productId));
-            if (productName) this.toast.info(`${productName} removed from wishlist`);
           },
           error: () => this.toast.error('Failed to remove from wishlist')
         });
@@ -76,7 +75,6 @@ export class WishlistService {
         this.http.post(this.apiUrl, { productId }).subscribe({
           next: () => {
             this._ids.update(ids => [...ids, productId]);
-            if (productName) this.toast.success(`${productName} saved to wishlist`);
           },
           error: () => this.toast.error('Failed to add to wishlist')
         });
@@ -84,10 +82,8 @@ export class WishlistService {
     } else {
       if (exists) {
         this._ids.update(ids => ids.filter(id => id !== productId));
-        if (productName) this.toast.info(`${productName} removed from wishlist`);
       } else {
         this._ids.update(ids => [...ids, productId]);
-        if (productName) this.toast.success(`${productName} saved to wishlist`);
       }
     }
   }

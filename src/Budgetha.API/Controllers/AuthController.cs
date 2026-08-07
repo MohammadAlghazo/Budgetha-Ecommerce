@@ -43,6 +43,14 @@ public class AuthController : ControllerBase
         if (!result.Succeeded)
             return BadRequest(new AuthResponse(false, null, null, null, null, null, null, null, result.Errors));
 
+        await _emailService.QueueEmailAsync(
+            request.Email,
+            "Welcome to Budgetha!",
+            $"<p>Hi {request.FirstName},</p><p>Welcome to Budgetha! We're excited to have you on board.</p>",
+            $"welcome-{result.UserId}",
+            HttpContext.RequestAborted);
+        await _context.SaveChangesAsync(HttpContext.RequestAborted);
+
         return Ok(new AuthResponse(true, result.Token, result.Expiration, result.UserId, result.Email, result.FirstName, result.LastName, result.Roles, null, result.RefreshToken));
     }
 

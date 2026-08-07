@@ -3,6 +3,7 @@ import { Injectable, signal, computed } from '@angular/core';
 import { Router } from '@angular/router';
 import { Observable, tap } from 'rxjs';
 import { AuthResponse, LoginRequest, RegisterRequest, ForgotPasswordRequest, ResetPasswordRequest, GoogleLoginRequest } from '../models/auth.models';
+import { ToastService } from './toast.service';
 
 import { environment } from '../../../environments/environment';
 
@@ -22,7 +23,7 @@ export class AuthService {
   readonly isAuthenticated = computed(() => !!this.token());
   readonly user = this.currentUser.asReadonly();
 
-  constructor(private http: HttpClient, private router: Router) {
+  constructor(private http: HttpClient, private router: Router, private toastService: ToastService) {
     this.loadStoredSession();
   }
 
@@ -85,11 +86,15 @@ export class AuthService {
     try {
       localStorage.removeItem(this.tokenKey);
       localStorage.removeItem(this.userKey);
+      localStorage.removeItem('budgetha_wishlist');
+      localStorage.removeItem('budgetha_cart');
+      localStorage.removeItem('budgetha_promo');
     } catch {
       
     }
     this.token.set(null);
     this.currentUser.set(null);
+    this.toastService.clear();
   }
 
   getToken(): string | null {
