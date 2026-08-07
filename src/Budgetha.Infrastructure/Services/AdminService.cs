@@ -249,7 +249,7 @@ public class AdminService : IAdminService
     public async Task<bool> DeleteUserAsync(string actorId, bool actorIsSuperAdmin, string userId)
     {
         var user = await _userManager.FindByIdAsync(userId);
-        if (user == null || !await CanManageUserAsync(actorId, actorIsSuperAdmin, user)) return false;
+        if (user == null || (actorId != userId && !await CanManageUserAsync(actorId, actorIsSuperAdmin, user))) return false;
 
         var hasProducts = await _context.Products.AnyAsync(p => p.SellerId == userId);
         if (hasProducts)

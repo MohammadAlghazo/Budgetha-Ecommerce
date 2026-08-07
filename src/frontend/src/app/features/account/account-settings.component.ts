@@ -175,6 +175,7 @@ export class AccountSettingsComponent implements OnInit {
   readonly auth = inject(AuthService);
   private readonly toast = inject(ToastService);
   private readonly http = inject(HttpClient);
+  private readonly router = inject(import('@angular/router').Router);
 
   readonly profileSubmitted = signal(false);
   readonly passwordSubmitted = signal(false);
@@ -327,7 +328,19 @@ export class AccountSettingsComponent implements OnInit {
         },
         error: (err) => {
           const msg = err.error?.message || 'Failed to delete account. Please try again.';
-          this.toast.error(msg);
+          if (msg.includes('delete all your active products')) {
+             this.toast.error('You must delete all your products before deleting your account.');
+             const user = this.auth.user();
+             this.router.navigate(['/admin/products'], {
+               queryParams: {
+                 sellerDeleteMode: '1',
+                 sellerId: user?.id,
+                 sellerName: `${user?.firstName} ${user?.lastName}`.trim()
+               }
+             });
+          } else {
+             this.toast.error(msg);
+          }
         }
       });
     }

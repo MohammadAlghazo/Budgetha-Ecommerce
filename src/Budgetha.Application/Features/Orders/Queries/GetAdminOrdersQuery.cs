@@ -1,4 +1,5 @@
 using Budgetha.Application.Common.Interfaces;
+using Budgetha.Application.Common.Models;
 using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -86,6 +87,7 @@ public class GetAdminOrdersQueryHandler : IRequestHandler<GetAdminOrdersQuery, L
         var roles = await _identityService.GetRolesAsync(userId);
         
         IQueryable<Domain.Entities.Order> query = _context.Orders
+            .AsNoTracking()
             .Include(o => o.User)
             .Include(o => o.Payment)
             .Include(o => o.Items).ThenInclude(i => i.Product)

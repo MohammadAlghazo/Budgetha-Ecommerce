@@ -9,7 +9,7 @@ import { Toast, ToastService, ToastType } from '../../../core/services/toast.ser
          pointer-events are off on the stack and back on per card, so the
          container never blocks clicks on the page beneath it. -->
     <div
-      class="fixed inset-x-4 bottom-6 z-[60] flex flex-col items-end gap-3 sm:inset-x-auto sm:end-6 sm:bottom-8 sm:max-w-sm pointer-events-none"
+      class="fixed inset-x-4 top-20 z-[60] flex flex-col items-end gap-3 sm:inset-x-auto sm:end-6 sm:top-24 sm:max-w-sm pointer-events-none"
       role="region"
       aria-label="Notifications">
       <div aria-live="polite" aria-atomic="false" class="sr-only">
@@ -20,8 +20,8 @@ import { Toast, ToastService, ToastType } from '../../../core/services/toast.ser
 
       @for (toast of toasts(); track toast.id) {
         <div
-          class="w-full pointer-events-auto rounded-2xl border bg-white/95 shadow-lg shadow-slate-900/10 backdrop-blur dark:bg-slate-900/95 dark:shadow-black/30
-                 animate-[toastIn_0.28s_cubic-bezier(0.21,1.02,0.73,1)]"
+          class="w-full pointer-events-auto rounded-2xl border bg-white/98 shadow-md shadow-slate-200/50 backdrop-blur dark:bg-slate-900/98 dark:shadow-black/20
+                 animate-[toastIn_0.4s_cubic-bezier(0.16,1,0.3,1)]"
           [class]="shell(toast.type)">
           <div class="flex items-start gap-3 p-4">
             <span class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full" [class]="badge(toast.type)">
@@ -61,7 +61,7 @@ import { Toast, ToastService, ToastType } from '../../../core/services/toast.ser
   `,
   styles: `
     @keyframes toastIn {
-      from { opacity: 0; transform: translateY(15px) scale(0.95); }
+      from { opacity: 0; transform: translateY(-20px) scale(0.98); }
       to { opacity: 1; transform: translateY(0) scale(1); }
     }
     @media (prefers-reduced-motion: reduce) {

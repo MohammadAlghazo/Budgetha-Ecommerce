@@ -38,6 +38,7 @@ public class GetTicketQueryHandler : IRequestHandler<GetTicketQuery, TicketDetai
         var isAdmin = roles.Contains("Admin") || roles.Contains("SuperAdmin");
 
         var ticket = await _context.SupportTickets
+            .AsNoTracking()
             .Include(t => t.Messages)
             .Include(t => t.User)
             .FirstOrDefaultAsync(t => t.Id == request.TicketId, cancellationToken);

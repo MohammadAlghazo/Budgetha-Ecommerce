@@ -210,11 +210,16 @@ public class AuthController : ControllerBase
         if (userId is null) return Unauthorized();
 
         var isSuperAdmin = User.IsInRole("SuperAdmin");
-        var result = await _adminService.DeleteUserAsync(userId, isSuperAdmin, userId);
-
-        if (!result) return BadRequest(new { Message = "Failed to delete account. If you are a seller, you must delete your products first." });
-
-        return Ok(new { Message = "Account deleted successfully." });
+        try
+        {
+            var result = await _adminService.DeleteUserAsync(userId, isSuperAdmin, userId);
+            if (!result) return BadRequest(new { Message = "Failed to delete account." });
+            return Ok(new { Message = "Account deleted successfully." });
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "SELLER_HAS_PRODUCTS")
+        {
+            return BadRequest(new { Message = "Cannot delete account. You must delete all your active products first." });
+        }
     }
 }
 

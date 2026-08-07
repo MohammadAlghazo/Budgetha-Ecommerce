@@ -38,6 +38,7 @@ public class GetTransactionHistoryQueryHandler : IRequestHandler<GetTransactionH
         if (request.Type == "All" || request.Type == "Purchases")
         {
             var purchaseOrders = await _context.Orders
+                .AsNoTracking()
                 .Include(o => o.Items)
                 .ThenInclude(i => i.Product)
                 .Where(o => o.UserId == currentUserId)
@@ -81,6 +82,7 @@ public class GetTransactionHistoryQueryHandler : IRequestHandler<GetTransactionH
             // And then group them by OrderId so we display one row per Order for the seller.
             
             var salesItems = await _context.OrderItems
+                .AsNoTracking()
                 .Include(i => i.Order)
                 .ThenInclude(o => o.User)
                 .Include(i => i.Product)

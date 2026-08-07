@@ -2,6 +2,7 @@ import { Component, computed, inject, signal, effect } from '@angular/core';
 import { CurrencyPipe, NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { Subject, debounceTime } from 'rxjs';
 import { ProductService } from '../../core/services/product.service';
 import { WishlistService } from '../../core/services/wishlist.service';
 import { CatalogQuery, CatalogResult, SortOption } from '../../core/models/shop.models';
@@ -260,20 +261,14 @@ const PAGE_SIZE = 9;
                 ctaLink="/shop" />
             </div>
           } @else {
-            @if (isLoading()) {
-              <div class="mb-4 flex items-center gap-2 text-xs font-medium text-violet-600" role="status" aria-live="polite">
-                <span class="h-2.5 w-2.5 rounded-full border-2 border-violet-200 border-t-violet-600 animate-spin"></span>
-                Updating products...
-              </div>
-            }
             @if (view() === 'grid') {
-              <div class="grid grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-5">
+              <div class="grid grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-5 transition-opacity duration-300" [class.opacity-50]="isLoading()">
                 @for (product of result().items; track product.id) {
                   <app-product-card [product]="product" layout="grid" />
                 }
               </div>
             } @else {
-              <div class="space-y-5">
+              <div class="space-y-5 transition-opacity duration-300" [class.opacity-50]="isLoading()">
                 @for (product of result().items; track product.id) {
                   <app-product-card [product]="product" layout="list" />
                 }
@@ -348,15 +343,18 @@ export class CatalogComponent {
   readonly search = signal('');
   readonly selectedCategories = signal<string[]>([]);
   readonly selectedBrands = signal<string[]>([]);
-  readonly minPrice = signal(0);
-  readonly maxPrice = signal(10000);
-  readonly minRating = signal(0);
+  readonly dealsOnly = signal<boolean>(false);
+  readonly wishlistOnly = signal<boolean>(false);
+  readonly minPrice = signal<number>(0);
+  readonly maxPrice = signal<number>(10000);
+  readonly queryMinPrice = signal<number>(0);
+  readonly queryMaxPrice = signal<number>(10000);
+  private priceSubject = new Subject<{min: number, max: number}>();
+  readonly minRating = signal<number>(0);
   readonly sort = signal<SortOption>('featured');
   readonly page = signal(1);
   readonly view = signal<'grid' | 'list'>('grid');
   readonly filtersOpen = signal(false);
-  readonly dealsOnly = signal(false);
-  readonly wishlistOnly = signal(false);
   readonly sellerId = signal<string | null>(null);
 
   readonly result = signal<CatalogResult>({ items: [], total: 0, totalPages: 1 });
@@ -421,6 +419,17 @@ export class CatalogComponent {
     this.productService.priceBounds().pipe(takeUntilDestroyed()).subscribe(b => {
        this.minPrice.set(b.min);
        this.maxPrice.set(b.max);
+       this.queryMinPrice.set(b.min);
+       this.queryMaxPrice.set(b.max);
+    });
+
+    this.priceSubject.pipe(
+      debounceTime(400),
+      takeUntilDestroyed()
+    ).subscribe(p => {
+      this.queryMinPrice.set(p.min);
+      this.queryMaxPrice.set(p.max);
+      this.page.set(1);
     });
 
     effect(onCleanup => {
@@ -436,8 +445,8 @@ export class CatalogComponent {
         search: this.search(),
         categories: this.selectedCategories(),
         brands: this.selectedBrands(),
-        minPrice: this.minPrice(),
-        maxPrice: this.maxPrice(),
+        minPrice: this.queryMinPrice(),
+        maxPrice: this.queryMaxPrice(),
         minRating: this.minRating(),
         sort: this.sort(),
         page: isWishlist || isDeals ? 1 : currentPage,
@@ -506,14 +515,16 @@ export class CatalogComponent {
 
   setMinPrice(event: Event): void {
     const value = Number((event.target as HTMLInputElement).value);
-    this.minPrice.set(Math.min(value, this.maxPrice() - 5));
-    this.page.set(1);
+    const min = Math.min(value, this.maxPrice() - 5);
+    this.minPrice.set(min);
+    this.priceSubject.next({min, max: this.maxPrice()});
   }
 
   setMaxPrice(event: Event): void {
     const value = Number((event.target as HTMLInputElement).value);
-    this.maxPrice.set(Math.max(value, this.minPrice() + 5));
-    this.page.set(1);
+    const max = Math.max(value, this.minPrice() + 5);
+    this.maxPrice.set(max);
+    this.priceSubject.next({min: this.minPrice(), max});
   }
 
   setSort(event: Event): void {
@@ -532,6 +543,8 @@ export class CatalogComponent {
     this.selectedBrands.set([]);
     this.minPrice.set(this.bounds().min);
     this.maxPrice.set(this.bounds().max);
+    this.queryMinPrice.set(this.bounds().min);
+    this.queryMaxPrice.set(this.bounds().max);
     this.minRating.set(0);
     this.dealsOnly.set(false);
     this.page.set(1);

@@ -44,4 +44,21 @@ public class NotificationsController : ControllerBase
 
         return Ok(new { Message = "Notification marked as read." });
     }
+
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> DeleteNotification(Guid id)
+    {
+        var result = await _mediator.Send(new Budgetha.Application.Features.Notifications.Commands.DeleteNotification.DeleteNotificationCommand(id));
+        if (!result)
+            return NotFound(new { Message = "Notification not found or unauthorized." });
+
+        return NoContent();
+    }
+
+    [HttpDelete("all")]
+    public async Task<IActionResult> DeleteAllNotifications()
+    {
+        var result = await _mediator.Send(new Budgetha.Application.Features.Notifications.Commands.DeleteAllNotifications.DeleteAllNotificationsCommand());
+        return NoContent();
+    }
 }

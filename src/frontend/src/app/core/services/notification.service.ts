@@ -172,4 +172,36 @@ export class NotificationService {
       error: () => this.errorSubject.next('Notification could not be marked as read after 3 attempts.')
     });
   }
+
+  deleteNotification(id: string): void {
+    this.http.delete(`${this.apiUrl}/${id}`).subscribe({
+      next: () => {
+        const notifications = this.notificationsSubject.value;
+        const notifToDelete = notifications.find(n => n.id === id);
+        if (notifToDelete) {
+          this.notificationsSubject.next(notifications.filter(n => n.id !== id));
+          if (!notifToDelete.isRead) {
+            this.unreadCountSubject.next(Math.max(0, this.unreadCountSubject.value - 1));
+          }
+        }
+      },
+      error: (err) => {
+        console.error('Failed to delete notification', err);
+        this.errorSubject.next('Failed to delete notification.');
+      }
+    });
+  }
+
+  deleteAllNotifications(): void {
+    this.http.delete(`${this.apiUrl}/all`).subscribe({
+      next: () => {
+        this.notificationsSubject.next([]);
+        this.unreadCountSubject.next(0);
+      },
+      error: (err) => {
+        console.error('Failed to delete all notifications', err);
+        this.errorSubject.next('Failed to delete all notifications.');
+      }
+    });
+  }
 }

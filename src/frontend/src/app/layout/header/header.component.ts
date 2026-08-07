@@ -163,9 +163,16 @@ import { ProductService } from '../../core/services/product.service';
                   <div class="absolute end-0 mt-2 w-80 card bg-white shadow-xl shadow-slate-200/80 animate-[menuIn_0.15s_ease-out] z-50 overflow-hidden" (click)="$event.stopPropagation()">
                     <div class="px-4 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                       <span class="text-sm font-semibold text-slate-800">Notifications</span>
-                      @if (notificationCount() > 0) {
-                        <span class="text-xs bg-teal-100 text-teal-800 px-2 py-0.5 rounded-full font-medium">{{ notificationCount() }} New</span>
-                      }
+                      <div class="flex items-center gap-2">
+                        @if (notificationCount() > 0) {
+                          <span class="text-xs bg-teal-100 text-teal-800 px-2 py-0.5 rounded-full font-medium">{{ notificationCount() }} New</span>
+                        }
+                        @if (notifications().length > 0) {
+                          <button (click)="deleteAllNotifications($event)" class="text-slate-400 hover:text-rose-500 transition-colors p-1 rounded-md hover:bg-slate-200" title="Delete all">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                          </button>
+                        }
+                      </div>
                     </div>
                     <div class="max-h-80 overflow-y-auto">
                       @if (notifications().length === 0) {
@@ -174,7 +181,7 @@ import { ProductService } from '../../core/services/product.service';
                         </div>
                       } @else {
                         @for (notif of notifications(); track notif.id) {
-                          <div (click)="markNotificationAsRead(notif.id)" class="p-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors duration-150" [class.bg-teal-50]="!notif.isRead">
+                          <div (click)="handleNotificationClick(notif)" class="p-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors duration-150 relative group" [class.bg-teal-50]="!notif.isRead">
                             <div class="flex gap-3">
                               <div class="mt-0.5">
                                 @if (notif.type === 'Order') {
@@ -191,12 +198,15 @@ import { ProductService } from '../../core/services/product.service';
                                   </div>
                                 }
                               </div>
-                              <div>
+                              <div class="pr-6">
                                 <p class="text-sm font-medium text-slate-800" [class.font-bold]="!notif.isRead">{{ notif.title }}</p>
                                 <p class="text-xs text-slate-500 mt-0.5 line-clamp-2">{{ notif.message }}</p>
                                 <p class="text-[10px] text-slate-400 mt-1">{{ notif.createdAt | date:'short' }}</p>
                               </div>
                             </div>
+                            <button (click)="deleteNotification($event, notif.id)" class="absolute top-3 end-3 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-white rounded-md shadow-sm" title="Delete">
+                               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                            </button>
                           </div>
                         }
                       }
@@ -430,8 +440,27 @@ export class HeaderComponent implements OnInit {
     this.notificationMenuOpen.update(v => !v);
   }
 
-  markNotificationAsRead(id: string): void {
-    this.notificationService.markAsRead(id);
+  handleNotificationClick(notif: any): void {
+    if (!notif.isRead) {
+      this.notificationService.markAsRead(notif.id);
+    }
+    this.notificationMenuOpen.set(false);
+    
+    if (notif.type === 'Order') {
+      this.router.navigate(['/account/orders']);
+    } else if (notif.type === 'Sale') {
+      this.router.navigate(['/admin/orders']);
+    }
+  }
+
+  deleteNotification(event: Event, id: string): void {
+    event.stopPropagation();
+    this.notificationService.deleteNotification(id);
+  }
+
+  deleteAllNotifications(event: Event): void {
+    event.stopPropagation();
+    this.notificationService.deleteAllNotifications();
   }
 
   onSearchChange(term: string): void {
