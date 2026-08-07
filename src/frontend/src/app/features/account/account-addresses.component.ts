@@ -1,4 +1,4 @@
-﻿import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AccountService } from '../../core/services/account.service';
 import { ToastService } from '../../core/services/toast.service';
@@ -50,7 +50,7 @@ import { EmptyStateComponent } from '../../shared/components/empty-state/empty-s
                 <div class="mt-4 flex items-center gap-3 text-xs font-semibold">
                   <button type="button" (click)="startEdit(address)" class="text-violet-600 hover:text-violet-500 transition-colors duration-300">Edit</button>
                   @if (!address.isDefault) {
-                    <button type="button" (click)="account.setDefaultAddress(address.id)" class="text-slate-500 hover:text-slate-700 transition-colors duration-300">Set default</button>
+                    <button type="button" (click)="account.setDefaultAddress(address.id.toString())" class="text-slate-500 hover:text-slate-700 transition-colors duration-300">Set default</button>
                   }
                   <button type="button" (click)="remove(address)" class="text-rose-500 hover:text-rose-400 transition-colors duration-300 ms-auto">Delete</button>
                 </div>
@@ -139,7 +139,7 @@ export class AccountAddressesComponent {
   private readonly fb = inject(FormBuilder);
 
   readonly formVisible = signal(false);
-  readonly editingId = signal<number | null>(null);
+  readonly editingId = signal<string | null>(null);
   readonly submitted = signal(false);
 
   readonly form = this.fb.group({
@@ -168,7 +168,7 @@ export class AccountAddressesComponent {
   }
 
   startEdit(address: Address): void {
-    this.editingId.set(address.id as any);
+    this.editingId.set(address.id.toString());
     this.submitted.set(false);
     this.form.patchValue({ ...address, line2: address.line2 ?? '' });
     this.formVisible.set(true);
@@ -199,7 +199,7 @@ export class AccountAddressesComponent {
   }
 
   remove(address: Address): void {
-    this.account.deleteAddress(address.id);
+    this.account.deleteAddress(address.id.toString());
     this.toast.info(`Address “${address.label}” deleted`);
   }
 
