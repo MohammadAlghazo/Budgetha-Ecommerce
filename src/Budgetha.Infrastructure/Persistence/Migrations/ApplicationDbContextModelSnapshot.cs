@@ -1040,10 +1040,20 @@ namespace Budgetha.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("IsActive");
 
+                    b.HasIndex("IsFeatured");
+
                     b.HasIndex("SellerId");
 
                     b.HasIndex("Slug")
                         .IsUnique();
+
+                    b.HasIndex("IsActive", "ApprovalStatus");
+
+                    b.HasIndex("IsActive", "ApprovalStatus", "AverageRating");
+
+                    b.HasIndex("IsActive", "ApprovalStatus", "Created");
+
+                    b.HasIndex("IsActive", "ApprovalStatus", "Price");
 
                     b.ToTable("Products", t =>
                         {

@@ -19,6 +19,12 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.HasIndex(p => p.Slug).IsUnique();
         builder.HasIndex(p => p.IsActive);
         builder.HasIndex(p => p.ApprovalStatus);
+        builder.HasIndex(p => p.SellerId);
+        builder.HasIndex(p => p.IsFeatured);
+        builder.HasIndex(p => new { p.IsActive, p.ApprovalStatus });
+        builder.HasIndex(p => new { p.IsActive, p.ApprovalStatus, p.Price });
+        builder.HasIndex(p => new { p.IsActive, p.ApprovalStatus, p.Created });
+        builder.HasIndex(p => new { p.IsActive, p.ApprovalStatus, p.AverageRating });
         builder.ToTable(t =>
         {
             t.HasCheckConstraint("CK_Products_Price_Positive", "\"Price\" > 0");

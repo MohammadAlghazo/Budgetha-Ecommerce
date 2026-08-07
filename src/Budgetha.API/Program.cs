@@ -31,6 +31,7 @@ builder.Services.Configure<BrotliCompressionProviderOptions>(options => options.
 builder.Services.Configure<GzipCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
 
 builder.Services.AddControllers();
+builder.Services.AddResponseCaching();
 builder.Services.AddSignalR();
 builder.Services.AddScoped<IRealtimeNotificationPublisher, SignalRNotificationPublisher>();
 builder.Services.AddEndpointsApiExplorer();
@@ -128,6 +129,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseResponseCompression();
+app.UseResponseCaching();
 app.UseCors();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 

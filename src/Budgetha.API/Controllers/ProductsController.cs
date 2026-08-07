@@ -5,6 +5,8 @@ using Budgetha.Domain.Enums;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Memory;
+using System.Text.Json;
 
 namespace Budgetha.API.Controllers;
 
@@ -13,13 +15,16 @@ namespace Budgetha.API.Controllers;
 public class ProductsController : ControllerBase
 {
     private readonly IMediator _mediator;
+    private readonly IMemoryCache _cache;
 
-    public ProductsController(IMediator mediator)
+    public ProductsController(IMediator mediator, IMemoryCache cache)
     {
         _mediator = mediator;
+        _cache = cache;
     }
 
     [HttpGet]
+    [ResponseCache(Duration = 60, VaryByQueryKeys = new[] { "*" })]
     public async Task<ActionResult<CatalogResultDto>> GetProducts([FromQuery] GetProductsQuery query)
     {
         if (query.Page <= 0) query.Page = 1;
@@ -27,15 +32,30 @@ public class ProductsController : ControllerBase
         query.PageSize = Math.Min(query.PageSize, 100);
         query.IncludeUnapproved = false;
 
+        var cacheKey = $"catalog:{JsonSerializer.Serialize(query)}";
+        if (_cache.TryGetValue(cacheKey, out CatalogResultDto? cached) && cached != null)
+        {
+            Response.Headers.Append("X-Cache", "HIT");
+            return Ok(cached);
+        }
+
         var result = await _mediator.Send(query);
+        _cache.Set(cacheKey, result, TimeSpan.FromSeconds(60));
+        Response.Headers.Append("X-Cache", "MISS");
         return Ok(result);
     }
 
     [HttpGet("{slug}")]
+    [ResponseCache(Duration = 300, VaryByQueryKeys = new[] { "slug" })]
     public async Task<ActionResult<ProductDto>> GetProductBySlug(string slug)
     {
+        var cacheKey = $"product:{slug.ToLowerInvariant()}";
+        if (_cache.TryGetValue(cacheKey, out ProductDto? cached) && cached != null)
+            return Ok(cached);
+
         var result = await _mediator.Send(new GetProductBySlugQuery(slug));
         if (result == null) return NotFound();
+        _cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
         return Ok(result);
     }
 

@@ -38,13 +38,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
 
     public async Task<CatalogResultDto> Handle(GetProductsQuery request, CancellationToken cancellationToken)
     {
-        var query = _context.Products
-            .Include(p => p.Categories)
-            .Include(p => p.Seller)
-            .Include(p => p.Images)
-            .Include(p => p.Variants)
-            .Include(p => p.Reviews)
-            .AsNoTracking();
+        var query = _context.Products.AsNoTracking();
 
         query = query.Where(p => p.IsActive &&
             (request.IncludeUnapproved || p.ApprovalStatus == ApprovalStatus.Approved));
@@ -56,8 +50,8 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
 
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
-            var search = request.Search.ToLower();
-            query = query.Where(p => p.Name.ToLower().Contains(search) || p.Description.ToLower().Contains(search));
+            var search = request.Search.Trim();
+            query = query.Where(p => p.Name.Contains(search) || p.Description.Contains(search));
         }
 
         if (request.Categories?.Any() == true)
@@ -77,6 +71,7 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
 
         query = query.Where(p => p.Price >= request.MinPrice && p.Price <= request.MaxPrice);
 
+        var total = await query.CountAsync(cancellationToken);
         
         query = request.Sort switch
         {
@@ -87,60 +82,62 @@ public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, Catalog
             _ => query.OrderBy(p => p.Id)
         };
 
-        var total = await query.CountAsync(cancellationToken);
         var totalPages = Math.Max(1, (int)Math.Ceiling(total / (double)request.PageSize));
         var page = Math.Min(request.Page, totalPages);
         var start = (page - 1) * request.PageSize;
+        var thirtyDaysAgo = DateTimeOffset.UtcNow.AddDays(-30);
 
-        var products = await query.Skip(start).Take(request.PageSize).ToListAsync(cancellationToken);
-
-        var items = products.Select(p => new ProductDto
-        {
-            Id = p.Id,
-            Name = p.Name,
-            Slug = p.Slug,
-            Brand = string.IsNullOrWhiteSpace(p.Brand) ? "Generic" : p.Brand,
-            Categories = p.Categories.Select(c => new CategorySummaryDto { Id = c.Id, Name = c.Name, Slug = c.Slug }).ToList(),
-            Price = p.Price,
-            OriginalPrice = p.OriginalPrice, 
-            IsAvailableForRent = p.IsAvailableForRent,
-            RentalPricePerDay = p.RentalPricePerDay,
-            Rating = p.AverageRating > 0 ? Math.Round(p.AverageRating, 1) : 0m, 
-            ReviewCount = p.ReviewCount, 
-            ShortDescription = p.Description.Length > 50 ? p.Description.Substring(0, 50) + "..." : p.Description,
-            Description = p.Description,
-            Stock = p.Variants.Any(v => v.IsActive)
-                ? p.Variants.Where(v => v.IsActive).Sum(v => v.StockQuantity)
-                : p.StockQuantity,
-            IsNew = (DateTime.UtcNow - p.Created).TotalDays <= 30,
-            IsFeatured = p.IsFeatured,
-            ApprovalStatus = p.ApprovalStatus.ToString(),
-            SellerId = p.SellerId,
-            SellerName = p.Seller != null
-                ? (!string.IsNullOrWhiteSpace(p.Seller.FirstName) || !string.IsNullOrWhiteSpace(p.Seller.LastName)
-                    ? $"{p.Seller.FirstName} {p.Seller.LastName}".Trim()
-                    : p.Seller.UserName ?? "")
-                : "",
-            Variants = p.Variants.Where(v => v.IsActive).Select(v => new ProductVariantDto
+        var items = await query
+            .Skip(start)
+            .Take(request.PageSize)
+            .Select(p => new ProductDto
             {
-                Id = v.Id,
-                SKU = v.SKU,
-                Color = v.Color,
-                Size = v.Size,
-                StockQuantity = v.StockQuantity,
-                Price = v.Price,
-                RentalPricePerDay = v.RentalPricePerDay,
-                IsActive = v.IsActive
-            }).ToList(),
-            Images = (p.ThumbnailUrl != null ? new List<string> { p.ThumbnailUrl } : new List<string>())
-                     .Concat(p.Images != null ? p.Images.Select(i => i.Url) : new List<string>())
-                     .Distinct()
-                     .ToList(),
-            ImageDetails = p.Images!
-                .OrderBy(image => image.DisplayOrder)
-                .Select(image => new ProductImageDto { Url = image.Url })
-                .ToList()
-        }).ToList();
+                Id = p.Id,
+                Name = p.Name,
+                Slug = p.Slug,
+                Brand = string.IsNullOrWhiteSpace(p.Brand) ? "Generic" : p.Brand,
+                Categories = p.Categories.Select(c => new CategorySummaryDto { Id = c.Id, Name = c.Name, Slug = c.Slug }).ToList(),
+                Price = p.Price,
+                OriginalPrice = p.OriginalPrice,
+                IsAvailableForRent = p.IsAvailableForRent,
+                RentalPricePerDay = p.RentalPricePerDay,
+                Rating = p.AverageRating > 0 ? Math.Round(p.AverageRating, 1) : 0m,
+                ReviewCount = p.ReviewCount,
+                ShortDescription = p.Description.Length > 50 ? p.Description.Substring(0, 50) + "..." : p.Description,
+                Description = p.Description,
+                Stock = p.Variants.Any(v => v.IsActive)
+                    ? p.Variants.Where(v => v.IsActive).Sum(v => v.StockQuantity)
+                    : p.StockQuantity,
+                IsNew = p.Created >= thirtyDaysAgo,
+                IsFeatured = p.IsFeatured,
+                ApprovalStatus = p.ApprovalStatus.ToString(),
+                SellerId = p.SellerId,
+                SellerName = p.Seller != null
+                    ? (!string.IsNullOrWhiteSpace(p.Seller.FirstName) || !string.IsNullOrWhiteSpace(p.Seller.LastName)
+                        ? (p.Seller.FirstName + " " + p.Seller.LastName).Trim()
+                        : p.Seller.UserName ?? "")
+                    : "",
+                Variants = p.Variants.Where(v => v.IsActive).Select(v => new ProductVariantDto
+                {
+                    Id = v.Id,
+                    SKU = v.SKU,
+                    Color = v.Color,
+                    Size = v.Size,
+                    StockQuantity = v.StockQuantity,
+                    Price = v.Price,
+                    RentalPricePerDay = v.RentalPricePerDay,
+                    IsActive = v.IsActive
+                }).ToList(),
+                Images = (p.ThumbnailUrl != null ? new List<string> { p.ThumbnailUrl } : new List<string>())
+                         .Concat(p.Images != null ? p.Images.Select(i => i.Url) : new List<string>())
+                         .Distinct()
+                         .ToList(),
+                ImageDetails = p.Images!
+                    .OrderBy(image => image.DisplayOrder)
+                    .Select(image => new ProductImageDto { Url = image.Url })
+                    .ToList()
+            })
+            .ToListAsync(cancellationToken);
 
         return new CatalogResultDto
         {
