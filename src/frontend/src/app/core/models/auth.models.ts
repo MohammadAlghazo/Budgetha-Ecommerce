@@ -26,6 +26,8 @@ export interface GoogleLoginRequest {
 }
 
 export interface AuthResponse {
+  id?: string;
+  userId?: string;
   token: string;
   email: string;
   firstName: string;

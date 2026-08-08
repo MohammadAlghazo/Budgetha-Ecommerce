@@ -1,6 +1,7 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators, FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { Router } from '@angular/router';
 import { environment } from '../../../environments/environment';
 import { AuthService } from '../../core/services/auth.service';
 import { ToastService } from '../../core/services/toast.service';
@@ -175,7 +176,7 @@ export class AccountSettingsComponent implements OnInit {
   readonly auth = inject(AuthService);
   private readonly toast = inject(ToastService);
   private readonly http = inject(HttpClient);
-  private readonly router = inject(import('@angular/router').Router);
+  private readonly router = inject(Router);
 
   readonly profileSubmitted = signal(false);
   readonly passwordSubmitted = signal(false);
