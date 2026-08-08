@@ -125,7 +125,7 @@ import { SkeletonCardComponent } from '../../shared/components/skeleton-card/ske
           <h2 class="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Shop by Category</h2>
           <p class="mt-1.5 text-sm text-slate-500">Browse our most popular departments</p>
         </div>
-        <a routerLink="/shop" class="hidden sm:inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors duration-300">
+        <a routerLink="/shop" class="inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors duration-300">
           View all
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
@@ -165,7 +165,7 @@ import { SkeletonCardComponent } from '../../shared/components/skeleton-card/ske
           <h2 class="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Featured Deals</h2>
           <p class="mt-1.5 text-sm text-slate-500">Hand-picked favorites at their best prices</p>
         </div>
-        <a routerLink="/shop" [queryParams]="{ deals: 1 }" class="hidden sm:inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors duration-300">
+        <a routerLink="/shop" [queryParams]="{ deals: 1 }" class="inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors duration-300">
           All deals
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
@@ -173,15 +173,17 @@ import { SkeletonCardComponent } from '../../shared/components/skeleton-card/ske
         </a>
       </div>
 
-      <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-6">
+      <div class="flex overflow-x-auto snap-x snap-mandatory gap-4 sm:grid sm:grid-cols-3 xl:grid-cols-4 sm:gap-6 pb-4 sm:pb-0 hide-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
         @if (featured() === undefined) {
-          <app-skeleton-card layout="grid" />
-          <app-skeleton-card layout="grid" />
-          <app-skeleton-card layout="grid" />
-          <app-skeleton-card layout="grid" />
+          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
         } @else {
           @for (product of featured()!.slice(0, 4); track product.id) {
-            <app-product-card [product]="product" layout="grid" />
+            <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink">
+              <app-product-card [product]="product" layout="grid" />
+            </div>
           }
         }
       </div>
@@ -220,7 +222,7 @@ import { SkeletonCardComponent } from '../../shared/components/skeleton-card/ske
           <h2 class="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">New Arrivals</h2>
           <p class="mt-1.5 text-sm text-slate-500">Fresh drops, just landed</p>
         </div>
-        <a routerLink="/shop" [queryParams]="{ sort: 'newest' }" class="hidden sm:inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors duration-300">
+        <a routerLink="/shop" [queryParams]="{ sort: 'newest' }" class="inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors duration-300">
           View all
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
@@ -228,15 +230,17 @@ import { SkeletonCardComponent } from '../../shared/components/skeleton-card/ske
         </a>
       </div>
 
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+      <div class="flex overflow-x-auto snap-x snap-mandatory gap-4 sm:grid sm:grid-cols-3 xl:grid-cols-4 sm:gap-6 pb-4 sm:pb-0 hide-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
         @if (newArrivals() === undefined) {
-          <app-skeleton-card layout="grid" />
-          <app-skeleton-card layout="grid" />
-          <app-skeleton-card layout="grid" />
-          <app-skeleton-card layout="grid" />
+          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
         } @else {
           @for (product of newArrivals()!.slice(0, 4); track product.id) {
-            <app-product-card [product]="product" layout="grid" />
+            <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink">
+              <app-product-card [product]="product" layout="grid" />
+            </div>
           }
         }
       </div>
@@ -249,7 +253,7 @@ import { SkeletonCardComponent } from '../../shared/components/skeleton-card/ske
           <h2 class="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Top Rated Products</h2>
           <p class="mt-1.5 text-sm text-slate-500">Highest rated by our customers</p>
         </div>
-        <a routerLink="/shop" [queryParams]="{ sort: 'rating' }" class="hidden sm:inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors duration-300">
+        <a routerLink="/shop" [queryParams]="{ sort: 'rating' }" class="inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:text-teal-700 transition-colors duration-300">
           View all
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
@@ -257,15 +261,17 @@ import { SkeletonCardComponent } from '../../shared/components/skeleton-card/ske
         </a>
       </div>
 
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+      <div class="flex overflow-x-auto snap-x snap-mandatory gap-4 sm:grid sm:grid-cols-3 xl:grid-cols-4 sm:gap-6 pb-4 sm:pb-0 hide-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
         @if (topRated() === undefined) {
-          <app-skeleton-card layout="grid" />
-          <app-skeleton-card layout="grid" />
-          <app-skeleton-card layout="grid" />
-          <app-skeleton-card layout="grid" />
+          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
         } @else {
           @for (product of topRated()!.slice(0, 4); track product.id) {
-            <app-product-card [product]="product" layout="grid" />
+            <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink">
+              <app-product-card [product]="product" layout="grid" />
+            </div>
           }
         }
       </div>

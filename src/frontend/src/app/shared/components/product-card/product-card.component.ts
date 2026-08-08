@@ -14,13 +14,13 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
     @if (layout() === 'grid') {
       <!-- ── Grid card ── -->
       <article class="group card overflow-hidden hover:shadow-xl hover:shadow-violet-100/60 hover:-translate-y-1 transition-all duration-300 flex flex-col h-full">
-        <div class="relative aspect-square overflow-hidden bg-slate-100">
+        <div class="relative aspect-square overflow-hidden bg-white">
           <a [routerLink]="['/products', product().slug]" class="block h-full p-2 sm:p-4">
             <img
               [src]="product().images[0]"
               [alt]="product().name"
               loading="lazy"
-              class="h-full w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-500 p-2" />
+              class="h-full w-full object-contain group-hover:scale-105 transition-transform duration-500 p-2" />
           </a>
 
           <!-- Badges -->
@@ -47,7 +47,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
               type="button"
               (click)="toggleWishlist()"
               [attr.aria-label]="inWishlist() ? 'Remove from wishlist' : 'Add to wishlist'"
-              class="icon-btn h-8 w-8 sm:h-9 sm:w-9 bg-white/95 shadow-md backdrop-blur"
+              class="icon-btn h-8 w-8 sm:h-9 sm:w-9 bg-white shadow-md"
               [class.text-rose-500]="inWishlist()">
               <svg class="w-[16px] h-[16px] sm:w-[18px] sm:h-[18px]" [attr.fill]="inWishlist() ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
@@ -57,7 +57,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
               type="button"
               (click)="quickView()"
               aria-label="Quick view"
-              class="icon-btn h-8 w-8 sm:h-9 sm:w-9 bg-white/95 shadow-md backdrop-blur">
+              class="icon-btn h-8 w-8 sm:h-9 sm:w-9 bg-white shadow-md">
               <svg class="w-[16px] h-[16px] sm:w-[18px] sm:h-[18px]" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -71,7 +71,7 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
               type="button"
               (click)="addToCart()"
               [disabled]="product().stock === 0"
-              class="w-full rounded-xl bg-slate-900/90 backdrop-blur text-white text-[11px] sm:text-sm font-semibold py-1.5 sm:py-2.5
+              class="w-full rounded-xl bg-slate-900 text-white text-[11px] sm:text-sm font-semibold py-1.5 sm:py-2.5
                      hover:bg-violet-600 disabled:opacity-50 disabled:hover:bg-slate-900/90
                      transition-colors duration-300 flex items-center justify-center gap-2">
               @if (isAdding()) {
@@ -113,13 +113,13 @@ import { StarRatingComponent } from '../star-rating/star-rating.component';
     } @else {
       <!-- ── List card ── -->
       <article class="group card overflow-hidden hover:shadow-xl hover:shadow-violet-100/60 transition-all duration-300 flex flex-col sm:flex-row">
-        <div class="relative sm:w-56 lg:w-64 shrink-0 aspect-square sm:aspect-auto overflow-hidden bg-slate-100">
+        <div class="relative sm:w-56 lg:w-64 shrink-0 aspect-square sm:aspect-auto overflow-hidden bg-white">
           <a [routerLink]="['/products', product().slug]" class="block h-full p-4">
             <img
               [src]="product().images[0]"
               [alt]="product().name"
               loading="lazy"
-              class="h-full w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-500 p-2" />
+              class="h-full w-full object-contain group-hover:scale-105 transition-transform duration-500 p-2" />
           </a>
           <div class="absolute top-3 start-3 flex flex-col gap-1.5">
             @if (discountPercent() > 0) {
