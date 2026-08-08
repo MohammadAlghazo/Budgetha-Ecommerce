@@ -173,15 +173,15 @@ import { SkeletonCardComponent } from '../../shared/components/skeleton-card/ske
         </a>
       </div>
 
-      <div class="flex overflow-x-auto snap-x snap-mandatory gap-4 sm:grid sm:grid-cols-3 xl:grid-cols-4 sm:gap-6 pb-4 sm:pb-0 hide-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
+      <div class="flex overflow-x-auto gap-4 sm:grid sm:grid-cols-3 xl:grid-cols-4 sm:gap-6 pb-4 sm:pb-0 hide-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
         @if (featured() === undefined) {
-          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
-          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
-          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
-          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-44 shrink-0 sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-44 shrink-0 sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-44 shrink-0 sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-44 shrink-0 sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
         } @else {
           @for (product of featured()!.slice(0, 4); track product.id) {
-            <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink">
+            <div class="w-44 shrink-0 sm:w-auto sm:shrink">
               <app-product-card [product]="product" layout="grid" />
             </div>
           }
@@ -230,15 +230,15 @@ import { SkeletonCardComponent } from '../../shared/components/skeleton-card/ske
         </a>
       </div>
 
-      <div class="flex overflow-x-auto snap-x snap-mandatory gap-4 sm:grid sm:grid-cols-3 xl:grid-cols-4 sm:gap-6 pb-4 sm:pb-0 hide-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
+      <div class="flex overflow-x-auto gap-4 sm:grid sm:grid-cols-3 xl:grid-cols-4 sm:gap-6 pb-4 sm:pb-0 hide-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
         @if (newArrivals() === undefined) {
-          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
-          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
-          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
-          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-44 shrink-0 sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-44 shrink-0 sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-44 shrink-0 sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-44 shrink-0 sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
         } @else {
           @for (product of newArrivals()!.slice(0, 4); track product.id) {
-            <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink">
+            <div class="w-44 shrink-0 sm:w-auto sm:shrink">
               <app-product-card [product]="product" layout="grid" />
             </div>
           }
@@ -261,15 +261,15 @@ import { SkeletonCardComponent } from '../../shared/components/skeleton-card/ske
         </a>
       </div>
 
-      <div class="flex overflow-x-auto snap-x snap-mandatory gap-4 sm:grid sm:grid-cols-3 xl:grid-cols-4 sm:gap-6 pb-4 sm:pb-0 hide-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
+      <div class="flex overflow-x-auto gap-4 sm:grid sm:grid-cols-3 xl:grid-cols-4 sm:gap-6 pb-4 sm:pb-0 hide-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
         @if (topRated() === undefined) {
-          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
-          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
-          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
-          <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-44 shrink-0 sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-44 shrink-0 sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-44 shrink-0 sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
+          <div class="w-44 shrink-0 sm:w-auto sm:shrink"><app-skeleton-card layout="grid" /></div>
         } @else {
           @for (product of topRated()!.slice(0, 4); track product.id) {
-            <div class="w-[75vw] shrink-0 snap-start sm:w-auto sm:shrink">
+            <div class="w-44 shrink-0 sm:w-auto sm:shrink">
               <app-product-card [product]="product" layout="grid" />
             </div>
           }
