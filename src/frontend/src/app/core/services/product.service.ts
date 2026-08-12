@@ -39,11 +39,15 @@ export class ProductService {
   }
 
   createCategory(category: { name: string, slug: string, description?: string, imageUrl?: string }): Observable<string> {
-    return this.http.post<string>(`${this.apiUrl}/categories`, category);
+    return this.http.post<string>(`${this.apiUrl}/categories`, category).pipe(
+      finalize(() => this.categoriesCache$ = undefined)
+    );
   }
 
   updateCategory(id: string, category: { id: string, name: string, slug: string, imageUrl?: string }): Observable<void> {
-    return this.http.put<void>(`${this.apiUrl}/categories/${id}`, category);
+    return this.http.put<void>(`${this.apiUrl}/categories/${id}`, category).pipe(
+      finalize(() => this.categoriesCache$ = undefined)
+    );
   }
 
   getBrands(): Observable<string[]> {

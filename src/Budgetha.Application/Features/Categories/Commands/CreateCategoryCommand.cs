@@ -1,6 +1,7 @@
 using Budgetha.Application.Common.Interfaces;
 using Budgetha.Domain.Entities;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using System.Text.RegularExpressions;
 
 namespace Budgetha.Application.Features.Categories.Commands;
@@ -43,6 +44,17 @@ public class CreateCategoryCommandHandler : IRequestHandler<CreateCategoryComman
         };
 
         _context.Categories.Add(category);
+        
+        if (!string.IsNullOrWhiteSpace(request.ImageUrl))
+        {
+            var pendingUpload = await _context.PendingImageUploads
+                .FirstOrDefaultAsync(u => u.Url == request.ImageUrl, cancellationToken);
+            if (pendingUpload != null)
+            {
+                _context.PendingImageUploads.Remove(pendingUpload);
+            }
+        }
+        
         await _context.SaveChangesAsync(cancellationToken);
 
         return category.Id;

@@ -35,6 +35,16 @@ public class UpdateCategoryCommandHandler : IRequestHandler<UpdateCategoryComman
         category.ImageUrl = request.ImageUrl;
         category.ParentId = request.ParentId;
 
+        if (!string.IsNullOrWhiteSpace(request.ImageUrl))
+        {
+            var pendingUpload = await _context.PendingImageUploads
+                .FirstOrDefaultAsync(u => u.Url == request.ImageUrl, cancellationToken);
+            if (pendingUpload != null)
+            {
+                _context.PendingImageUploads.Remove(pendingUpload);
+            }
+        }
+
         await _context.SaveChangesAsync(cancellationToken);
         return true;
     }
